@@ -684,7 +684,9 @@ function openMenu(){
   openSheet(`<h2>Меню</h2>
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
     <button class="btn ghost" id="mExport" style="width:100%;margin-bottom:8px">⬇️ Зберегти резервну копію (файл)</button>
-    <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:8px">⬆️ Завантажити дані з файлу<input type="file" id="mImport" accept=".json,application/json" style="display:none"></label>
+    <label class="btn" style="display:block;text-align:center;width:100%;margin-bottom:4px">🔄 Синхронізувати з файлу<input type="file" id="mSync" accept=".json,application/json" style="display:none"></label>
+    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Фінанси стануть точно як у файлі (зайві й задубльовані записи видаляться). Записи, внесені в застосунок після створення файлу, збережуться.</div>
+    <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:8px">⬆️ Додати дані з файлу<input type="file" id="mImport" accept=".json,application/json" style="display:none"></label>
     ${empty?"":`<div style="color:var(--muted);font-size:12.5px;margin:-2px 2px 10px">Завантаження додає записи з файлу; записи з тим самим ID будуть перезаписані.</div>`}
     <button class="btn danger" id="mLogout" style="width:100%">Вийти з акаунта</button>
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -702,6 +704,17 @@ function openMenu(){
     openSheet(`<h2>Завантаження…</h2><p id="impProg">0 / ${items.length}</p>`);
     const ok=await write(async db=>{ await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent=n+" / "+items.length}) });
     closeSheet(); toast(ok?"Завантажено "+items.length+" записів":"Помилка завантаження");
+  };
+  $("#mSync").onchange=async e=>{
+    const file=e.target.files[0]; if(!file)return;
+    let data; try{data=JSON.parse(await file.text())}catch(_){toast("Файл пошкоджений");return}
+    const items=[];for(const c of COLS) for(const d of (data[c]||[])) if(d&&d.id) items.push([c,d]);
+    const keep=new Set((data.fin||[]).map(d=>String(d.id)));
+    const cutoff=+data.exportedAtMs||0;
+    const del=[...S.fin.values()].filter(f=>!keep.has(f.id)&&((+f.createdAt||0)<1e12||(+f.createdAt||0)<cutoff)).map(f=>f.id);
+    openSheet(`<h2>Синхронізація…</h2><p id="impProg">Видалення зайвих: ${del.length}</p>`);
+    const ok=await write(async db=>{ await window.__fbDelete(del.map(id=>["fin",id])); await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent="Запис: "+n+" / "+items.length}) });
+    closeSheet(); toast(ok?`Готово: видалено ${del.length}, оновлено ${items.length}`:"Помилка синхронізації");
   };
   $("#mLogout").onclick=()=>window.__fbSignOut();
 }
@@ -763,6 +776,7 @@ const wrapC=c=>({...wrapQ(c),path:c.path,add:async d=>wrapD(await addDoc(c,d)),d
 const db={collection:p=>wrapC(collection(fs,p)),doc:p=>wrapD(doc(fs,p))};
 
 window.__fbBulk=async(items,prog)=>{ for(let i=0;i<items.length;i+=400){ const b=writeBatch(fs); for(const [c,d] of items.slice(i,i+400)){const {id,...rest}=d; b.set(doc(fs,c,String(id)),rest)} await b.commit(); prog&&prog(Math.min(i+400,items.length)); } };
+window.__fbDelete=async(paths)=>{ for(let i=0;i<paths.length;i+=400){ const b=writeBatch(fs); for(const [c,id] of paths.slice(i,i+400)) b.delete(doc(fs,c,String(id))); await b.commit(); } };
 window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
 
 document.getElementById("loginBtn").onclick=async()=>{
