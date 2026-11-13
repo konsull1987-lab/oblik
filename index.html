@@ -854,7 +854,7 @@ function loadXLSX(){ if(window.XLSX) return Promise.resolve(window.XLSX);
   return new Promise((ok,bad)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=()=>ok(window.XLSX);s.onerror=()=>bad(new Error("no xlsx"));document.head.appendChild(s)}); }
 function estNum(v){ if(typeof v==="number") return v; const s=String(v??"").replace(/\s| /g,"").replace(",","."); if(!/^-?\d+(\.\d+)?$/.test(s)) return NaN; return parseFloat(s); }
 function parseEstimateRows(rows){
-  const RX={name:/найменув|назва|наимен|вид(и)? робіт|вид(ы)? работ|робот|работ|опис/i,unit:/^од\.?|одиниц|ед\.?\s*изм|^ед\.?$|од\.\s*вим/i,qty:/к-?сть|кільк|колич|обсяг|об[''’]?[єе]м|объ[её]м/i,price:/ціна|цена|за\s*од|вартість\s*од|стоимость\s*ед/i,sum:/сума|сумма|вартість|стоимость|всього|итого/i};
+  const RX={name:/найменув|назва|наимен|вид(и)? робіт|вид(ы)? работ|робот|работ|опис|товар|послуг|матеріал|материал/i,unit:/^од\.?|одиниц|ед\.?\s*изм|^ед\.?$|од\.\s*вим/i,qty:/к-?сть|кільк|колич|обсяг|об[''’]?[єе]м|объ[её]м/i,price:/ціна|цена|за\s*од|вартість\s*од|стоимость\s*ед/i,sum:/сума|сумма|вартість|стоимость|всього|итого/i};
   let hdr=-1,col={};
   for(let r=0;r<Math.min(rows.length,40);r++){
     const c={};rows[r].forEach((v,i)=>{const t=String(v).trim();if(!t)return;for(const k of ["qty","price","unit","name","sum"]){if(c[k]==null&&RX[k].test(t)){c[k]=i;break}}});
@@ -887,7 +887,9 @@ function parseEstimateRows(rows){
 }
 async function importEstimate(file){
   const XLSX=await loadXLSX();
-  const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+  const buf=await file.arrayBuffer();let wb=XLSX.read(buf,{type:"array"});
+  const moj=w=>/[À-ÿ]{4,}/.test(w.SheetNames.map(n=>XLSX.utils.sheet_to_csv(w.Sheets[n])).join(" ").slice(0,5000));
+  if(moj(wb)) wb=XLSX.read(buf,{type:"array",codepage:1251});
   let best=[];
   for(const sn of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});const it=parseEstimateRows(rows);if(it.length>best.length)best=it}
   return best;
