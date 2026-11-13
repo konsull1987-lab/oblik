@@ -124,6 +124,8 @@ nav button.on{color:var(--accent);font-weight:600}
   .doc .acti td{padding:3px 0}.doc .acti .sm{font-size:8.5pt;text-align:center}
   .doc .line{display:inline-block;width:170px;border-bottom:1px solid #000;height:14px}
   .doc .sign{text-align:right;margin-top:30px}
+  .doc.ct{font-size:10pt;text-align:justify}.doc.ct p{margin:3px 0}.doc.ct h4{text-align:center;font-size:10pt;margin:10px 0 4px}
+  .doc .req{page-break-inside:avoid;break-inside:avoid}.doc.ct h4{break-after:avoid}.doc .req td{font-size:9.5pt}.doc .pb{page-break-before:always}
 }
 </style>
 </head>
@@ -184,10 +186,10 @@ const STATUS = {ok:"Справний", repair:"У ремонті", broken:"Зл�
 
 // ---------- Стан ----------
 const S = {
-  tools:new Map(), people:new Map(), sites:new Map(), moves:[], fin:new Map(), fops:new Map(), clients:new Map(), docs:new Map(),
+  tools:new Map(), people:new Map(), sites:new Map(), moves:[], fin:new Map(), fops:new Map(), clients:new Map(), docs:new Map(), contracts:new Map(),
   mtab:"journal", mSite:"", mOwner:"", mKind:"", mMonth:"", mType:"",
   tab:"tools", q:"", holderType:"all", cat:"", site:"", person:"", status:"",
-  select:false, selected:new Set(), loaded:{tools:false,people:false,sites:false,moves:false,fin:false,fops:false,clients:false,docs:false},
+  select:false, selected:new Set(), loaded:{tools:false,people:false,sites:false,moves:false,fin:false,fops:false,clients:false,docs:false,contracts:false},
   canWrite:true, db:null, user:null, uid:null, offline:false
 };
 const $ = s=>document.querySelector(s);
@@ -219,7 +221,7 @@ async function init(){
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("sites",db.collection("sites"),snap=>{S.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("fin",db.collection("fin"),snap=>{S.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
-  for(const c of ["fops","clients","docs"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()}))});
 }
 async function write(fn){
@@ -725,7 +727,9 @@ const fopReq=f=>`${esc(f.name)}<br>ЄДРПОУ ${esc(f.edrpou)}${f.phone?", т�
 
 function renderMoneyDocs(){
   const list=[...S.docs.values()].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
-  let h=`<div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="mngFops">ФОПи (${S.fops.size})</button><button class="btn ghost sm" id="mngCli">Замовники-реквізити (${S.clients.size})</button></div>`;
+  let h=`<div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="mngFops">ФОПи (${S.fops.size})</button><button class="btn ghost sm" id="mngCli">Замовники (${S.clients.size})</button><button class="btn sm" id="newCt">+ Договір</button></div>`;
+  const cts=[...S.contracts.values()].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  if(cts.length) h+=`<div class="section-t">Договори</div><div class="list">`+cts.map(c=>`<div class="card" data-ct="${c.id}"><div class="main"><div class="t">Договір № ${esc(c.no)}</div><div class="m">${fmtDay(c.date)} · ${esc((S.clients.get(c.client)||{}).name||"—")}</div></div><span class="amt">${money(ctTotal(c))}</span></div>`).join("")+`</div><div class="section-t">Рахунки та акти</div>`;
   if(!S.fops.size) h+=`<div class="empty">Спочатку додайте ФОП (кнопка «ФОПи»), потім натисніть «+».</div>`;
   else if(!list.length) h+=`<div class="empty">Документів ще немає. Натисніть «+», щоб створити рахунок і акт.</div>`;
   else h+=`<div class="list">`+list.map(d=>`<div class="card" data-doc="${d.id}"><div class="main"><div class="t">Рах. № ${esc(d.invNo)}${d.actNo?` · Акт № ${esc(d.actNo)}`:""}</div>
@@ -734,6 +738,7 @@ function renderMoneyDocs(){
   $("#view").innerHTML=h;
   $("#mngFops").onclick=()=>listSheet("fops");
   $("#mngCli").onclick=()=>listSheet("clients");
+  $("#newCt").onclick=()=>S.fops.size?contractForm():reqForm("fops");
 }
 function listSheet(kind){
   const m=kind==="fops"?S.fops:S.clients, t=kind==="fops"?"Мої ФОПи":"Замовники (реквізити)";
@@ -747,7 +752,7 @@ function reqForm(kind,x,after){
   const F=(n,l,ph="")=>`<div class="field"><label>${l}</label><input name="${n}" value="${esc(x[n]??"")}" placeholder="${ph}"></div>`;
   const fields=kind==="fops"
     ?F("name","Повна назва *","ФОП ПРІЗВИЩЕ ІМ'Я ПО БАТЬКОВІ")+F("short","Коротко (для списку)","Сергій")+`<div class="row">${F("edrpou","ЄДРПОУ / ІПН")}${F("phone","Телефон")}</div>`+F("iban","Р/р (IBAN)","UA…")+`<div class="row">${F("bank","Банк",'АТ "…"')}${F("mfo","МФО")}</div>`+F("address","Адреса")+`<div class="row">${F("invPrefix","Префікс рахунку")}${F("invNext","Наступний № рах.")}</div><div class="row">${F("actPrefix","Префікс акту")}${F("actNext","Наступний № акту")}</div>`+F("place","Місце складання акту")+`<div class="field"><label>Хто з власників отримує гроші</label><select name="owner"><option value="">—</option>${owners().map(o=>`<option value="${o.id}" ${x.owner===o.id?"selected":""}>${esc(o.name)}</option>`).join("")}</select></div>`
-    :F("name","Назва *",'ОСББ "…" / ФОП …')+`<div class="row">${F("edrpou","ЄДРПОУ")}${F("phone","Телефон")}</div>`+F("address","Адреса")+`<div class="row">${F("signerTitle","Посада підписанта")}${F("signerName","ПІБ підписанта","Прізвище І.Б.")}</div>`;
+    :F("name","Назва *",'ОСББ "…" / ФОП …')+`<div class="row">${F("edrpou","ЄДРПОУ")}${F("phone","Телефон")}</div>`+F("address","Адреса")+`<div class="row">${F("signerTitle","Посада підписанта")}${F("signerName","ПІБ підписанта","Прізвище І.Б.")}</div>`+F("repText","Для договору: «в особі …»","в особі директора Іваненка Івана Петровича, що діє на підставі Статуту")+F("iban","IBAN")+`<div class="row">${F("bank","Банк")}${F("email","E-mail")}</div>`;
   openSheet(`<h2>${isNew?"Новий":"Редагувати"} ${kind==="fops"?"ФОП":"замовник"}</h2><form id="reqF">${fields}
     <div class="actions">${!isNew?`<button type="button" class="btn danger" id="reqDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
   $("#reqF").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));for(const k in v)v[k]=String(v[k]).trim();
@@ -844,8 +849,147 @@ function printDoc(html,title){
   setTimeout(()=>{window.print();document.title=t},50);
 }
 
+// ---------- Договір підряду ----------
+const dWord=iso=>{if(!iso)return"";const[y,m,d]=iso.split("-");return `${+d} ${UA_MON[+m-1].toLowerCase()} ${y} року`};
+const sumTxt=n=>{const[a,b]=n2(n).split(".");return a.replace(/\B(?=(\d{3})+(?!\d))/g," ")+","+b+" грн ("+uaWords(n).toLowerCase()+")"};
+const ctTotal=c=>(c.items&&c.items.some(i=>i.name))?docTotal(c):(+c.total||0);
+function contractHTML(c){
+  const f=S.fops.get(c.fop)||{}, k=S.clients.get(c.client)||{}, tot=ctTotal(c), pp=+c.prepay||0, ppAmt=Math.round(tot*pp)/100;
+  const addr=c.addr||site(c.site)?.name||"________________";
+  const city=(f.place||"м. Полтава");
+  const P=(n,t)=>`<p><b>${n}</b> ${t}</p>`;
+  return `<div class="doc ct">
+  <h3>ДОГОВІР ПІДРЯДУ № ${esc(c.no)}</h3>
+  <table class="two"><tr><td>${esc(city)}</td><td class="r">${dWord(c.date)}</td></tr></table>
+  <p>${esc(k.name||"____________________")}${k.repText?", "+esc(k.repText):""} (далі — Замовник), з однієї сторони, та ${esc(f.name||"")}, що діє на підставі Виписки з Єдиного державного реєстру юридичних осіб, фізичних осіб-підприємців та громадських формувань (далі — Підрядник), з другої сторони, разом — Сторони, уклали цей договір (далі — Договір) про наступне:</p>
+  <h4>1. ПРЕДМЕТ ДОГОВОРУ</h4>
+  ${P("1.1.",`Замовник доручає, а Підрядник зобов'язується виконати ${esc(c.workDesc||"будівельні роботи")} (далі — Роботи) на об'єкті за адресою: ${esc(addr)} (далі — Об'єкт), а Замовник зобов'язується прийняти та оплатити належним чином виконані Роботи.`)}
+  ${P("1.2.","Перелік, обсяг і вартість Робіт визначаються Кошторисом (Додаток № 1) та/або Специфікаціями, які є невід'ємними частинами Договору. Сторони можуть погоджувати перелік, обсяг і вартість Робіт в Актах приймання-передачі виконаних робіт (далі — Акт) без оформлення Специфікацій.")}
+  ${P("1.3.","Роботи виконуються з матеріалів Замовника із використанням інструменту та обладнання Підрядника, якщо інше не погоджено Сторонами.")}
+  <h4>2. ЦІНА ДОГОВОРУ ТА ПОРЯДОК РОЗРАХУНКІВ</h4>
+  ${P("2.1.",`Загальна вартість Робіт за Договором складає ${sumTxt(tot)}, без ПДВ (Підрядник не є платником ПДВ).`)}
+  ${P("2.2.","Ціна Договору включає вартість Робіт, використання інструменту та обладнання Підрядника і податки Підрядника. Вартість матеріалів, які надає Замовник, до ціни Договору не входить.")}
+  ${P("2.3.","Ціна Договору визначена для обсягу Робіт згідно з Кошторисом. Додаткові роботи, не передбачені Кошторисом, збільшення обсягів за ініціативою Замовника, а також роботи, необхідність яких виявлена під час виконання (прихований стан основ, конструкцій, комунікацій тощо), оплачуються Замовником додатково за погодженими Сторонами цінами.")}
+  ${pp?P("2.4.",`Замовник здійснює попередню оплату в розмірі ${pp}% від ціни Договору, що становить ${sumTxt(ppAmt)}, протягом 3 (трьох) банківських днів з дня підписання Договору на підставі рахунку Підрядника.`):""}
+  ${P(pp?"2.5.":"2.4.",`Подальша оплата здійснюється за фактично виконані Роботи на підставі проміжних та/або остаточного Актів протягом 3 (трьох) банківських днів з дня їх підписання (або з дня, коли Роботи вважаються прийнятими відповідно до п. 4.2.3).${pp?" Сума попередньої оплати зараховується в рахунок оплати за Актами.":""}`)}
+  ${P(pp?"2.6.":"2.5.","Розрахунки проводяться у гривні в безготівковій формі на поточний рахунок Підрядника. Датою оплати є дата зарахування коштів на рахунок Підрядника.")}
+  <h4>3. СТРОКИ ВИКОНАННЯ РОБІТ</h4>
+  ${P("3.1.",`Підрядник зобов'язується виконати Роботи протягом ${+c.days||0} (${uaWords(+c.days||0).replace(/\s+грив.*$/,"").toLowerCase().replace(/\bодна\b/g,"один").replace(/\bдві\b/g,"два")}) робочих днів з дати, коли виконані всі такі умови: ${pp?"отримано попередню оплату, ":""}надано доступ до Об'єкта та необхідні для початку Робіт матеріали.`)}
+  ${P("3.2.","Строк виконання Робіт продовжується на час: прострочення Замовником оплати; ненадання або несвоєчасного надання матеріалів, доступу до Об'єкта, електроенергії чи води; виконання додаткових робіт або змін за вимогою Замовника; несприятливих погодних умов, за яких виконання Робіт порушує технологію; відключень електроенергії, повітряних тривог та інших обставин воєнного стану, що перешкоджають виконанню Робіт; дії обставин непереборної сили.")}
+  ${P("3.3.","Підрядник має право виконати Роботи достроково та здавати їх поетапно.")}
+  <h4>4. ПРАВА ТА ОБОВ'ЯЗКИ СТОРІН</h4>
+  ${P("4.1.","Замовник має право:")}
+  ${P("4.1.1.","Здійснювати контроль за ходом і якістю Робіт, не втручаючись у господарську діяльність Підрядника.")}
+  ${P("4.1.2.","Вимагати безоплатного усунення недоліків, що виникли з вини Підрядника, у погоджений Сторонами строк, достатній з урахуванням технології робіт.")}
+  ${P("4.1.3.","Відмовитися від Договору, якщо Підрядник не розпочав Роботи протягом 10 (десяти) робочих днів після виконання умов п. 3.1 або допускає суттєві порушення якості та не усунув їх протягом 10 (десяти) робочих днів з дня отримання письмової вимоги. У разі припинення Договору з будь-якої підстави Замовник оплачує фактично виконані Роботи.")}
+  ${P("4.2.","Замовник зобов'язаний:")}
+  ${P("4.2.1.","Своєчасно надавати якісні матеріали в необхідній кількості, доступ до Об'єкта, точки підключення електроенергії та води, а також приміщення, що зачиняється, для зберігання матеріалів та інструменту.")}
+  ${P("4.2.2.","Своєчасно здійснювати оплату відповідно до розділу 2 Договору.")}
+  ${P("4.2.3.","Протягом 5 (п'яти) робочих днів з дня отримання Акту підписати його або надати Підряднику письмову вмотивовану відмову з переліком недоліків. Якщо в цей строк Акт не підписано та вмотивованої відмови не надано, Роботи вважаються прийнятими Замовником у повному обсязі.")}
+  ${P("4.2.4.","Погоджувати з Підрядником зміни складу, обсягів і технології Робіт до їх виконання.")}
+  ${P("4.3.","Підрядник має право:")}
+  ${P("4.3.1.","Залучати до виконання Робіт третіх осіб, залишаючись відповідальним перед Замовником за їх результат.")}
+  ${P("4.3.2.","Призупинити Роботи з відповідним продовженням строків у разі прострочення оплати понад 5 (п'ять) банківських днів, ненадання матеріалів чи доступу до Об'єкта, повідомивши про це Замовника.")}
+  ${P("4.3.3.","Відмовитися від використання матеріалів Замовника, що є неякісними або не відповідають технології Робіт, повідомивши Замовника.")}
+  ${P("4.3.4.","Здавати Роботи поетапно за проміжними Актами та отримувати за них оплату.")}
+  ${P("4.4.","Підрядник зобов'язаний:")}
+  ${P("4.4.1.","Виконати Роботи якісно, відповідно до Кошторису та вимог будівельних норм, що застосовуються до таких робіт.")}
+  ${P("4.4.2.","Приймати матеріали Замовника за кількістю, використовувати їх раціонально та передати Замовнику залишки після завершення Робіт.")}
+  ${P("4.4.3.","Дотримуватися правил охорони праці та пожежної безпеки на Об'єкті.")}
+  ${P("4.4.4.","Протягом 5 (п'яти) календарних днів після підписання остаточного Акту прибрати будівельне сміття, що утворилося під час виконання Робіт. Вивезення сміття здійснюється, якщо це передбачено Кошторисом.")}
+  ${P("4.4.5.","Своєчасно оформлювати та передавати Замовнику рахунки та Акти.")}
+  ${P("4.4.6.","Заздалегідь повідомляти Замовника про обставини, що можуть вплинути на строки, обсяг чи вартість Робіт.")}
+  <h4>5. ЗМІНИ ОБСЯГІВ РОБІТ</h4>
+  ${P("5.1.","Замовник має право вносити зміни до складу та обсягів Робіт. Такі зміни разом із відповідною зміною вартості та строків погоджуються Сторонами письмово: додатковою угодою, оновленим Кошторисом, Актом або листуванням, зокрема електронною поштою чи в месенджерах.")}
+  ${P("5.2.","Якщо під час виконання Робіт виявлено необхідність у додаткових роботах, Підрядник повідомляє про це Замовника. До погодження такі роботи не виконуються, а строки виконання Робіт продовжуються на час погодження.")}
+  <h4>6. ВІДПОВІДАЛЬНІСТЬ СТОРІН</h4>
+  ${P("6.1.","За невиконання або неналежне виконання зобов'язань Сторони несуть відповідальність згідно з Договором та чинним законодавством України.")}
+  ${P("6.2.","За прострочення оплати Замовник сплачує Підряднику пеню в розмірі подвійної облікової ставки НБУ, що діяла в період прострочення, від простроченої суми за кожен день прострочення.")}
+  ${P("6.3.","За прострочення виконання Робіт з вини Підрядника він сплачує Замовнику пеню в розмірі 0,1% від вартості невчасно виконаних Робіт за кожен день прострочення, але не більше 10% від їх вартості.")}
+  ${P("6.4.","Підрядник не несе відповідальності за недоліки, спричинені якістю матеріалів Замовника, його вказівками щодо способу виконання Робіт або діями третіх осіб, а також за прострочення з причин, зазначених у п. 3.2.")}
+  ${P("6.5.","Ризик випадкового знищення або пошкодження матеріалів Замовника, що зберігаються на Об'єкті, несе Замовник, крім випадків, коли вони знищені або пошкоджені з вини Підрядника.")}
+  ${P("6.6.","Відшкодуванню підлягають лише прямі, документально підтверджені збитки, завдані з вини Сторони. Сплата неустойки не звільняє Сторони від виконання зобов'язань.")}
+  <h4>7. ОБСТАВИНИ НЕПЕРЕБОРНОЇ СИЛИ</h4>
+  ${P("7.1.","Сторони звільняються від відповідальності за невиконання або неналежне виконання зобов'язань у разі дії обставин непереборної сили (форс-мажору), зокрема воєнних дій, обстрілів, стихійних лих, пожеж, а також інших надзвичайних і невідворотних подій, що виникли поза волею Сторін.")}
+  ${P("7.2.","Сторона, для якої склалися такі обставини, повідомляє про це іншу Сторону протягом 14 (чотирнадцяти) календарних днів. Підтвердженням є документ Торгово-промислової палати України або інший документ компетентного органу; обставини, пов'язані з військовою агресією проти України, підтверджуються в порядку, встановленому законодавством.")}
+  ${P("7.3.","Строки виконання зобов'язань продовжуються на час дії обставин непереборної сили та усунення їх наслідків. Якщо такі обставини тривають понад 3 (три) місяці, кожна Сторона може відмовитися від Договору, повідомивши іншу Сторону; при цьому Замовник оплачує фактично виконані Роботи.")}
+  <h4>8. ВИРІШЕННЯ СПОРІВ</h4>
+  ${P("8.1.","Спори вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України. Претензії розглядаються протягом 10 (десяти) календарних днів з дня отримання.")}
+  <h4>9. ГАРАНТІЙНІ ЗОБОВ'ЯЗАННЯ</h4>
+  ${P("9.1.",`Гарантійний строк на виконані Роботи становить ${+c.warranty||12} місяців з дня підписання остаточного Акту (або з дня, коли Роботи вважаються прийнятими відповідно до п. 4.2.3).`)}
+  ${P("9.2.","Гарантія не поширюється на недоліки, що виникли внаслідок природного зносу, неналежної експлуатації, пошкоджень третіми особами, переробок чи ремонту без участі Підрядника, неякісних матеріалів Замовника, осідання або деформації основ, які не входили до складу Робіт, а також дії обставин непереборної сили.")}
+  ${P("9.3.","Виявлені в гарантійний строк недоліки фіксуються двостороннім актом. Підрядник прибуває для його складання протягом 5 (п'яти) робочих днів з дня повідомлення та усуває недоліки, за які він відповідає, у погоджений Сторонами строк з урахуванням технології робіт.")}
+  ${P("9.4.","Якщо Підрядник без поважних причин не прибув для складання акту або не усунув недоліки в погоджений строк, Замовник має право усунути їх власними силами з відшкодуванням Підрядником обґрунтованих і документально підтверджених витрат.")}
+  <h4>10. СТРОК ДІЇ ДОГОВОРУ</h4>
+  ${P("10.1.",`Договір набирає чинності з дня його підписання Сторонами та діє до ${c.until?dShort(c.until).replace(/(\d\d)\.(\d\d)\.(\d\d)/,"$1.$2.20$3"):"________"} року, а в частині невиконаних зобов'язань — до їх повного виконання.`)}
+  <h4>11. ІНШІ УМОВИ</h4>
+  ${P("11.1.","Повідомлення за Договором надсилаються на адреси, електронні адреси та номери телефонів (у тому числі в месенджерах), зазначені в розділі 12. Сторони визнають юридичну силу такого листування, а також документів, підписаних кваліфікованим електронним підписом.")}
+  ${P("11.2.","Кожна Сторона відповідає за правильність своїх реквізитів і повідомляє іншу Сторону про їх зміну протягом 2 (двох) робочих днів.")}
+  ${P("11.3.","Підписуючи Договір, представники Сторін надають згоду на обробку їхніх персональних даних з метою виконання Договору відповідно до законодавства України.")}
+  ${P("11.4.","Сторони зобов'язуються не розголошувати конфіденційну інформацію, що стала їм відома у зв'язку з виконанням Договору, крім випадків, передбачених законом.")}
+  ${P("11.5.","Зміни та доповнення до Договору оформлюються письмово і є його невід'ємною частиною. У всьому, що не передбачено Договором, Сторони керуються чинним законодавством України.")}
+  ${P("11.6.","Договір складено українською мовою у двох примірниках, що мають однакову юридичну силу, по одному для кожної зі Сторін.")}
+  <h4>12. РЕКВІЗИТИ ТА ПІДПИСИ СТОРІН</h4>
+  <table class="two req"><tr><td><b>ЗАМОВНИК:</b><br>${esc(k.name||"")}<br>${k.edrpou?"Код ЄДРПОУ: "+esc(k.edrpou)+"<br>":""}${k.address?"Адреса: "+esc(k.address)+"<br>":""}${k.iban?"IBAN: "+esc(k.iban)+"<br>":""}${k.bank?"в "+esc(k.bank)+"<br>":""}${k.email?"E-mail: "+esc(k.email)+"<br>":""}${k.phone?"Тел.: "+esc(k.phone)+"<br>":""}<br>${esc(k.signerTitle||"")}<br><br><span class="line"></span> ${esc(k.signerName||"")}</td>
+  <td><b>ПІДРЯДНИК:</b><br>${esc(f.name||"")}<br>РНОКПП: ${esc(f.edrpou||"")}<br>Адреса: ${esc(f.address||"")}<br>IBAN: ${esc(f.iban||"")}<br>в ${esc(f.bank||"")}${f.mfo?", МФО "+esc(f.mfo):""}<br>${f.phone?"Тел.: "+esc(f.phone)+"<br>":""}Не є платником ПДВ<br><br>Фізична особа-підприємець<br><br><span class="line"></span> ${esc((f.name||"").replace(/^ФОП\s*/i,""))}</td></tr></table>
+  ${(c.items&&c.items.some(i=>i.name))?`<div class="pb"></div><p class="r">Додаток № 1<br>до Договору підряду № ${esc(c.no)} від ${dShort(c.date)}</p><h3>КОШТОРИС</h3>
+  <table class="items"><tr><th>№</th><th>Найменування робіт</th><th>Од.</th><th>Кількість</th><th>Ціна, грн</th><th>Сума, грн</th></tr>
+  ${c.items.filter(i=>i.name).map((i,n)=>`<tr><td class="r">${n+1}</td><td>${esc(i.name)}</td><td>${esc(i.unit)}</td><td class="r">${+i.qty}</td><td class="r">${n2(i.price)}</td><td class="r">${n2(i.qty*i.price)}</td></tr>`).join("")}
+  <tr class="tot"><td colspan="5" class="r b">Всього, без ПДВ:</td><td class="r b box">${n2(tot)}</td></tr></table>
+  <table class="two" style="margin-top:30px"><tr><td>Замовник<br><br><span class="line"></span></td><td>Підрядник<br><br><span class="line"></span></td></tr></table>`:""}
+  </div>`;
+}
+function contractForm(c){
+  const isNew=!c||!c.id; const fop0=[...S.fops.values()][0];
+  const now=new Date(); const y=now.getFullYear();
+  c=c||{date:todayISO(),fop:fop0?.id,prepay:30,days:35,warranty:12,until:y+"-12-31",items:[]};
+  if(isNew&&!c.no){const[yy,mm,dd]=c.date.split("-");c.no=`${dd}-${mm}-${yy.slice(2)}`}
+  let items=(c.items||[]).map(i=>({...i}));
+  const cliOpts=`<option value="">— виберіть —</option>`+[...S.clients.values()].sort(byName).map(x=>`<option value="${x.id}" ${c.client===x.id?"selected":""}>${esc(x.name)}</option>`).join("")+`<option value="__new">+ Новий замовник…</option>`;
+  const I=(n,l,t="text",ph="")=>`<div class="field"><label>${l}</label><input name="${n}" type="${t}" ${t==="number"?'inputmode="decimal"':''} value="${esc(c[n]??"")}" placeholder="${ph}"></div>`;
+  openSheet(`<h2>${isNew?"Новий договір":"Редагувати договір"}</h2><form id="ctF">
+    <div class="row"><div class="field"><label>Підрядник (ФОП)</label><select name="fop">${[...S.fops.values()].sort(byName).map(f=>`<option value="${f.id}" ${c.fop===f.id?"selected":""}>${esc(f.short||f.name)}</option>`).join("")}</select></div>${I("no","№ договору")}</div>
+    <div class="row">${I("date","Дата","date")}${I("until","Діє до","date")}</div>
+    <div class="field"><label>Замовник</label><select name="client" id="ctCli">${cliOpts}</select></div>
+    <div class="field"><label>Об'єкт</label><select name="site">${siteOptions(c.site||"","—")}</select></div>
+    ${I("addr","Адреса об'єкта","text","м. Полтава, вул. …")}
+    ${I("workDesc","Які роботи (для п. 1.1)","text","ремонтні роботи / покрівельні роботи …")}
+    <div class="row">${I("prepay","Передоплата, %","number")}${I("days","Строк, робочих днів","number")}${I("warranty","Гарантія, міс.","number")}</div>
+    <div class="section-t">Кошторис (Додаток № 1)</div><div class="m" style="color:var(--muted);font-size:12.5px;margin:-4px 2px 6px">Можна не заповнювати й вказати лише загальну суму.</div>
+    <div id="ctItems"></div><button type="button" class="btn ghost sm" id="ctAdd" style="width:100%">+ Додати рядок</button>
+    ${I("total","Загальна сума, ₴ (якщо без кошторису)","number")}
+    <div class="sum" style="font-size:15px">Сума договору: <b id="ctTot"></b></div>
+    <div class="actions">${!isNew?`<button type="button" class="btn danger" id="ctDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
+  const tot=()=>$("#ctTot").textContent=money(ctTotal({items:items.map(i=>({...i,qty:parseFloat(String(i.qty).replace(",","."))||0,price:parseFloat(String(i.price).replace(/\s/g,"").replace(",","."))||0})),total:parseFloat(String($("#ctF [name=total]").value).replace(/\s/g,"").replace(",","."))||0}));
+  const draw=()=>{$("#ctItems").innerHTML=items.map((it,i)=>`<div class="card" style="display:block;margin-bottom:6px;cursor:default"><input data-i="${i}" data-k="name" value="${esc(it.name)}" placeholder="Назва роботи" style="margin-bottom:6px"><div class="row"><input data-i="${i}" data-k="unit" value="${esc(it.unit)}" placeholder="од." style="flex:.6"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${esc(it.qty)}" placeholder="к-сть" style="flex:.8"><input data-i="${i}" data-k="price" inputmode="decimal" value="${esc(it.price)}" placeholder="ціна"><button type="button" class="btn ghost sm" data-rm="${i}" style="flex:0 0 auto">✕</button></div></div>`).join("");tot()};
+  draw();
+  $("#ctItems").oninput=e=>{const i=e.target.dataset.i;if(i==null)return;items[i][e.target.dataset.k]=e.target.value;tot()};
+  $("#ctF [name=total]").oninput=tot;
+  $("#ctItems").onclick=e=>{const r=e.target.dataset.rm;if(r!=null){items.splice(+r,1);draw()}};
+  $("#ctAdd").onclick=()=>{items.push({name:"",unit:"м²",qty:"",price:""});draw()};
+  const collect=()=>{const v=Object.fromEntries(new FormData($("#ctF")));const num=x=>parseFloat(String(x||"").replace(/\s/g,"").replace(",","."))||0;
+    return {...c,...v,client:v.client==="__new"?"":v.client,prepay:num(v.prepay),days:num(v.days),warranty:num(v.warranty)||12,total:num(v.total),items:items.map(i=>({name:String(i.name).trim(),unit:String(i.unit).trim(),qty:num(i.qty),price:num(i.price)})).filter(i=>i.name)}};
+  $("#ctCli").onchange=e=>{if(e.target.value==="__new"){const keep=collect();reqForm("clients",null,id=>contractForm({...keep,client:id}))}};
+  $("#ctF").onsubmit=async e=>{e.preventDefault();const v=collect();if(!v.client){toast("Виберіть замовника");return}if(!(ctTotal(v)>0)){toast("Вкажіть суму або кошторис");return}
+    const now=Date.now();const data={no:v.no.trim(),date:v.date,until:v.until,fop:v.fop,client:v.client,site:v.site||"",addr:v.addr.trim(),workDesc:v.workDesc.trim(),prepay:v.prepay,days:v.days,warranty:v.warranty,total:v.total,items:v.items,updatedAt:now,createdAt:c.createdAt||now};
+    let id=c.id;const ok=await write(async db=>{if(!id){const r=await db.collection("contracts").add(data);id=r.id}else await db.doc("contracts/"+id).set(data)});
+    if(ok){toast("Збережено");contractView(id,data)}};
+  $("#ctDel")?.addEventListener("click",async()=>{if(await write(db=>db.doc("contracts/"+c.id).delete())){closeSheet();toast("Видалено")}});
+}
+function contractView(id,fb){
+  const c=S.contracts.get(id)||{id,...fb};const tot=ctTotal(c),pp=Math.round(tot*(+c.prepay||0))/100;
+  openSheet(`<h2>Договір № ${esc(c.no)}</h2><div class="m" style="color:var(--muted)">${dLong(c.date)} · ${esc((S.fops.get(c.fop)||{}).short||"")}</div>
+    <div class="m" style="margin:6px 0">${esc((S.clients.get(c.client)||{}).name||"")}${c.addr?" · "+esc(c.addr):""}</div>
+    <div class="sum" style="font-size:16px">Сума: <b>${money(tot)}</b>${c.prepay?` · передоплата ${c.prepay}% = ${money(pp)}`:""}</div>
+    <div class="actions"><button class="btn" id="ctPrint">🖨 Договір</button>${c.prepay&&S.canWrite?`<button class="btn ghost" id="ctInv">Рахунок на передоплату</button>`:""}</div>
+    <div class="actions">${S.canWrite?`<button class="btn ghost" id="ctEdit">Редагувати</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
+  $("#ctPrint").onclick=()=>printDoc(contractHTML(c),"Договір "+c.no);
+  $("#ctEdit")?.addEventListener("click",()=>contractForm(S.contracts.get(id)||c));
+  $("#ctInv")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:[{name:`Передоплата ${c.prepay}% за договором підряду № ${c.no} від ${dShort(c.date)}`,unit:"посл.",qty:1,price:pp}]}));
+}
+
 // ---------- Меню: резервна копія, вихід ----------
-const COLS=["people","sites","tools","moves","fin","fops","clients","docs"];
+const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -859,7 +1003,7 @@ function openMenu(){
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#mExport").onclick=()=>{
     const out={exportedAt:new Date().toISOString()};
-    out.people=[...S.people.values()];out.sites=[...S.sites.values()];out.tools=[...S.tools.values()];out.fin=[...S.fin.values()];out.moves=S.moves;out.fops=[...S.fops.values()];out.clients=[...S.clients.values()];out.docs=[...S.docs.values()];
+    out.people=[...S.people.values()];out.sites=[...S.sites.values()];out.tools=[...S.tools.values()];out.fin=[...S.fin.values()];out.moves=S.moves;out.fops=[...S.fops.values()];out.clients=[...S.clients.values()];out.docs=[...S.docs.values()];out.contracts=[...S.contracts.values()];
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(out)],{type:"application/json"}));
     a.download="oblik-backup-"+todayISO()+".json";document.body.appendChild(a);a.click();a.remove();
   };
@@ -913,6 +1057,7 @@ $("#view").addEventListener("click",e=>{
   if(c.dataset.tool){ if(S.select){const id=c.dataset.tool; S.selected.has(id)?S.selected.delete(id):S.selected.add(id); render(); } else toolCard(c.dataset.tool); }
   else if(c.dataset.site) siteForm(S.sites.get(c.dataset.site));
   else if(c.dataset.doc){ docView(c.dataset.doc); }
+  else if(c.dataset.ct){ contractView(c.dataset.ct); }
   else if(c.dataset.fin){ if(S.canWrite) finForm(S.fin.get(c.dataset.fin)); }
   else if(c.dataset.msite){ Object.assign(S,{mtab:"journal",mSite:c.dataset.msite,mOwner:"",mKind:"",mMonth:"",mType:""}); render(); }
   else if(c.dataset.mworker){ workerSheet(c.dataset.mworker); }
