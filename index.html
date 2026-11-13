@@ -853,12 +853,15 @@ function printDoc(html,title){
 function loadXLSX(){ if(window.XLSX) return Promise.resolve(window.XLSX);
   return new Promise((ok,bad)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=()=>ok(window.XLSX);s.onerror=()=>bad(new Error("no xlsx"));document.head.appendChild(s)}); }
 function estNum(v){ if(typeof v==="number") return v; const s=String(v??"").replace(/\s| /g,"").replace(",","."); if(!/^-?\d+(\.\d+)?$/.test(s)) return NaN; return parseFloat(s); }
-function parseEstimateRows(rows){
+function parseEstimateRows(rows,withVat){
   const RX={name:/найменув|назва|наимен|вид(и)? робіт|вид(ы)? работ|робот|работ|опис|товар|послуг|матеріал|материал/i,unit:/^од\.?|одиниц|ед\.?\s*изм|^ед\.?$|од\.\s*вим/i,qty:/к-?сть|кільк|колич|обсяг|об[''’]?[єе]м|объ[её]м/i,price:/ціна|цена|за\s*од|вартість\s*од|стоимость\s*ед/i,sum:/сума|сумма|вартість|стоимость|всього|итого/i};
   let hdr=-1,col={};
   for(let r=0;r<Math.min(rows.length,40);r++){
     const c={};rows[r].forEach((v,i)=>{const t=String(v).trim();if(!t)return;for(const k of ["qty","price","unit","name","sum"]){if(c[k]==null&&RX[k].test(t)){c[k]=i;break}}});
-    if(c.name!=null&&(c.price!=null||c.sum!=null)){hdr=r;col=c;break}
+    if(c.name!=null&&(c.price!=null||c.sum!=null)){hdr=r;col=c;
+      if(withVat){let vp=null,vs=null;rows[r].forEach((v,i)=>{const t=String(v);if(/(^|[^а-яіїєґ])(з|с)\s+(пдв|ндс)/i.test(t)){if(RX.price.test(t))vp=i;else if(RX.sum.test(t))vs=i}});
+        if(vs!=null){col.sum=vs;col.price=vp}else if(vp!=null)col.price=vp}
+      break}
   }
   if(hdr<0){ // без заголовка: перша текстова колонка + числа праворуч
     const cnt={};rows.slice(0,60).forEach(r=>r.forEach((v,i)=>{if(typeof v==="string"&&v.trim().length>3&&isNaN(estNum(v)))cnt[i]=(cnt[i]||0)+1}));
@@ -885,20 +888,20 @@ function parseEstimateRows(rows){
   }
   return items;
 }
-async function importEstimate(file){
+async function importEstimate(file,withVat){
   const XLSX=await loadXLSX();
   const buf=await file.arrayBuffer();let wb=XLSX.read(buf,{type:"array"});
   const moj=w=>/[À-ÿ]{4,}/.test(w.SheetNames.map(n=>XLSX.utils.sheet_to_csv(w.Sheets[n])).join(" ").slice(0,5000));
   if(moj(wb)) wb=XLSX.read(buf,{type:"array",codepage:1251});
   let best=[];
-  for(const sn of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});const it=parseEstimateRows(rows);if(it.length>best.length)best=it}
+  for(const sn of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});const it=parseEstimateRows(rows,withVat);if(it.length>best.length)best=it}
   return best;
 }
-function estimateButton(id){return `<label class="btn ghost sm" style="display:block;text-align:center;width:100%;margin-bottom:6px">📄 Завантажити кошторис з Excel / CSV<input type="file" id="${id}" accept=".xlsx,.xls,.xlsm,.ods,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none"></label>`}
+function estimateButton(id){return `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:6px"><input type="checkbox" id="${id}Vat" style="width:20px;height:20px"> Брати ціни з ПДВ (якщо у файлі є обидві)</label><label class="btn ghost sm" style="display:block;text-align:center;width:100%;margin-bottom:6px">📄 Завантажити кошторис з Excel / CSV<input type="file" id="${id}" accept=".xlsx,.xls,.xlsm,.ods,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none"></label>`}
 function bindEstimate(id,items,redraw){
   const el=document.getElementById(id); if(!el) return;
   el.onchange=async e=>{const f=e.target.files[0];if(!f)return;toast("Читаю файл…");
-    try{const it=await importEstimate(f);if(!it.length){toast("Не знайшов у файлі рядків з назвою, кількістю й ціною");return}
+    try{const it=await importEstimate(f,document.getElementById(id+"Vat")?.checked);if(!it.length){toast("Не знайшов у файлі рядків з назвою, кількістю й ціною");return}
       const empty=items.every(i=>!String(i.name||"").trim()); if(empty) items.length=0;
       items.push(...it); redraw(); toast(`Додано ${it.length} рядків на ${money(it.reduce((a,i)=>a+i.qty*i.price,0))}`);
     }catch(err){toast("Не вдалося прочитати файл")}
