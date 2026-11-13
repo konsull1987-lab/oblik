@@ -849,6 +849,60 @@ function printDoc(html,title){
   setTimeout(()=>{window.print();document.title=t},50);
 }
 
+// ---------- Імпорт кошторису з Excel/CSV ----------
+function loadXLSX(){ if(window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((ok,bad)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=()=>ok(window.XLSX);s.onerror=()=>bad(new Error("no xlsx"));document.head.appendChild(s)}); }
+function estNum(v){ if(typeof v==="number") return v; const s=String(v??"").replace(/\s| /g,"").replace(",","."); if(!/^-?\d+(\.\d+)?$/.test(s)) return NaN; return parseFloat(s); }
+function parseEstimateRows(rows){
+  const RX={name:/найменув|назва|наимен|вид(и)? робіт|вид(ы)? работ|робот|работ|опис/i,unit:/^од\.?|одиниц|ед\.?\s*изм|^ед\.?$|од\.\s*вим/i,qty:/к-?сть|кільк|колич|обсяг|об[''’]?[єе]м|объ[её]м/i,price:/ціна|цена|за\s*од|вартість\s*од|стоимость\s*ед/i,sum:/сума|сумма|вартість|стоимость|всього|итого/i};
+  let hdr=-1,col={};
+  for(let r=0;r<Math.min(rows.length,40);r++){
+    const c={};rows[r].forEach((v,i)=>{const t=String(v).trim();if(!t)return;for(const k of ["qty","price","unit","name","sum"]){if(c[k]==null&&RX[k].test(t)){c[k]=i;break}}});
+    if(c.name!=null&&(c.price!=null||c.sum!=null)){hdr=r;col=c;break}
+  }
+  if(hdr<0){ // без заголовка: перша текстова колонка + числа праворуч
+    const cnt={};rows.slice(0,60).forEach(r=>r.forEach((v,i)=>{if(typeof v==="string"&&v.trim().length>3&&isNaN(estNum(v)))cnt[i]=(cnt[i]||0)+1}));
+    const nameCol=+Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]?.[0]; if(isNaN(nameCol)) return [];
+    col={name:nameCol}; hdr=-1;
+  }
+  const items=[];
+  for(let r=hdr+1;r<rows.length;r++){
+    const row=rows[r]; const name=String(row[col.name]??"").replace(/\s+/g," ").trim();
+    if(!name||/^(всього|усього|разом|итого|всего|пдв|ндс|в т\.?ч|загалом)/i.test(name)) continue;
+    let qty=col.qty!=null?estNum(row[col.qty]):NaN, price=col.price!=null?estNum(row[col.price]):NaN, sum=col.sum!=null?estNum(row[col.sum]):NaN;
+    let unit=col.unit!=null?String(row[col.unit]??"").trim():"";
+    if(col.qty==null&&col.price==null&&col.sum==null){ // без заголовка
+      const nums=row.map((v,i)=>i>col.name?estNum(v):NaN).map((v,i)=>[v,i]).filter(([v])=>!isNaN(v));
+      if(!nums.length) continue;
+      const txt=row.find((v,i)=>i>col.name&&typeof v==="string"&&v.trim()&&isNaN(estNum(v))&&v.trim().length<=8); if(txt)unit=txt.trim();
+      if(nums.length>=3){qty=nums[0][0];price=nums[1][0];sum=nums[2][0]} else if(nums.length===2){qty=nums[0][0];price=nums[1][0]} else {sum=nums[0][0]}
+    }
+    if(isNaN(price)&&!isNaN(sum)&&!isNaN(qty)&&qty) price=sum/qty;
+    if(isNaN(qty)&&!isNaN(sum)){qty=1;price=sum}
+    if(isNaN(qty)&&!isNaN(price)) qty=1;
+    if(!(qty>0)||!(price>0)) continue;
+    items.push({name,unit:unit||"посл.",qty:Math.round(qty*1000)/1000,price:Math.round(price*100)/100});
+  }
+  return items;
+}
+async function importEstimate(file){
+  const XLSX=await loadXLSX();
+  const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+  let best=[];
+  for(const sn of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});const it=parseEstimateRows(rows);if(it.length>best.length)best=it}
+  return best;
+}
+function estimateButton(id){return `<label class="btn ghost sm" style="display:block;text-align:center;width:100%;margin-bottom:6px">📄 Завантажити кошторис з Excel / CSV<input type="file" id="${id}" accept=".xlsx,.xls,.xlsm,.ods,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none"></label>`}
+function bindEstimate(id,items,redraw){
+  const el=document.getElementById(id); if(!el) return;
+  el.onchange=async e=>{const f=e.target.files[0];if(!f)return;toast("Читаю файл…");
+    try{const it=await importEstimate(f);if(!it.length){toast("Не знайшов у файлі рядків з назвою, кількістю й ціною");return}
+      const empty=items.every(i=>!String(i.name||"").trim()); if(empty) items.length=0;
+      items.push(...it); redraw(); toast(`Додано ${it.length} рядків на ${money(it.reduce((a,i)=>a+i.qty*i.price,0))}`);
+    }catch(err){toast("Не вдалося прочитати файл")}
+    e.target.value="";};
+}
+
 // ---------- Договір підряду ----------
 const dWord=iso=>{if(!iso)return"";const[y,m,d]=iso.split("-");return `${+d} ${UA_MON[+m-1].toLowerCase()} ${y} року`};
 const sumTxt=n=>{const[a,b]=n2(n).split(".");return a.replace(/\B(?=(\d{3})+(?!\d))/g," ")+","+b+" грн ("+uaWords(n).toLowerCase()+")"};
@@ -956,7 +1010,7 @@ function contractForm(c){
     ${I("workDesc","Які роботи (для п. 1.1)","text","ремонтні роботи / покрівельні роботи …")}
     <div class="row">${I("prepay","Передоплата, %","number")}${I("days","Строк, робочих днів","number")}${I("warranty","Гарантія, міс.","number")}</div>
     <div class="section-t">Кошторис (Додаток № 1)</div><div class="m" style="color:var(--muted);font-size:12.5px;margin:-4px 2px 6px">Можна не заповнювати й вказати лише загальну суму.</div>
-    <div id="ctItems"></div><button type="button" class="btn ghost sm" id="ctAdd" style="width:100%">+ Додати рядок</button>
+    ${estimateButton("ctXls")}<div id="ctItems"></div><button type="button" class="btn ghost sm" id="ctAdd" style="width:100%">+ Додати рядок</button>
     ${I("total","Загальна сума, ₴ (якщо без кошторису)","number")}
     <div class="sum" style="font-size:15px">Сума договору: <b id="ctTot"></b></div>
     <div class="actions">${!isNew?`<button type="button" class="btn danger" id="ctDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
@@ -967,6 +1021,7 @@ function contractForm(c){
   $("#ctF [name=total]").oninput=tot;
   $("#ctItems").onclick=e=>{const r=e.target.dataset.rm;if(r!=null){items.splice(+r,1);draw()}};
   $("#ctAdd").onclick=()=>{items.push({name:"",unit:"м²",qty:"",price:""});draw()};
+  bindEstimate("ctXls",items,draw);
   const collect=()=>{const v=Object.fromEntries(new FormData($("#ctF")));const num=x=>parseFloat(String(x||"").replace(/\s/g,"").replace(",","."))||0;
     return {...c,...v,client:v.client==="__new"?"":v.client,prepay:num(v.prepay),days:num(v.days),warranty:num(v.warranty)||12,total:num(v.total),items:items.map(i=>({name:String(i.name).trim(),unit:String(i.unit).trim(),qty:num(i.qty),price:num(i.price)})).filter(i=>i.name)}};
   $("#ctCli").onchange=e=>{if(e.target.value==="__new"){const keep=collect();reqForm("clients",null,id=>contractForm({...keep,client:id}))}};
