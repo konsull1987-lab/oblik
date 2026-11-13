@@ -125,7 +125,7 @@ nav button.on{color:var(--accent);font-weight:600}
   .doc .line{display:inline-block;width:170px;border-bottom:1px solid #000;height:14px}
   .doc .sign{text-align:right;margin-top:30px}
   .doc.ct{font-size:10pt;text-align:justify}.doc.ct p{margin:3px 0}.doc.ct h4{text-align:center;font-size:10pt;margin:10px 0 4px}
-  .doc .req{page-break-inside:avoid;break-inside:avoid}.doc.ct h4{break-after:avoid}.doc .req td{font-size:9.5pt}.doc .pb{page-break-before:always}
+  .doc .req{page-break-inside:avoid;break-inside:avoid}.doc.ct h4{break-after:avoid}.doc .req td{font-size:9.5pt;text-align:left}.doc .pb{page-break-before:always}
 }
 </style>
 </head>
@@ -929,7 +929,7 @@ function contractHTML(c){
   ${P("11.4.","Сторони зобов'язуються не розголошувати конфіденційну інформацію, що стала їм відома у зв'язку з виконанням Договору, крім випадків, передбачених законом.")}
   ${P("11.5.","Зміни та доповнення до Договору оформлюються письмово і є його невід'ємною частиною. У всьому, що не передбачено Договором, Сторони керуються чинним законодавством України.")}
   ${P("11.6.","Договір складено українською мовою у двох примірниках, що мають однакову юридичну силу, по одному для кожної зі Сторін.")}
-  <h4>12. РЕКВІЗИТИ ТА ПІДПИСИ СТОРІН</h4>
+  <div class="pb"></div><h4>12. РЕКВІЗИТИ ТА ПІДПИСИ СТОРІН</h4>
   <table class="two req"><tr><td><b>ЗАМОВНИК:</b><br>${esc(k.name||"")}<br>${k.edrpou?"Код ЄДРПОУ: "+esc(k.edrpou)+"<br>":""}${k.address?"Адреса: "+esc(k.address)+"<br>":""}${k.iban?"IBAN: "+esc(k.iban)+"<br>":""}${k.bank?"в "+esc(k.bank)+"<br>":""}${k.email?"E-mail: "+esc(k.email)+"<br>":""}${k.phone?"Тел.: "+esc(k.phone)+"<br>":""}<br>${esc(k.signerTitle||"")}<br><br><span class="line"></span> ${esc(k.signerName||"")}</td>
   <td><b>ПІДРЯДНИК:</b><br>${esc(f.name||"")}<br>РНОКПП: ${esc(f.edrpou||"")}<br>Адреса: ${esc(f.address||"")}<br>IBAN: ${esc(f.iban||"")}<br>в ${esc(f.bank||"")}${f.mfo?", МФО "+esc(f.mfo):""}<br>${f.phone?"Тел.: "+esc(f.phone)+"<br>":""}Не є платником ПДВ<br><br>Фізична особа-підприємець<br><br><span class="line"></span> ${esc((f.name||"").replace(/^ФОП\s*/i,""))}</td></tr></table>
   ${(c.items&&c.items.some(i=>i.name))?`<div class="pb"></div><p class="r">Додаток № 1<br>до Договору підряду № ${esc(c.no)} від ${dShort(c.date)}</p><h3>КОШТОРИС</h3>
