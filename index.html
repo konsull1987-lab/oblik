@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f766e">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Облік інструменту</title>
+<style>
+:root{
+  --bg:#f4f5f7; --card:#fff; --text:#16181d; --muted:#6b7280; --line:#e5e7eb;
+  --accent:#0f766e; --accent-ink:#fff;
+  --own:#1d4ed8; --own-bg:#dbeafe; --wrk:#c2410c; --wrk-bg:#ffedd5;
+  --warn:#b45309; --warn-bg:#fef3c7; --bad:#b91c1c; --bad-bg:#fee2e2;
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1115; --card:#191c22; --text:#eef0f3; --muted:#9aa1ad; --line:#2a2f38;
+    --accent:#14b8a6; --accent-ink:#04201d;
+    --own:#93c5fd; --own-bg:#1e2b4a; --wrk:#fdba74; --wrk-bg:#43260f;
+    --warn:#fcd34d; --warn-bg:#3d2f0b; --bad:#fca5a5; --bad-bg:#451a1a; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(env(safe-area-inset-top) + 10px) 14px 8px}
+h1{font-size:19px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+h1 .sub{font-size:12px;font-weight:500;color:var(--muted);margin-left:auto}
+main{padding:0 14px calc(90px + env(safe-area-inset-bottom))}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+.stat{background:var(--card);border-radius:10px;padding:6px 8px;text-align:center;cursor:pointer;border:2px solid transparent}
+.stat b{display:block;font-size:18px}
+.stat span{font-size:11px;color:var(--muted)}
+.stat.on{border-color:var(--accent)}
+.stat.own b{color:var(--own)} .stat.wrk b{color:var(--wrk)} .stat.rep b{color:var(--warn)}
+input,select,textarea{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
+textarea{min-height:60px;resize:vertical}
+.search{display:flex;gap:6px}
+.filters{display:flex;gap:6px;margin-top:6px}
+.filters select{padding:7px 8px;font-size:13px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);cursor:pointer}
+.chip.x::after{content:" ✕"}
+.list{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.card{background:var(--card);border-radius:var(--radius);padding:11px 12px;display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.card .main{flex:1;min-width:0}
+.card .t{font-weight:600}
+.card .m{font-size:12.5px;color:var(--muted);margin-top:2px}
+.card .tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.tag{font-size:12px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap}
+.tag.own{background:var(--own-bg);color:var(--own)}
+.tag.wrk{background:var(--wrk-bg);color:var(--wrk)}
+.tag.site{background:var(--bg);color:var(--text);font-weight:500}
+.tag.rep{background:var(--warn-bg);color:var(--warn)}
+.tag.bad{background:var(--bad-bg);color:var(--bad)}
+.stripe{width:5px;align-self:stretch;border-radius:4px;background:var(--line)}
+.stripe.own{background:var(--own)} .stripe.wrk{background:var(--wrk)}
+.cb{width:22px;height:22px;margin-top:2px;accent-color:var(--accent)}
+.inv{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:500}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:6;background:var(--card);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom)}
+nav button{background:none;border:0;padding:9px 0 8px;font:inherit;font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button svg{width:22px;height:22px}
+nav button.on{color:var(--accent);font-weight:600}
+.fab{position:fixed;right:16px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:7;width:56px;height:56px;border-radius:18px;border:0;background:var(--accent);color:var(--accent-ink);font-size:30px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.bulkbar{position:fixed;left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:7;background:var(--text);color:var(--bg);border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:8px;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+.bulkbar .sp{flex:1}
+.btn{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:inherit;border:1px solid var(--line)}
+.btn.danger{background:var(--bad-bg);color:var(--bad)}
+.btn.sm{padding:7px 10px;font-size:13px}
+.btn:disabled{opacity:.5}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(18px + env(safe-area-inset-bottom))}
+.sheet h2{margin:0 0 12px;font-size:18px}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+.actions{display:flex;gap:8px;margin-top:14px}
+.actions .btn{flex:1}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px;margin:6px 0 10px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0}
+.hist{font-size:13px;border-top:1px solid var(--line);padding:8px 0}
+.hist .when{color:var(--muted);font-size:12px}
+.section-t{font-size:13px;color:var(--muted);font-weight:600;margin:14px 2px 6px;text-transform:uppercase;letter-spacing:.03em}
+.empty{text-align:center;color:var(--muted);padding:30px 10px}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:8px 12px;font-size:13px;margin-bottom:8px}
+.seg{display:flex;background:var(--bg);border-radius:10px;padding:3px;gap:3px}
+#segM button{font-size:12.5px;padding:8px 2px}
+.seg button{flex:1;border:0;background:none;padding:8px;border-radius:8px;font:inherit;color:var(--muted)}
+.seg button.on{background:var(--card);color:var(--text);font-weight:600}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(140px + env(safe-area-inset-bottom));background:var(--text);color:var(--bg);padding:9px 16px;border-radius:999px;z-index:30;font-size:14px}
+.in{color:#15803d}.out{color:var(--bad)}
+@media (prefers-color-scheme: dark){.in{color:#4ade80}}
+.acc{color:#7c3aed}.tag.acc{background:#ede9fe;color:#6d28d9}
+@media (prefers-color-scheme: dark){.acc{color:#c4b5fd}.tag.acc{background:#2e1f5e;color:#c4b5fd}}
+.amt{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bal{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
+.bal .stat b{font-size:15px}
+.sum{display:flex;gap:10px;font-size:13px;margin:8px 2px;flex-wrap:wrap}
+.sum b{font-variant-numeric:tabular-nums}
+.tabs2{display:flex;gap:6px;margin-bottom:8px}
+.tabs2 button{flex:1;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:7px;font:inherit;font-size:13px;color:var(--muted)}
+.tabs2 button.on{border-color:var(--accent);color:var(--text);font-weight:600}
+.daysep{font-size:12px;color:var(--muted);font-weight:600;margin:10px 2px 4px}
+.count{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧰 Облік інструменту <span class="sub" id="who"></span><button id="menuBtn" class="btn ghost sm" style="padding:4px 10px">⋯</button></h1>
+  <div id="banner"></div>
+  <div id="headTools"></div>
+</header>
+<main id="view"></main>
+<button class="fab" id="fab" aria-label="Додати">+</button>
+<div id="bulk"></div>
+<nav id="nav">
+  <button data-tab="tools" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Інструмент</button>
+  <button data-tab="sites"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6"/></svg>Об'єкти</button>
+  <button data-tab="people"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.3 0 4 1.5 4.6 4"/></svg>Люди</button>
+  <button data-tab="money"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10h19M7 15h3"/></svg>Гроші</button>
+  <button data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>Історія</button>
+</nav>
+<div id="modal"></div>
+<div id="login" style="display:none;position:fixed;inset:0;z-index:50;background:var(--bg);align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px;text-align:center">
+  <div style="font-size:54px">🧰</div><h2 style="margin:0">Облік інструменту</h2>
+  <div id="loginMsg" style="color:var(--muted);max-width:320px">Увійдіть своїм Google-акаунтом</div>
+  <button class="btn" id="loginBtn" style="min-width:220px">Увійти через Google</button>
+  <button class="btn ghost" id="logoutBtn2" style="display:none">Вийти й увійти іншим акаунтом</button>
+</div>
+
+<script>
+window.fbReady=new Promise(r=>window.__fbResolve=r);
+// ---------- Категорії ----------
+const CATS = {
+  "Електроінструмент": [
+    "Шуруповерти акумуляторні","Дрилі мережеві","Перфоратори","Відбійні молотки","Болгарки (КШМ)",
+    "Штроборізи","Пили дискові (циркулярні)","Пили торцювальні","Лобзики","Шабельні пили","Ланцюгові пили",
+    "Фрезери","Рубанки","Шліфмашини (ексцентрикові, стрічкові)","Шліфмашини по бетону / жирафи",
+    "Міксери будівельні","Гайковерти / імпакти","Реноватори (МФІ)","Фени будівельні",
+    "Плиткорізи електричні","Алмазне свердління","Вібратори для бетону","Пилососи будівельні",
+    "Акумулятори та зарядки"
+  ],
+  "Обладнання": [
+    "Генератори","Компресори","Зварювальні апарати","Бетонозмішувачі","Віброплити / трамбовки",
+    "Мийки високого тиску","Обігрівачі / теплові гармати","Фарбопульти / агрегати","Подовжувачі та кабелі",
+    "Прожектори","Драбини та стрем'янки","Риштування / вишки"
+  ],
+  "Вимірювальний": [
+    "Лазерні рівні / нівеліри","Рівні звичайні","Правила","Лазерні далекоміри","Рулетки",
+    "Кутники","Детектори проводки / металу","Мультиметри та тестери","Вологоміри","Тепловізори"
+  ],
+  "Ручний інструмент": [
+    "Молотки та кувалди","Ножівки","Ножиці по металу","Кельми та терки","Шпателі","Плиткорізи ручні",
+    "Викрутки","Ключі та головки","Плоскогубці / кусачки","Ломи та монтажки","Струбцини",
+    "Степлери","Пістолети для піни / герметику","Ножі","Лопати / граблі","Тачки","Інше ручне"
+  ],
+  "Інше": ["Інше"]
+};
+const CAT_GROUP = {}; for (const g in CATS) for (const c of CATS[g]) CAT_GROUP[c]=g;
+const STATUS = {ok:"Справний", repair:"У ремонті", broken:"Зламаний", lost:"Втрачений"};
+
+// ---------- Стан ----------
+const S = {
+  tools:new Map(), people:new Map(), sites:new Map(), moves:[], fin:new Map(),
+  mtab:"journal", mSite:"", mOwner:"", mKind:"", mMonth:"", mType:"",
+  tab:"tools", q:"", holderType:"all", cat:"", site:"", person:"", status:"",
+  select:false, selected:new Set(), loaded:{tools:false,people:false,sites:false,moves:false,fin:false},
+  canWrite:true, db:null, user:null, uid:null, offline:false
+};
+const $ = s=>document.querySelector(s);
+const esc = s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const byName = (a,b)=>(a.name||"").localeCompare(b.name||"","uk");
+function toast(t){const d=document.createElement("div");d.className="toast";d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
+function fmtDate(ms){const d=new Date(ms);return d.toLocaleDateString("uk-UA",{day:"2-digit",month:"2-digit",year:"2-digit"})+" "+d.toLocaleTimeString("uk-UA",{hour:"2-digit",minute:"2-digit"})}
+function person(id){return S.people.get(id)}
+function site(id){return S.sites.get(id)}
+function holderTag(id){const p=person(id); if(!p) return `<span class="tag site">— не вказано</span>`; return `<span class="tag ${p.role==="owner"?"own":"wrk"}">${p.role==="owner"?"👤":"🔧"} ${esc(p.name)}</span>`}
+function siteTag(id){const s=site(id); if(!s) return ""; return `<span class="tag site">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}</span>`}
+function statusTag(st){if(!st||st==="ok")return""; return `<span class="tag ${st==="repair"?"rep":"bad"}">${STATUS[st]}</span>`}
+function roleOf(t){return person(t.holder)?.role||""}
+
+// ---------- Дані ----------
+async function init(){
+  render();
+  let db=null,user=null;
+  try{ [db,user]=await window.fbReady }catch(e){}
+  S.db=db; S.user=user;
+  if(!db){ S.offline=true; render(); return; }
+  try{ S.uid=await user?.id?.() }catch(e){}
+  try{ const c=await user?.can?.("data.write"); if(c===false) S.canWrite=false }catch(e){}
+  try{ const me=await user?.me?.(); if(me?.name) $("#who").textContent=me.name }catch(e){}
+  const timer=setTimeout(()=>{ if(!Object.values(S.loaded).every(Boolean)){ S.slow=true; render(); } },10000);
+  const sub=(name,q,fn)=>q.onSnapshot(snap=>{fn(snap); if(!snap.metadata.fromCache){S.loaded[name]=true; if(Object.values(S.loaded).every(Boolean)){clearTimeout(timer);S.slow=false}} render();},
+    err=>{S.loaded[name]=true; S.err=err?.code||"error"; render();});
+  sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  sub("sites",db.collection("sites"),snap=>{S.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  sub("fin",db.collection("fin"),snap=>{S.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()}))});
+}
+async function write(fn){
+  if(!S.db){toast("Немає з'єднання з базою");return false}
+  try{ await fn(S.db); return true }
+  catch(e){
+    if(e?.code==="permission-denied"){toast("У вас немає прав на зміни");}
+    else if(e?.code==="resource-exhausted") toast("Перевищено ліміт бази на сьогодні");
+    else toast("Помилка збереження, спробуйте ще раз");
+    return false;
+  }
+}
+
+// ---------- Рендер ----------
+function render(){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===S.tab));
+  const ban=[];
+  if(S.offline) ban.push("Не вдалося підключитися до бази. Перевірте інтернет і перезапустіть застосунок.");
+  else if(S.slow) ban.push("Дані поки не завантажились — перевірте інтернет.");
+  if(S.err) ban.push(S.err==="permission-denied"?"Ця пошта не має доступу до бази. Попросіть Андрія додати вас.":"Помилка доступу до бази ("+esc(S.err)+").");
+  if(!S.canWrite) ban.push("Режим перегляду: зміни можуть вносити лише власники.");
+  $("#banner").innerHTML=ban.map(b=>`<div class="banner">${b}</div>`).join("");
+  $("#fab").style.display=(S.canWrite&&!S.select&&S.tab!=="history")?"":"none";
+  ({tools:renderTools,sites:renderSites,people:renderPeople,history:renderHistory,money:renderMoney})[S.tab]();
+  renderBulk();
+}
+
+function filteredTools(){
+  const q=S.q.trim().toLowerCase();
+  return [...S.tools.values()].filter(t=>{
+    if(S.holderType==="owner"&&roleOf(t)!=="owner")return false;
+    if(S.holderType==="worker"&&roleOf(t)!=="worker")return false;
+    if(S.holderType==="repair"&&!(t.status&&t.status!=="ok"))return false;
+    if(S.cat&&t.cat!==S.cat&&CAT_GROUP[t.cat]!==S.cat&&S.cat!==("g:"+CAT_GROUP[t.cat]))return false;
+    if(S.site&&t.site!==S.site)return false;
+    if(S.person&&t.holder!==S.person)return false;
+    if(q){const hay=[t.name,t.brand,t.model,t.inv,t.serial,t.cat,person(t.holder)?.name,site(t.site)?.name,t.note].join(" ").toLowerCase(); if(!hay.includes(q))return false}
+    return true;
+  }).sort((a,b)=>(a.cat||"").localeCompare(b.cat||"","uk")||byName(a,b));
+}
+
+function catOptions(sel,withAll){
+  const used={}; for(const t of S.tools.values()) used[t.cat]=(used[t.cat]||0)+1;
+  let h=withAll?`<option value="">Усі категорії</option>`:"";
+  for(const g in CATS){
+    h+=`<optgroup label="${esc(g)}">`;
+    if(withAll) h+=`<option value="g:${esc(g)}" ${sel==="g:"+g?"selected":""}>— уся група «${esc(g)}»</option>`;
+    for(const c of CATS[g]){ if(withAll&&!used[c])continue; h+=`<option value="${esc(c)}" ${sel===c?"selected":""}>${esc(c)}${withAll?` (${used[c]})`:""}</option>` }
+    h+=`</optgroup>`;
+  }
+  return h;
+}
+function siteOptions(sel,emptyLabel){
+  const withTools=new Set([...S.tools.values()].map(t=>t.site));
+  const all=[...S.sites.values()].filter(s=>s.active!==false||s.id===sel||withTools.has(s.id)).sort(byName);
+  let h=`<option value="">${emptyLabel}</option>`;
+  for(const [type,label] of [["warehouse","Склади"],["site","Об'єкти"]]){
+    const l=all.filter(s=>s.type===type); if(!l.length)continue;
+    h+=`<optgroup label="${label}">`+l.map(s=>`<option value="${s.id}" ${sel===s.id?"selected":""}>${esc(s.name)}</option>`).join("")+`</optgroup>`;
+  }
+  return h;
+}
+function personOptions(sel,emptyLabel){
+  const all=[...S.people.values()].sort(byName);
+  let h=`<option value="">${emptyLabel}</option>`;
+  for(const [role,label] of [["owner","👤 Власники"],["worker","🔧 Виконавці"]]){
+    const l=all.filter(p=>p.role===role); if(!l.length)continue;
+    h+=`<optgroup label="${label}">`+l.map(p=>`<option value="${p.id}" ${sel===p.id?"selected":""}>${esc(p.name)}</option>`).join("")+`</optgroup>`;
+  }
+  return h;
+}
+
+function renderTools(){
+  const all=[...S.tools.values()];
+  const nOwn=all.filter(t=>roleOf(t)==="owner").length, nW=all.filter(t=>roleOf(t)==="worker").length, nR=all.filter(t=>t.status&&t.status!=="ok").length;
+  const st=(k,cls,n,l)=>`<div class="stat ${cls} ${S.holderType===k?"on":""}" data-ht="${k}"><b>${n}</b><span>${l}</span></div>`;
+  if(document.activeElement?.id!=="q") $("#headTools").innerHTML=`
+    <div class="stats">${st("all","",all.length,"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}</div>
+    <div class="search"><input id="q" type="search" placeholder="Пошук: назва, номер, людина, об'єкт…" value="${esc(S.q)}">
+      <button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
+    <div class="filters">
+      <select id="fCat">${catOptions(S.cat,true)}</select>
+      <select id="fSite">${siteOptions(S.site,"Усі місця")}</select>
+      <select id="fPerson">${personOptions(S.person,"Усі люди")}</select>
+    </div>`;
+  const list=filteredTools();
+  if(!S.tools.size){
+    $("#view").innerHTML=`<div class="empty">Інструменту ще немає.<br><br>${S.people.size<2||!S.sites.size?"Спочатку додайте <b>людей</b> і <b>об'єкти/склади</b> на відповідних вкладках, потім — інструмент кнопкою «+».":"Натисніть «+», щоб додати перший інструмент."}</div>`;
+    return;
+  }
+  let h=`<div class="section-t" style="display:flex">Знайдено<span class="count">${list.length}</span></div><div class="list">`;
+  for(const t of list){
+    const r=roleOf(t);
+    h+=`<div class="card" data-tool="${t.id}">
+      ${S.select?`<input type="checkbox" class="cb" ${S.selected.has(t.id)?"checked":""} tabindex="-1">`:`<div class="stripe ${r==="owner"?"own":r==="worker"?"wrk":""}"></div>`}
+      <div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div>
+      <div class="m">${esc(t.cat||"")}${t.brand||t.model?" · "+esc([t.brand,t.model].filter(Boolean).join(" ")):""}</div>
+      <div class="tags">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div></div></div>`;
+  }
+  $("#view").innerHTML=h+`</div>`;
+}
+
+function renderSites(){
+  $("#headTools").innerHTML="";
+  const all=[...S.sites.values()].sort((a,b)=>(b.order||0)-(a.order||0)||byName(a,b));
+  const cnt={}; for(const t of S.tools.values()) if(t.site) cnt[t.site]=(cnt[t.site]||0)+1;
+  if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте склади й об'єкти кнопкою «+».</div>`; return; }
+  const card=s=>`<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}</div>${s.note?`<div class="m">${esc(s.note)}</div>`:""}</div><span class="count">${cnt[s.id]||0} од.</span></div>`;
+  let h="";
+  for(const [type,label] of [["warehouse","Склади"],["site","Активні об'єкти"]]){
+    const l=all.filter(s=>s.type===type&&s.active!==false); if(!l.length)continue;
+    h+=`<div class="section-t">${label} (${l.length})</div><div class="list">`+l.map(card).join("")+`</div>`;
+  }
+  const arch=all.filter(s=>s.active===false);
+  if(arch.length){
+    h+=`<div class="section-t" id="archT" style="cursor:pointer">${S.showArch?"▾":"▸"} Архів (${arch.length})</div>`;
+    if(S.showArch) h+=`<input id="archQ" type="search" placeholder="Пошук в архіві" value="${esc(S.archQ||"")}" style="margin-bottom:8px"><div class="list">`+arch.filter(s=>!S.archQ||s.name.toLowerCase().includes(S.archQ.toLowerCase())).map(card).join("")+`</div>`;
+  }
+  $("#view").innerHTML=h;
+}
+
+function renderPeople(){
+  $("#headTools").innerHTML="";
+  const all=[...S.people.values()].sort(byName);
+  const cnt={}; for(const t of S.tools.values()) if(t.holder) cnt[t.holder]=(cnt[t.holder]||0)+1;
+  if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте власників (себе й напарників) та виконавців кнопкою «+».</div>`; return; }
+  let h="";
+  for(const [role,label,cls] of [["owner","Власники","own"],["worker","Виконавці","wrk"]]){
+    const l=all.filter(p=>p.role===role); if(!l.length)continue;
+    h+=`<div class="section-t">${label}</div><div class="list">`+l.map(p=>`<div class="card" data-person="${p.id}"><div class="stripe ${cls}"></div><div class="main"><div class="t">${esc(p.name)}</div>${p.phone?`<div class="m">${esc(p.phone)}</div>`:""}</div><span class="count">${cnt[p.id]||0} од.</span></div>`).join("")+`</div>`;
+  }
+  $("#view").innerHTML=h;
+}
+
+function moveLine(m){
+  const nm=id=>esc(person(id)?.name||m.names?.[id]||"—");
+  const sn=id=>id?esc(site(id)?.name||m.names?.[id]||"—"):"—";
+  return `<div class="hist"><div class="when">${fmtDate(m.at)}${m.byName?` · вніс: ${esc(m.byName)}`:""}</div>
+    <div><b>${esc(m.toolName||"")}</b>${m.toolInv?` <span class="inv">#${esc(m.toolInv)}</span>`:""}</div>
+    <div>${nm(m.fromHolder)} (${sn(m.fromSite)}) → <b>${nm(m.toHolder)}</b> (${sn(m.toSite)})</div>
+    ${m.note?`<div class="m" style="color:var(--muted)">${esc(m.note)}</div>`:""}</div>`;
+}
+function renderHistory(){
+  $("#headTools").innerHTML="";
+  if(!S.moves.length){ $("#view").innerHTML=`<div class="empty">Переміщень ще не було.</div>`; return; }
+  $("#view").innerHTML=`<div class="card" style="display:block;cursor:default">${S.moves.map(moveLine).join("")}</div>`;
+}
+
+function renderBulk(){
+  if(!(S.select&&S.tab==="tools")){ $("#bulk").innerHTML=""; return; }
+  $("#bulk").innerHTML=`<div class="bulkbar"><span>Вибрано: <b>${S.selected.size}</b></span><span class="sp"></span>
+    <button class="btn ghost sm" id="selAll" style="color:inherit">Усі видимі</button>
+    <button class="btn sm" id="bulkMove" ${S.selected.size&&S.canWrite?"":"disabled"}>Перемістити</button></div>`;
+}
+
+// ---------- Модальні вікна ----------
+function openSheet(html){ $("#modal").innerHTML=`<div class="overlay"><div class="sheet">${html}</div></div>`; }
+function closeSheet(){ $("#modal").innerHTML=""; }
+$("#modal").addEventListener("click",e=>{ if(e.target.classList.contains("overlay")||e.target.closest("[data-close]")) closeSheet(); });
+
+function nextInv(){ let m=0; for(const t of S.tools.values()){const n=parseInt(t.inv,10); if(n>m)m=n} return String(m+1).padStart(4,"0"); }
+
+function toolForm(t){
+  const isNew=!t; t=t||{status:"ok",inv:nextInv()};
+  const defOwner=[...S.people.values()].find(p=>p.role==="owner")?.id;
+  openSheet(`<h2>${isNew?"Новий інструмент":"Редагувати"}</h2>
+    <form id="toolForm">
+      <div class="field"><label>Назва *</label><input name="name" required value="${esc(t.name)}" placeholder="напр. Перфоратор"></div>
+      <div class="field"><label>Категорія</label><select name="cat">${catOptions(t.cat||"",false)}</select></div>
+      <div class="row"><div class="field"><label>Марка</label><input name="brand" value="${esc(t.brand)}" placeholder="Bosch"></div>
+        <div class="field"><label>Модель</label><input name="model" value="${esc(t.model)}" placeholder="GBH 2-26"></div></div>
+      <div class="row"><div class="field"><label>Інв. номер</label><input name="inv" value="${esc(t.inv)}"></div>
+        <div class="field"><label>Серійний №</label><input name="serial" value="${esc(t.serial)}"></div></div>
+      ${isNew?`<div class="field"><label>У кого зараз</label><select name="holder">${personOptions(defOwner,"— не вказано")}</select></div>
+      <div class="field"><label>Де зараз</label><select name="site">${siteOptions("","— не вказано")}</select></div>`:""}
+      <div class="field"><label>Стан</label><select name="status">${Object.entries(STATUS).map(([k,v])=>`<option value="${k}" ${t.status===k?"selected":""}>${v}</option>`).join("")}</select></div>
+      <div class="field"><label>Примітка</label><textarea name="note">${esc(t.note)}</textarea></div>
+      <div class="actions">${!isNew?`<button type="button" class="btn danger" id="delTool">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>
+    </form>`);
+  $("#toolForm").addEventListener("submit",async e=>{
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target));
+    f.name=f.name.trim(); if(!f.name)return;
+    const btn=e.target.querySelector("[type=submit]"); btn.disabled=true;
+    const data={name:f.name,cat:f.cat,brand:f.brand.trim(),model:f.model.trim(),inv:f.inv.trim(),serial:f.serial.trim(),status:f.status,note:f.note.trim(),updatedAt:Date.now()};
+    const ok=await write(async db=>{
+      if(isNew){ data.holder=f.holder||""; data.site=f.site||""; data.createdAt=Date.now(); await db.collection("tools").add(data); }
+      else await db.doc("tools/"+t.id).update(data);
+    });
+    if(ok){closeSheet();toast("Збережено")} else btn.disabled=false;
+  });
+  $("#delTool")?.addEventListener("click",()=>{
+    openSheet(`<h2>Видалити «${esc(t.name)}»?</h2><p>Історія переміщень залишиться.</p><div class="actions"><button class="btn ghost" data-close>Ні</button><button class="btn danger" id="yesDel">Видалити</button></div>`);
+    $("#yesDel").onclick=async()=>{ if(await write(db=>db.doc("tools/"+t.id).delete())){closeSheet();toast("Видалено")} };
+  });
+}
+
+function toolCard(id){
+  const t=S.tools.get(id); if(!t)return;
+  const hist=S.moves.filter(m=>m.tool===id).slice(0,30);
+  openSheet(`<h2>${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</h2>
+    <div class="tags" style="display:flex;gap:6px;flex-wrap:wrap">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div>
+    <dl class="kv"><dt>Категорія</dt><dd>${esc(t.cat||"—")}</dd>
+      ${t.brand||t.model?`<dt>Марка/модель</dt><dd>${esc([t.brand,t.model].filter(Boolean).join(" "))}</dd>`:""}
+      ${t.serial?`<dt>Серійний №</dt><dd>${esc(t.serial)}</dd>`:""}
+      ${t.note?`<dt>Примітка</dt><dd>${esc(t.note)}</dd>`:""}</dl>
+    ${S.canWrite?`<div class="actions" style="margin-top:0"><button class="btn ghost" id="editT">Редагувати</button><button class="btn" id="moveT">Перемістити</button></div>`:""}
+    <div class="section-t">Історія</div>${hist.length?hist.map(moveLine).join(""):`<div class="m" style="color:var(--muted)">Переміщень ще не було</div>`}
+    <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  $("#editT")?.addEventListener("click",()=>toolForm(t));
+  $("#moveT")?.addEventListener("click",()=>moveForm([id]));
+}
+
+function moveForm(ids){
+  const tools=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!tools.length)return;
+  const one=tools.length===1?tools[0]:null;
+  openSheet(`<h2>Перемістити ${one?"«"+esc(one.name)+"»":tools.length+" од."}</h2>
+    ${one?`<p style="margin:0 0 10px;color:var(--muted)">Зараз: ${esc(person(one.holder)?.name||"—")}, ${esc(site(one.site)?.name||"—")}</p>`:""}
+    <form id="mvForm">
+      <div class="field"><label>Кому передати *</label><select name="holder" required>${personOptions(one?.holder||"","— виберіть")}</select></div>
+      <div class="field"><label>Куди (склад / об'єкт)</label><select name="site">${siteOptions(one?.site||"","— не вказано")}</select></div>
+      <div class="field"><label>Коментар</label><input name="note" placeholder="необов'язково"></div>
+      <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Перемістити</button></div>
+    </form>`);
+  $("#mvForm").addEventListener("submit",async e=>{
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); if(!f.holder)return;
+    const btn=e.target.querySelector("[type=submit]"); btn.disabled=true; btn.textContent="Зачекайте…";
+    let byName=""; try{const me=await S.user?.me?.(); byName=me?.name||""}catch(_){}
+    let done=0;
+    for(const t of tools){
+      if(t.holder===f.holder&&(t.site||"")===(f.site||"")){done++;continue}
+      const names={}; for(const pid of [t.holder,f.holder]) if(person(pid)) names[pid]=person(pid).name;
+      for(const sid of [t.site,f.site]) if(site(sid)) names[sid]=site(sid).name;
+      const now=Date.now();
+      const ok=await write(async db=>{
+        await db.doc("tools/"+t.id).update({holder:f.holder,site:f.site||"",updatedAt:now});
+        await db.collection("moves").add({tool:t.id,toolName:t.name,toolInv:t.inv||"",fromHolder:t.holder||"",toHolder:f.holder,fromSite:t.site||"",toSite:f.site||"",note:f.note.trim(),at:now,by:S.uid||"",byName,names});
+      });
+      if(!ok)break; done++;
+    }
+    closeSheet(); S.select=false; S.selected.clear(); render();
+    toast(done===tools.length?"Переміщено":"Переміщено "+done+" з "+tools.length);
+  });
+}
+
+function siteForm(s){
+  const isNew=!s; s=s||{type:"site"};
+  const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
+  openSheet(`<h2>${isNew?"Новий склад / об'єкт":esc(s.name)}</h2>
+    ${!isNew?(()=>{const t=siteTotals()[s.id];return t||s.contract?`<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}<button class="btn ghost" id="showSiteFin" style="width:100%;margin-bottom:8px">Показати гроші по об'єкту</button>`:""})()+`<button class="btn ghost" id="showSite" style="width:100%;margin-bottom:12px">Показати інструмент тут (${cnt})</button>`:""}
+    <form id="siteForm">
+      <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
+      <div class="field"><label>Назва *</label><input name="name" required value="${esc(s.name)}" placeholder="напр. Склад на Зіньківській / ЖК Сонячний"></div>
+      <div class="field"><label>Адреса, примітка</label><input name="note" value="${esc(s.note)}"></div>
+      ${s.type!=="warehouse"?`<div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я, телефон"></div>
+        <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${s.contract||""}" placeholder="0"></div></div>`:""}
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="active" style="width:22px;height:22px" ${s.active!==false?"checked":""}> Активний (знятий — йде в архів)</label></div>
+      ${s.type!=="warehouse"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="split" style="width:22px;height:22px" ${s.split?"checked":""}> Прибуток поділено між власниками</label></div>`:""}
+      ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delS">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
+    </form>`);
+  let type=s.type;
+  $("#segT").onclick=e=>{const b=e.target.closest("button");if(!b)return;type=b.dataset.v;[...$("#segT").children].forEach(x=>x.classList.toggle("on",x===b))};
+  $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
+  $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
+  $("#siteForm").addEventListener("submit",async e=>{
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),note:f.note.trim(),type,active:!!f.active,split:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
+    if(!data.name)return;
+    if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено")}
+  });
+  $("#delS")?.addEventListener("click",async()=>{
+    if(cnt){toast("Спочатку перемістіть звідси інструмент ("+cnt+")");return}
+    if(await write(db=>db.doc("sites/"+s.id).delete())){closeSheet();toast("Видалено")}
+  });
+}
+
+function personForm(p){
+  const isNew=!p; p=p||{role:"worker"};
+  const cnt=[...S.tools.values()].filter(t=>t.holder===p.id).length;
+  openSheet(`<h2>${isNew?"Нова людина":esc(p.name)}</h2>
+    ${!isNew&&p.role==="worker"?(()=>{const x=workerTotals()[p.id];const d=x?x.acc-x.paid:0;return `<button class="btn ghost" id="showW" style="width:100%;margin-bottom:8px">Розрахунки: ${d>0?"винні "+money(d):d<0?"аванс "+money(-d):"боргу немає"}</button>`})():""}
+    ${!isNew?`<button class="btn ghost" id="showP" style="width:100%;margin-bottom:12px">Показати інструмент у нього (${cnt})</button>`:""}
+    <form id="pForm">
+      <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
+      <div class="field"><label>Ім'я *</label><input name="name" required value="${esc(p.name)}"></div>
+      <div class="field"><label>Телефон</label><input name="phone" type="tel" value="${esc(p.phone)}"></div>
+      ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delP">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
+    </form>`);
+  let role=p.role;
+  $("#segR").onclick=e=>{const b=e.target.closest("button");if(!b)return;role=b.dataset.v;[...$("#segR").children].forEach(x=>x.classList.toggle("on",x===b))};
+  $("#showW")?.addEventListener("click",()=>workerSheet(p.id));
+  $("#showP")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",person:p.id,site:"",cat:"",holderType:"all",q:""});render()});
+  $("#pForm").addEventListener("submit",async e=>{
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role};
+    if(!data.name)return;
+    if(await write(db=>isNew?db.collection("people").add(data):db.doc("people/"+p.id).update(data))){closeSheet();toast("Збережено")}
+  });
+  $("#delP")?.addEventListener("click",async()=>{
+    if(cnt){toast("Спочатку заберіть у нього інструмент ("+cnt+")");return}
+    if(await write(db=>db.doc("people/"+p.id).delete())){closeSheet();toast("Видалено")}
+  });
+}
+
+// ---------- Гроші ----------
+const KINDS=["Матеріали","Зарплата","Інструменти","Доставка","Відкат","Інше"];
+const money=n=>(Math.round((n||0)*100)/100).toLocaleString("uk-UA",{maximumFractionDigits:2})+" ₴";
+const owners=()=>[...S.people.values()].filter(p=>p.role==="owner").sort(byName);
+const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const fmtDay=iso=>{if(!iso)return"без дати";const [y,m,d]=iso.split("-");return `${d}.${m}.${y}`};
+const MONTHS=["січень","лютий","березень","квітень","травень","червень","липень","серпень","вересень","жовтень","листопад","грудень"];
+function siteTotals(){const t={};for(const f of S.fin.values()){if(!f.site||f.type==="accrual")continue;const x=t[f.site]||(t[f.site]={in:0,out:0,n:0});x[f.type==="in"?"in":"out"]+=+f.amount||0;x.n++}return t}
+function ownerBalances(){
+  const b={}; for(const o of owners()) b[o.id]=0;
+  for(const f of S.fin.values()){ if(f.type==="accrual"||!f.owner)continue; if(!(f.owner in b))b[f.owner]=0; b[f.owner]+=(f.type==="in"?1:-1)*(+f.amount||0); }
+  const st=siteTotals(); let shared=0; for(const id in st) if(site(id)?.split) shared+=st[id].in-st[id].out;
+  const n=owners().length||1; for(const k in b) b[k]-=shared/n;
+  return {b,shared};
+}
+function workerTotals(){const t={};for(const f of S.fin.values()){if(!f.worker)continue;const x=t[f.worker]||(t[f.worker]={acc:0,paid:0,n:0});if(f.type==="accrual")x.acc+=+f.amount||0;else if(f.type==="out")x.paid+=+f.amount||0;x.n++}return t}
+function customerRows(){const st=siteTotals();return [...S.sites.values()].filter(x=>(+x.contract||0)>0).map(x=>{const paid=st[x.id]?.in||0;return{s:x,contract:+x.contract,paid,debt:+x.contract-paid}}).sort((a,b)=>b.debt-a.debt)}
+function finFiltered(){
+  return [...S.fin.values()].filter(f=>{
+    if(S.mSite&&f.site!==S.mSite)return false;
+    if(S.mOwner&&f.owner!==S.mOwner)return false;
+    if(S.mKind&&f.kind!==S.mKind)return false;
+    if(S.mType&&f.type!==S.mType)return false;
+    if(S.mMonth&&!(f.date||"").startsWith(S.mMonth))return false;
+    return true;
+  }).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
+}
+function renderMoney(){
+  const {b,shared}=ownerBalances();
+  const months=[...new Set([...S.fin.values()].map(f=>(f.date||"").slice(0,7)).filter(Boolean))].sort().reverse();
+  const finSites=new Set([...S.fin.values()].map(f=>f.site).filter(Boolean));
+  const siteOpts=[...S.sites.values()].filter(x=>finSites.has(x.id)||x.active!==false).sort(byName);
+  $("#headTools").innerHTML=`
+    <div class="bal">${owners().map(o=>`<div class="stat own" data-own="${o.id}" title="Скільки загальних грошей на руках"><b class="${b[o.id]<0?"out":""}">${money(b[o.id])}</b><span>у ${esc(o.name)}</span></div>`).join("")}</div>
+    <div class="tabs2">${[["journal","Журнал"],["sites","Об'єкти"],["workers","Виконавці"],["customers","Замовники"]].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
+    ${S.mtab==="journal"?`<div class="filters">
+      <select id="mMonth"><option value="">Весь час</option>${months.map(m=>`<option value="${m}" ${S.mMonth===m?"selected":""}>${MONTHS[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join("")}</select>
+      <select id="mSite"><option value="">Усі об'єкти</option>${siteOpts.map(x=>`<option value="${x.id}" ${S.mSite===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    </div><div class="filters">
+      <select id="mOwner"><option value="">Усі власники</option>${owners().map(o=>`<option value="${o.id}" ${S.mOwner===o.id?"selected":""}>${esc(o.name)}</option>`).join("")}</select>
+      <select id="mType"><option value="">Прихід і витрати</option><option value="in" ${S.mType==="in"?"selected":""}>Тільки прихід</option><option value="out" ${S.mType==="out"?"selected":""}>Тільки витрати</option><option value="accrual" ${S.mType==="accrual"?"selected":""}>Нарахування</option></select>
+      <select id="mKind"><option value="">Усі види</option>${[...KINDS,"Взаємозалік"].map(k=>`<option ${S.mKind===k?"selected":""}>${k}</option>`).join("")}</select>
+    </div>`:""}`;
+  if(!S.fin.size){$("#view").innerHTML=`<div class="empty">Записів ще немає. Натисніть «+», щоб додати прихід чи витрату.</div>`;return}
+  if(S.mtab==="sites") return renderMoneySites(shared);
+  if(S.mtab==="workers") return renderMoneyWorkers();
+  if(S.mtab==="customers") return renderMoneyCustomers();
+  const list=finFiltered();
+  let tin=0,tout=0; for(const f of list) if(f.kind!=="Взаємозалік"&&f.type!=="accrual"){ if(f.type==="in")tin+=+f.amount||0; else tout+=+f.amount||0 }
+  let h=`<div class="sum">Прихід <b class="in">${money(tin)}</b> · Витрати <b class="out">${money(tout)}</b> · Різниця <b>${money(tin-tout)}</b> <span class="count">${list.length} зап.</span></div>`;
+  if(list.some(f=>f.kind==="Взаємозалік")) h+=`<div class="sum" style="margin-top:-4px;color:var(--muted)">взаємозаліки в суму не входять</div>`;
+  let day=null;
+  for(const f of list.slice(0,400)){
+    if(f.date!==day){ if(day!==null)h+=`</div>`; day=f.date; h+=`<div class="daysep">${fmtDay(day)}</div><div class="list">`; }
+    const o=person(f.owner), w=person(f.worker);
+    h+=`<div class="card" data-fin="${f.id}"><div class="main">
+      <div class="t">${f.site?esc(site(f.site)?.name||"—"):(f.kind==="Взаємозалік"?"Взаємозалік":"Без об'єкта")}</div>
+      <div class="m">${f.type==="accrual"?`<span class="tag acc">нараховано</span>`:esc(o?.name||"—")}${f.kind&&f.kind!=="Взаємозалік"?" · "+esc(f.kind):""}${w?" · 🔧 "+esc(w.name):""}${f.note?" · "+esc(f.note):""}</div></div>
+      <span class="amt ${f.type==="in"?"in":f.type==="accrual"?"acc":"out"}">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
+  }
+  if(day!==null)h+=`</div>`;
+  if(list.length>400)h+=`<div class="empty">Показано 400 останніх — звузьте фільтр</div>`;
+  $("#view").innerHTML=h;
+}
+function renderMoneySites(shared){
+  const st=siteTotals();
+  const rows=Object.entries(st).map(([id,t])=>({id,...t,s:site(id)})).filter(r=>r.s).sort((a,b)=>(b.s.active!==false)-(a.s.active!==false)||(b.s.order||0)-(a.s.order||0));
+  let h=`<div class="sum" style="color:var(--muted)">Поділено між власниками: <b>${money(shared)}</b></div><div class="list">`;
+  for(const r of rows){ const p=r.in-r.out;
+    h+=`<div class="card" data-msite="${r.id}"><div class="main"><div class="t">${esc(r.s.name)} ${r.s.split?`<span class="tag site">✓ поділено</span>`:""}</div>
+      <div class="m">прихід <span class="in">${money(r.in)}</span> · витрати <span class="out">${money(r.out)}</span>${(+r.s.contract||0)>0?` · замовник винен <b>${money(+r.s.contract-r.in)}</b>`:""}</div></div>
+      <span class="amt ${p<0?"out":""}">${money(p)}</span></div>`;
+  }
+  $("#view").innerHTML=h+`</div>`;
+}
+function renderMoneyWorkers(){
+  const t=workerTotals();
+  const rows=Object.entries(t).map(([id,x])=>({id,...x,p:person(id)})).filter(r=>r.p).sort((a,b)=>(b.acc-b.paid)-(a.acc-a.paid));
+  let h=`<div class="sum" style="color:var(--muted)">Нарахування — домовлена сума за роботу. Виплата — зарплата з вибраним виконавцем. Різниця — борг.</div>`;
+  if(!rows.length){$("#view").innerHTML=h+`<div class="empty">Поки немає записів з виконавцями.<br>Натисніть «+» → «Нарахування», або вкажіть виконавця при записі зарплати.</div>`;return}
+  let owe=0; for(const r of rows) if(r.acc-r.paid>0) owe+=r.acc-r.paid;
+  h+=`<div class="sum">Разом винні виконавцям: <b class="out">${money(owe)}</b></div><div class="list">`;
+  for(const r of rows){const d=r.acc-r.paid;
+    h+=`<div class="card" data-mworker="${r.id}"><div class="stripe wrk"></div><div class="main"><div class="t">${esc(r.p.name)}</div>
+      <div class="m">нараховано ${money(r.acc)} · виплачено ${money(r.paid)}</div></div>
+      <span class="amt ${d>0?"out":d<0?"acc":""}">${d>0?"винні "+money(d):d<0?"аванс "+money(-d):"0 ₴"}</span></div>`}
+  $("#view").innerHTML=h+`</div>`;
+}
+function renderMoneyCustomers(){
+  const rows=customerRows();
+  let h=`<div class="sum" style="color:var(--muted)">Сума договору вказується в картці об'єкта. Борг = договір − отримано.</div>`;
+  if(!rows.length){$("#view").innerHTML=h+`<div class="empty">Відкрийте об'єкт (вкладка «Об'єкти») і вкажіть замовника та суму договору.</div>`;return}
+  const tot=rows.reduce((a,r)=>a+Math.max(0,r.debt),0);
+  h+=`<div class="sum">Разом замовники винні: <b class="in">${money(tot)}</b></div><div class="list">`;
+  for(const r of rows) h+=`<div class="card" data-site="${r.s.id}"><div class="main"><div class="t">${esc(r.s.name)}</div>
+    <div class="m">${r.s.customer?"👤 "+esc(r.s.customer)+" · ":""}договір ${money(r.contract)} · отримано ${money(r.paid)}</div></div>
+    <span class="amt ${r.debt>0?"in":""}">${r.debt>0?money(r.debt):r.debt<0?"переплата "+money(-r.debt):"оплачено"}</span></div>`;
+  $("#view").innerHTML=h+`</div>`;
+}
+function workerSheet(id){
+  const p=person(id); if(!p)return; const x=workerTotals()[id]||{acc:0,paid:0}; const d=x.acc-x.paid;
+  const list=[...S.fin.values()].filter(f=>f.worker===id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
+  openSheet(`<h2>🔧 ${esc(p.name)}</h2>
+    <div class="sum">Нараховано <b>${money(x.acc)}</b> · Виплачено <b>${money(x.paid)}</b></div>
+    <div class="sum" style="font-size:16px">${d>0?`Винні йому: <b class="out">${money(d)}</b>`:d<0?`Аванс (переплата): <b class="acc">${money(-d)}</b>`:"Розраховані повністю"}</div>
+    ${S.canWrite?`<div class="actions" style="margin-top:4px"><button class="btn ghost" id="wAcc">+ Нарахувати</button><button class="btn" id="wPay">+ Виплатити</button></div>`:""}
+    <div class="section-t">Історія</div>
+    ${list.length?list.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)}${f.site?" · "+esc(site(f.site)?.name||""):""}</div><div>${f.type==="accrual"?"Нараховано":"Виплачено"+(person(f.owner)?" ("+esc(person(f.owner).name)+")":"")}${f.note?" · "+esc(f.note):""}</div></div><span class="amt ${f.type==="accrual"?"acc":"out"}">${money(f.amount)}</span></div>`).join(""):`<div class="m" style="color:var(--muted)">Записів немає</div>`}
+    <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  $("#wAcc")?.addEventListener("click",()=>finForm(null,{type:"accrual",worker:id}));
+  $("#wPay")?.addEventListener("click",()=>finForm(null,{type:"out",kind:"Зарплата",worker:id}));
+  document.querySelectorAll(".sheet [data-fin]").forEach(el=>el.addEventListener("click",()=>{ if(S.canWrite) finForm(S.fin.get(el.dataset.fin)) }));
+}
+function finForm(f,preset){
+  const isNew=!f; f=f||Object.assign({type:"out",date:todayISO(),owner:owners()[0]?.id,kind:"Матеріали"},preset||{});
+  const pair=f.pair?[...S.fin.values()].find(x=>x.pair===f.pair&&x.id!==f.id):null;
+  let mode=f.kind==="Взаємозалік"?"xfer":f.type;
+  const from=f.kind==="Взаємозалік"?(f.type==="out"?f:pair):null, to=f.kind==="Взаємозалік"?(f.type==="in"?f:pair):null;
+  const ownOpts=sel=>owners().map(o=>`<option value="${o.id}" ${sel===o.id?"selected":""}>${esc(o.name)}</option>`).join("");
+  const workers=[...S.people.values()].filter(p=>p.role==="worker").sort(byName);
+  openSheet(`<h2>${isNew?"Новий запис":"Редагувати запис"}</h2>
+    <form id="finForm">
+      <div class="field"><div class="seg" id="segM"><button type="button" data-v="in">➕ Прихід</button><button type="button" data-v="out">➖ Витрата</button><button type="button" data-v="xfer">⇄ Залік</button><button type="button" data-v="accrual">🔧 Нарахув.</button></div></div>
+      <div class="row"><div class="field"><label>Дата</label><input type="date" name="date" value="${esc(f.date||todayISO())}"></div>
+        <div class="field"><label>Сума, ₴ *</label><input name="amount" inputmode="decimal" required value="${f.amount??""}" placeholder="0"></div></div>
+      <div data-m="in out"><div class="field"><label id="ownLbl">Хто</label><select name="owner">${ownOpts(f.owner)}</select></div></div>
+      <div data-m="in out accrual"><div class="field"><label>Об'єкт</label><select name="site">${siteOptions(f.site||"","— без об'єкта")}</select></div></div>
+      <div data-m="out accrual"><div class="row"><div class="field" data-m="out"><label>Вид</label><select name="kind">${KINDS.map(k=>`<option ${f.kind===k?"selected":""}>${k}</option>`).join("")}</select></div>
+        <div class="field"><label id="wLbl">Виконавець</label><select name="worker"><option value="">—</option>${workers.map(p=>`<option value="${p.id}" ${f.worker===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div></div></div>
+      <div data-m="xfer"><div class="row"><div class="field"><label>Від кого</label><select name="from">${ownOpts(from?.owner||owners()[0]?.id)}</select></div>
+        <div class="field"><label>Кому</label><select name="to">${ownOpts(to?.owner||owners()[1]?.id)}</select></div></div></div>
+      <div class="field"><label>Коментар</label><input name="note" value="${esc(f.note)}"></div>
+      <div class="actions">${!isNew?`<button type="button" class="btn danger" id="delF">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>
+    </form>`);
+  const setMode=m=>{mode=m;[...$("#segM").children].forEach(x=>x.classList.toggle("on",x.dataset.v===m));document.querySelectorAll("#finForm [data-m]").forEach(el=>el.style.display=el.dataset.m.split(" ").includes(m)?"":"none");$("#ownLbl").textContent=m==="in"?"Хто отримав":"Хто заплатив";$("#wLbl").textContent=m==="accrual"?"Кому нараховано *":"Виконавець"};
+  setMode(mode);
+  $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
+  $("#finForm").addEventListener("submit",async e=>{
+    e.preventDefault(); const v=Object.fromEntries(new FormData(e.target));
+    const amount=parseFloat(String(v.amount).replace(/\s/g,"").replace(",","."));
+    if(!(amount>0)){toast("Вкажіть суму");return}
+    const btn=e.target.querySelector("[type=submit]"); btn.disabled=true;
+    const now=Date.now(), base={date:v.date,amount,note:v.note.trim(),updatedAt:now,by:S.uid||""};
+    let ok;
+    if(mode==="xfer"){
+      if(v.from===v.to){toast("Виберіть різних людей");btn.disabled=false;return}
+      const pid=f.pair||("x"+now);
+      ok=await write(async db=>{
+        const outRef=from?db.doc("fin/"+from.id):db.collection("fin").doc(), inRef=to?db.doc("fin/"+to.id):db.collection("fin").doc();
+        // if editing a non-transfer entry into a transfer, reuse its doc for the outgoing side
+        const outR=(!from&&!isNew)?db.doc("fin/"+f.id):outRef;
+        await outR.set({...base,type:"out",owner:v.from,site:"",kind:"Взаємозалік",worker:"",pair:pid,createdAt:f.createdAt||now});
+        await inRef.set({...base,type:"in",owner:v.to,site:"",kind:"Взаємозалік",worker:"",pair:pid,createdAt:f.createdAt||now});
+      });
+    } else if(mode==="accrual"){
+      if(!v.worker){toast("Виберіть виконавця");btn.disabled=false;return}
+      const data={...base,type:"accrual",owner:"",site:v.site||"",kind:"",worker:v.worker,createdAt:f.createdAt||now};
+      ok=await write(async db=>{
+        if(isNew) await db.collection("fin").add(data);
+        else { await db.doc("fin/"+f.id).set(data); if(pair) await db.doc("fin/"+pair.id).delete(); }
+      });
+    } else {
+      const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"?(v.worker||""):"",createdAt:f.createdAt||now};
+      ok=await write(async db=>{
+        if(isNew) await db.collection("fin").add(data);
+        else { await db.doc("fin/"+f.id).set(data); if(pair) await db.doc("fin/"+pair.id).delete(); }
+      });
+    }
+    if(ok){closeSheet();toast("Збережено")} else btn.disabled=false;
+  });
+  $("#delF")?.addEventListener("click",()=>{
+    openSheet(`<h2>Видалити запис?</h2><p>${esc(fmtDay(f.date))} · ${money(f.amount)}${pair?" (обидві частини взаємозаліку)":""}</p><div class="actions"><button class="btn ghost" data-close>Ні</button><button class="btn danger" id="yesDelF">Видалити</button></div>`);
+    $("#yesDelF").onclick=async()=>{ if(await write(async db=>{await db.doc("fin/"+f.id).delete(); if(pair) await db.doc("fin/"+pair.id).delete();})){closeSheet();toast("Видалено")} };
+  });
+}
+
+// ---------- Меню: резервна копія, вихід ----------
+const COLS=["people","sites","tools","moves","fin"];
+function openMenu(){
+  const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
+  openSheet(`<h2>Меню</h2>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
+    <button class="btn ghost" id="mExport" style="width:100%;margin-bottom:8px">⬇️ Зберегти резервну копію (файл)</button>
+    <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:8px">⬆️ Завантажити дані з файлу<input type="file" id="mImport" accept=".json,application/json" style="display:none"></label>
+    ${empty?"":`<div style="color:var(--muted);font-size:12.5px;margin:-2px 2px 10px">Завантаження додає записи з файлу; записи з тим самим ID будуть перезаписані.</div>`}
+    <button class="btn danger" id="mLogout" style="width:100%">Вийти з акаунта</button>
+    <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  $("#mExport").onclick=()=>{
+    const out={exportedAt:new Date().toISOString()};
+    out.people=[...S.people.values()];out.sites=[...S.sites.values()];out.tools=[...S.tools.values()];out.fin=[...S.fin.values()];out.moves=S.moves;
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(out)],{type:"application/json"}));
+    a.download="oblik-backup-"+todayISO()+".json";document.body.appendChild(a);a.click();a.remove();
+  };
+  $("#mImport").onchange=async e=>{
+    const file=e.target.files[0]; if(!file)return;
+    let data; try{data=JSON.parse(await file.text())}catch(_){toast("Файл пошкоджений");return}
+    const items=[];for(const c of COLS) for(const d of (data[c]||[])) if(d&&d.id) items.push([c,d]);
+    if(!items.length){toast("У файлі немає даних");return}
+    openSheet(`<h2>Завантаження…</h2><p id="impProg">0 / ${items.length}</p>`);
+    const ok=await write(async db=>{ await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent=n+" / "+items.length}) });
+    closeSheet(); toast(ok?"Завантажено "+items.length+" записів":"Помилка завантаження");
+  };
+  $("#mLogout").onclick=()=>window.__fbSignOut();
+}
+$("#menuBtn").addEventListener("click",openMenu);
+
+// ---------- Події ----------
+$("#nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S.tab=b.dataset.tab;S.select=false;S.selected.clear();window.scrollTo(0,0);render()});
+$("#fab").addEventListener("click",()=>({tools:()=>toolForm(),sites:()=>siteForm(),people:()=>personForm(),money:()=>finForm()})[S.tab]?.());
+$("#headTools").addEventListener("input",e=>{
+  if(e.target.id==="q"){S.q=e.target.value; renderTools();}
+});
+$("#headTools").addEventListener("change",e=>{
+  if(["mMonth","mSite","mOwner","mType","mKind"].includes(e.target.id)){S[e.target.id]=e.target.value;render();return}
+  if(e.target.id==="fCat")S.cat=e.target.value;
+  if(e.target.id==="fSite")S.site=e.target.value;
+  if(e.target.id==="fPerson")S.person=e.target.value;
+  render();
+});
+$("#headTools").addEventListener("click",e=>{
+  const st=e.target.closest("[data-ht]"); if(st){S.holderType=st.dataset.ht;render();return}
+  const mt=e.target.closest("[data-mt]"); if(mt){S.mtab=mt.dataset.mt;render();return}
+  const ow=e.target.closest("[data-own]"); if(ow){Object.assign(S,{mtab:"journal",mOwner:S.mOwner===ow.dataset.own?"":ow.dataset.own});render();return}
+  if(e.target.id==="selBtn"){S.select=!S.select;S.selected.clear();render()}
+});
+$("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
+$("#view").addEventListener("click",e=>{
+  if(e.target.id==="archT"){S.showArch=!S.showArch;renderSites();return}
+  const c=e.target.closest(".card"); if(!c)return;
+  if(c.dataset.tool){ if(S.select){const id=c.dataset.tool; S.selected.has(id)?S.selected.delete(id):S.selected.add(id); render(); } else toolCard(c.dataset.tool); }
+  else if(c.dataset.site) siteForm(S.sites.get(c.dataset.site));
+  else if(c.dataset.fin){ if(S.canWrite) finForm(S.fin.get(c.dataset.fin)); }
+  else if(c.dataset.msite){ Object.assign(S,{mtab:"journal",mSite:c.dataset.msite,mOwner:"",mKind:"",mMonth:"",mType:""}); render(); }
+  else if(c.dataset.mworker){ workerSheet(c.dataset.mworker); }
+  else if(c.dataset.person) personForm(S.people.get(c.dataset.person));
+});
+$("#bulk").addEventListener("click",e=>{
+  if(e.target.id==="selAll"){filteredTools().forEach(t=>S.selected.add(t.id));render()}
+  if(e.target.id==="bulkMove") moveForm([...S.selected]);
+});
+
+init();
+</script>
+<script type="module">
+import {firebaseConfig, ALLOWED} from "./firebase-config.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+const app=initializeApp(firebaseConfig);
+let fs; try{ fs=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})}) }catch(e){ fs=initializeFirestore(app,{}) }
+const auth=getAuth(app); auth.languageCode="uk";
+const L=document.getElementById("login"), msg=document.getElementById("loginMsg"), lo2=document.getElementById("logoutBtn2");
+
+const snapW=s=>({docs:s.docs.map(d=>({id:d.id,exists:true,data:()=>d.data(),metadata:d.metadata})),metadata:s.metadata});
+const wrapQ=q=>({ onSnapshot:(next,err)=>onSnapshot(q,{includeMetadataChanges:true},s=>next(snapW(s)),e=>err&&err({code:e.code,message:e.message})),
+  orderBy:(f,d)=>wrapQ(query(q,orderBy(f,d))), limit:n=>wrapQ(query(q,limit(n))) });
+const wrapD=r=>({id:r.id,path:r.path,set:d=>setDoc(r,d),update:d=>updateDoc(r,d),delete:()=>deleteDoc(r)});
+const wrapC=c=>({...wrapQ(c),path:c.path,add:async d=>wrapD(await addDoc(c,d)),doc:id=>wrapD(id?doc(c,id):doc(c))});
+const db={collection:p=>wrapC(collection(fs,p)),doc:p=>wrapD(doc(fs,p))};
+
+window.__fbBulk=async(items,prog)=>{ for(let i=0;i<items.length;i+=400){ const b=writeBatch(fs); for(const [c,d] of items.slice(i,i+400)){const {id,...rest}=d; b.set(doc(fs,c,String(id)),rest)} await b.commit(); prog&&prog(Math.min(i+400,items.length)); } };
+window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
+
+document.getElementById("loginBtn").onclick=async()=>{
+  const p=new GoogleAuthProvider(); p.setCustomParameters({prompt:"select_account"});
+  try{ await signInWithPopup(auth,p) }catch(e){ if(e.code==="auth/popup-blocked"||e.code==="auth/operation-not-supported-in-this-environment") await signInWithRedirect(auth,p); else msg.textContent="Не вдалося увійти: "+e.code; }
+};
+lo2.onclick=()=>window.__fbSignOut();
+getRedirectResult(auth).catch(()=>{});
+
+let started=false;
+onAuthStateChanged(auth,u=>{
+  if(!u){ L.style.display="flex"; return; }
+  const email=(u.email||"").toLowerCase();
+  if(ALLOWED.length&&!ALLOWED.includes(email)){ L.style.display="flex"; msg.innerHTML="Пошта <b>"+email+"</b> не має доступу.<br>Попросіть Андрія додати її."; document.getElementById("loginBtn").style.display="none"; lo2.style.display=""; return; }
+  L.style.display="none"; window.__fbEmail=email;
+  if(started) return; started=true;
+  const name=u.displayName||email;
+  const user={ id:async()=>u.uid, me:async()=>({name}), can:async()=>true };
+  window.__fbResolve([db,user]);
+});
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
