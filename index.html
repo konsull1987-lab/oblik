@@ -729,7 +729,7 @@ function renderMoneyDocs(){
   const list=[...S.docs.values()].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
   let h=`<div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="mngFops">ФОПи (${S.fops.size})</button><button class="btn ghost sm" id="mngCli">Замовники (${S.clients.size})</button><button class="btn sm" id="newCt">+ Договір</button></div>`;
   const cts=[...S.contracts.values()].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  if(cts.length) h+=`<div class="section-t">Договори</div><div class="list">`+cts.map(c=>`<div class="card" data-ct="${c.id}"><div class="main"><div class="t">Договір № ${esc(c.no)}</div><div class="m">${fmtDay(c.date)} · ${esc((S.clients.get(c.client)||{}).name||"—")}</div></div><span class="amt">${money(ctTotal(c))}</span></div>`).join("")+`</div><div class="section-t">Рахунки та акти</div>`;
+  if(cts.length) h+=`<div class="section-t">Договори</div><div class="list">`+cts.map(c=>`<div class="card" data-ct="${c.id}"><div class="main"><div class="t">Договір № ${esc(c.no)}${c.orig?" 📎":""}</div><div class="m">${fmtDay(c.date)} · ${esc((S.clients.get(c.client)||{}).name||"—")}</div></div><span class="amt">${money(ctTotal(c))}</span></div>`).join("")+`</div><div class="section-t">Рахунки та акти</div>`;
   if(!S.fops.size) h+=`<div class="empty">Спочатку додайте ФОП (кнопка «ФОПи»), потім натисніть «+».</div>`;
   else if(!list.length) h+=`<div class="empty">Документів ще немає. Натисніть «+», щоб створити рахунок і акт.</div>`;
   else h+=`<div class="list">`+list.map(d=>`<div class="card" data-doc="${d.id}"><div class="main"><div class="t">Рах. № ${esc(d.invNo)}${d.actNo?` · Акт № ${esc(d.actNo)}`:""}</div>
@@ -908,6 +908,25 @@ function bindEstimate(id,items,redraw){
     e.target.value="";};
 }
 
+// ---------- Файли (оригінали договорів) ----------
+const CHUNK=700000;
+async function saveFile(file){
+  if(file.size>8*1024*1024) throw new Error("big");
+  const b64=await new Promise((ok,bad)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]);r.onerror=bad;r.readAsDataURL(file)});
+  const id="f"+Date.now().toString(36)+Math.random().toString(36).slice(2,6); const n=Math.ceil(b64.length/CHUNK);
+  await write(async db=>{ for(let i=0;i<n;i++) await db.doc("files/"+id+"_"+i).set({d:b64.slice(i*CHUNK,(i+1)*CHUNK)}); await db.doc("files/"+id).set({name:file.name,type:file.type||"application/octet-stream",size:file.size,chunks:n}); });
+  return {id,name:file.name};
+}
+async function openFile(id){
+  toast("Завантажую файл…");
+  try{ const m=await S.db.doc("files/"+id).get(); if(!m.exists){toast("Файл не знайдено");return} const meta=m.data(); let b64="";
+    for(let i=0;i<meta.chunks;i++){const c=await S.db.doc("files/"+id+"_"+i).get(); b64+=c.data().d}
+    const bin=atob(b64),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([arr],{type:meta.type}));a.download=meta.name;document.body.appendChild(a);a.click();a.remove();
+  }catch(e){toast("Не вдалося відкрити файл")}
+}
+async function deleteFile(id){ const m=await S.db.doc("files/"+id).get(); const n=m.exists?m.data().chunks:0; await window.__fbDelete([["files",id],...Array.from({length:n},(_,i)=>["files",id+"_"+i])]); }
+
 // ---------- Договір підряду ----------
 const dWord=iso=>{if(!iso)return"";const[y,m,d]=iso.split("-");return `${+d} ${UA_MON[+m-1].toLowerCase()} ${y} року`};
 const sumTxt=n=>{const[a,b]=n2(n).split(".");return a.replace(/\B(?=(\d{3})+(?!\d))/g," ")+","+b+" грн ("+uaWords(n).toLowerCase()+")"};
@@ -1013,6 +1032,9 @@ function contractForm(c){
     <div class="field"><label>Об'єкт</label><select name="site">${siteOptions(c.site||"","—")}</select></div>
     ${I("addr","Адреса об'єкта","text","м. Полтава, вул. …")}
     ${I("workDesc","Які роботи (для п. 1.1)","text","ремонтні роботи / покрівельні роботи …")}
+    <div class="field"><label>Оригінал договору (Word / PDF / фото), якщо договір уже підписаний</label>
+      <div id="ctOrig" class="m" style="margin-bottom:6px">${c.orig?`📎 ${esc(c.orig.name)} <button type="button" class="btn ghost sm" id="ctOrigDel">✕</button>`:""}</div>
+      <label class="btn ghost sm" style="display:block;text-align:center">📎 ${c.orig?"Замінити":"Прикріпити"} файл<input type="file" id="ctOrigF" style="display:none"></label></div>
     <div class="row">${I("prepay","Передоплата, %","number")}${I("days","Строк, робочих днів","number")}${I("warranty","Гарантія, міс.","number")}</div>
     <div class="section-t">Кошторис (Додаток № 1)</div><div class="m" style="color:var(--muted);font-size:12.5px;margin:-4px 2px 6px">Можна не заповнювати й вказати лише загальну суму.</div>
     ${estimateButton("ctXls")}<div id="ctItems"></div><button type="button" class="btn ghost sm" id="ctAdd" style="width:100%">+ Додати рядок</button>
@@ -1030,21 +1052,27 @@ function contractForm(c){
   const collect=()=>{const v=Object.fromEntries(new FormData($("#ctF")));const num=x=>parseFloat(String(x||"").replace(/\s/g,"").replace(",","."))||0;
     return {...c,...v,client:v.client==="__new"?"":v.client,prepay:num(v.prepay),days:num(v.days),warranty:num(v.warranty)||12,total:num(v.total),items:items.map(i=>({name:String(i.name).trim(),unit:String(i.unit).trim(),qty:num(i.qty),price:num(i.price)})).filter(i=>i.name)}};
   $("#ctCli").onchange=e=>{if(e.target.value==="__new"){const keep=collect();reqForm("clients",null,id=>contractForm({...keep,client:id}))}};
+  let orig=c.orig||null; const oldOrig=c.orig?.id;
+  $("#ctOrigF").onchange=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>8*1024*1024){toast("Файл більший за 8 МБ");return}
+    toast("Завантажую…");try{orig=await saveFile(f);$("#ctOrig").innerHTML="📎 "+esc(orig.name);toast("Файл прикріплено")}catch(_){toast("Не вдалося завантажити файл")}};
+  $("#ctOrigDel")?.addEventListener("click",()=>{orig=null;$("#ctOrig").innerHTML=""});
   $("#ctF").onsubmit=async e=>{e.preventDefault();const v=collect();if(!v.client){toast("Виберіть замовника");return}if(!(ctTotal(v)>0)){toast("Вкажіть суму або кошторис");return}
-    const now=Date.now();const data={no:v.no.trim(),date:v.date,until:v.until,fop:v.fop,client:v.client,site:v.site||"",addr:v.addr.trim(),workDesc:v.workDesc.trim(),prepay:v.prepay,days:v.days,warranty:v.warranty,total:v.total,items:v.items,updatedAt:now,createdAt:c.createdAt||now};
+    const now=Date.now();const data={orig:orig||null,no:v.no.trim(),date:v.date,until:v.until,fop:v.fop,client:v.client,site:v.site||"",addr:v.addr.trim(),workDesc:v.workDesc.trim(),prepay:v.prepay,days:v.days,warranty:v.warranty,total:v.total,items:v.items,updatedAt:now,createdAt:c.createdAt||now};
     let id=c.id;const ok=await write(async db=>{if(!id){const r=await db.collection("contracts").add(data);id=r.id}else await db.doc("contracts/"+id).set(data)});
-    if(ok){toast("Збережено");contractView(id,data)}};
-  $("#ctDel")?.addEventListener("click",async()=>{if(await write(db=>db.doc("contracts/"+c.id).delete())){closeSheet();toast("Видалено")}});
+    if(ok){ if(oldOrig&&oldOrig!==orig?.id) deleteFile(oldOrig).catch(()=>{}); toast("Збережено");contractView(id,data)}};
+  $("#ctDel")?.addEventListener("click",async()=>{if(await write(db=>db.doc("contracts/"+c.id).delete())){if(c.orig)deleteFile(c.orig.id).catch(()=>{});closeSheet();toast("Видалено")}});
 }
 function contractView(id,fb){
   const c=S.contracts.get(id)||{id,...fb};const tot=ctTotal(c),pp=Math.round(tot*(+c.prepay||0))/100;
   openSheet(`<h2>Договір № ${esc(c.no)}</h2><div class="m" style="color:var(--muted)">${dLong(c.date)} · ${esc((S.fops.get(c.fop)||{}).short||"")}</div>
     <div class="m" style="margin:6px 0">${esc((S.clients.get(c.client)||{}).name||"")}${c.addr?" · "+esc(c.addr):""}</div>
     <div class="sum" style="font-size:16px">Сума: <b>${money(tot)}</b>${c.prepay?` · передоплата ${c.prepay}% = ${money(pp)}`:""}</div>
-    <div class="actions"><button class="btn" id="ctPrint">🖨 Договір</button>${c.prepay&&S.canWrite?`<button class="btn ghost" id="ctInv">Рахунок на передоплату</button>`:""}</div>
+    ${c.orig?`<div class="actions"><button class="btn" id="ctOpen">📎 Відкрити оригінал</button></div>`:""}
+    <div class="actions"><button class="btn ${c.orig?"ghost":""}" id="ctPrint">🖨 ${c.orig?"Друк за шаблоном застосунку":"Договір"}</button>${c.prepay&&S.canWrite?`<button class="btn ghost" id="ctInv">Рахунок на передоплату</button>`:""}</div>
     ${S.canWrite&&(c.items||[]).some(i=>i.name)?`<div class="actions"><button class="btn" id="ctAct">Рахунок + акт за кошторисом</button></div>`:""}
     <div class="actions">${S.canWrite?`<button class="btn ghost" id="ctEdit">Редагувати</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
   $("#ctPrint").onclick=()=>printDoc(contractHTML(c),"Договір "+c.no);
+  $("#ctOpen")?.addEventListener("click",()=>openFile(c.orig.id));
   $("#ctEdit")?.addEventListener("click",()=>contractForm(S.contracts.get(id)||c));
   $("#ctAct")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:(c.items||[]).filter(i=>i.name).map(i=>({...i}))}));
   $("#ctInv")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:[{name:`Передоплата ${c.prepay}% за договором підряду № ${c.no} від ${dShort(c.date)}`,unit:"посл.",qty:1,price:pp}]}));
@@ -1135,7 +1163,7 @@ init();
 <script type="module">
 import {firebaseConfig, ALLOWED} from "./firebase-config.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const app=initializeApp(firebaseConfig);
@@ -1146,7 +1174,7 @@ const L=document.getElementById("login"), msg=document.getElementById("loginMsg"
 const snapW=s=>({docs:s.docs.map(d=>({id:d.id,exists:true,data:()=>d.data(),metadata:d.metadata})),metadata:s.metadata});
 const wrapQ=q=>({ onSnapshot:(next,err)=>onSnapshot(q,{includeMetadataChanges:true},s=>next(snapW(s)),e=>err&&err({code:e.code,message:e.message})),
   orderBy:(f,d)=>wrapQ(query(q,orderBy(f,d))), limit:n=>wrapQ(query(q,limit(n))) });
-const wrapD=r=>({id:r.id,path:r.path,set:d=>setDoc(r,d),update:d=>updateDoc(r,d),delete:()=>deleteDoc(r)});
+const wrapD=r=>({id:r.id,path:r.path,get:async()=>{const x=await getDoc(r);return{exists:x.exists(),data:()=>x.data()}},set:d=>setDoc(r,d),update:d=>updateDoc(r,d),delete:()=>deleteDoc(r)});
 const wrapC=c=>({...wrapQ(c),path:c.path,add:async d=>wrapD(await addDoc(c,d)),doc:id=>wrapD(id?doc(c,id):doc(c))});
 const db={collection:p=>wrapC(collection(fs,p)),doc:p=>wrapD(doc(fs,p))};
 
