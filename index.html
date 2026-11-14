@@ -410,7 +410,7 @@ async function moveTool(db,t,qty,holder,siteId,note,byName){
 }
 
 // ---------- Розпізнавання інструменту з фото ----------
-async function shrinkImage(file,max=1600){
+async function shrinkImage(file,max=1280){
   const url=URL.createObjectURL(file);
   try{ const img=await new Promise((ok,bad)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=bad;i.src=url});
     const k=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement("canvas");
@@ -438,35 +438,48 @@ function toolScore(rec,t){
   let s=0; for(const w of a){ if(b.has(w)) s+=2; else for(const x of b){ if(x.length>3&&w.length>3&&(x.startsWith(w.slice(0,4))||w.startsWith(x.slice(0,4)))){s+=1;break} } }
   if(rec.cat&&rec.cat===t.cat) s+=2; if(rec.brand&&normName(rec.brand)===normName(t.brand)) s+=2; return s;
 }
+function notifyDone(text){
+  if(!document.hidden) return;
+  try{ if(window.Notification&&Notification.permission==="granted") navigator.serviceWorker?.ready.then(r=>r.showNotification("Облік інструменту",{body:text,icon:"icon-192.png",tag:"pf"})).catch(()=>{}) }catch(_){}
+}
 function photoFlow(){
   let mode="add", imgs=[], rows=[];
+  try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
+  const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v19</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v20</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
       <div id="pfThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${imgs.map((x,i)=>`<div style="position:relative"><img src="${x.thumb}" style="width:72px;height:72px;object-fit:cover;border-radius:8px"><button type="button" data-rmimg="${i}" style="position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:22px;height:22px;background:var(--text);color:var(--bg)">✕</button></div>`).join("")}</div>
       ${imgs.length?`<button class="btn" id="pfGo" style="width:100%">🔍 Розпізнати (${imgs.length} фото)</button>`:""}
+      ${rows.length&&imgs.some(x=>x.old)?`<div class="m" style="color:var(--muted);font-size:13px">Збережений результат попереднього розпізнавання. <a href="#" id="pfDrop">Почати заново</a></div>`:""}
       <div id="pfRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     $("#pfMode").onclick=e=>{const b=e.target.closest("button");if(!b)return;mode=b.dataset.v;rows=[];draw()};
-    document.querySelectorAll(".pfFile").forEach(x=>x.onchange=async e=>{for(const f of e.target.files){try{imgs.push(await shrinkImage(f))}catch(_){}}rows=[];draw()});
+    document.querySelectorAll(".pfFile").forEach(x=>x.onchange=async e=>{imgs=imgs.filter(x=>!x.old);for(const f of e.target.files){try{imgs.push(await shrinkImage(f))}catch(_){}}rows=[];draw()});
     $("#pfThumbs").onclick=e=>{const i=e.target.dataset.rmimg;if(i!=null){imgs.splice(+i,1);rows=[];draw()}};
     $("#pfGo")?.addEventListener("click",recognize);
+    $("#pfDrop")?.addEventListener("click",e=>{e.preventDefault();try{localStorage.removeItem("pfDraft")}catch(_){};imgs=[];rows=[];draw()});
     if(rows.length) drawRows();
   };
   async function recognize(){
     if(!window.__fbAI){toast("Розпізнавання недоступне");return}
-    const b=$("#pfGo"); b.disabled=true; b.textContent="⏳ Розпізнаю… (до хвилини)";
+    if(imgs.some(x=>x.old)){toast("Додайте фото заново");return}
+    const b=$("#pfGo"); b.disabled=true; const t0=Date.now(); let tr="";
+    const tick=setInterval(()=>{const el=$("#pfGo"); if(el) el.textContent=`⏳ Розпізнаю… ${Math.round((Date.now()-t0)/1000)} с${tr}`},1000);
+    try{ if(window.Notification&&Notification.permission==="default") Notification.requestPermission().catch(()=>{}) }catch(_){}
     try{
-      const txt=await window.__fbAI(imgs,aiPrompt());
+      const txt=await window.__fbAI(imgs,aiPrompt(),(n,all)=>{tr=n>1?` (спроба ${n}/${all})`:""});
+      clearInterval(tick);
       const j=JSON.parse(txt.replace(/^```(json)?|```$/g,"").trim());
       const allCats=Object.values(CATS).flat();
       rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),cat:allCats.includes(x.cat)?x.cat:"Інше",brand:String(x.brand||"").trim(),model:String(x.model||"").trim(),qty:Math.max(1,parseInt(x.qty)||1),conf:x.confidence||"medium",note:String(x.note||"").trim()}));
       if(!rows.length){toast("На фото інструмент не знайдено");b.disabled=false;b.textContent="🔍 Розпізнати";return}
       if(mode==="move") matchRows();
-      drawRows();
-    }catch(err){
+      saveDraft(); notifyDone(`Розпізнано ${rows.length} поз. — перевірте й збережіть`);
+      if($("#pfRes")) drawRows();
+    }catch(err){ clearInterval(tick); notifyDone("Не вдалося розпізнати фото");
       const m=String(err?.message||err);
       b.disabled=false; b.textContent="🔍 Розпізнати ще раз";
       $("#pfRes").innerHTML=`<div class="banner">Не вдалося розпізнати. Надішліть скрін цього повідомлення:<br><small style="word-break:break-all">${esc(m.slice(0,400))}</small></div>`;
@@ -515,7 +528,7 @@ function photoFlow(){
         }
       }
     });
-    if(ok){closeSheet();toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
+    if(ok){try{localStorage.removeItem("pfDraft")}catch(_){};closeSheet();toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
   }
   draw();
 }
@@ -1323,17 +1336,21 @@ const db={collection:p=>wrapC(collection(fs,p)),doc:p=>wrapD(doc(fs,p))};
 window.__fbBulk=async(items,prog)=>{ for(let i=0;i<items.length;i+=400){ const b=writeBatch(fs); for(const [c,d] of items.slice(i,i+400)){const {id,...rest}=d; b.set(doc(fs,c,String(id)),rest)} await b.commit(); prog&&prog(Math.min(i+400,items.length)); } };
 window.__fbDelete=async(paths)=>{ for(let i=0;i<paths.length;i+=400){ const b=writeBatch(fs); for(const [c,id] of paths.slice(i,i+400)) b.delete(doc(fs,c,String(id))); await b.commit(); } };
 let aiMod=null, aiOk=null;
-window.__fbAI=async(imgs,prompt)=>{
+window.__fbAI=async(imgs,prompt,onTry)=>{
   if(!aiMod) aiMod=await import("https://www.gstatic.com/firebasejs/11.10.0/firebase-ai.js");
   const {getAI,getGenerativeModel,GoogleAIBackend}=aiMod, ai=getAI(app,{backend:new GoogleAIBackend()});
   const parts=[prompt,...imgs.map(x=>({inlineData:{data:x.b64,mimeType:x.mime}}))];
-  const all=CFG.AI_MODELS||["gemini-3.8-flash","gemini-3.6-flash","gemini-3.5-flash-lite","gemini-2.5-flash"];
+  const all=CFG.AI_MODELS||["gemini-3.8-flash","gemini-3.5-flash-lite","gemini-3.6-flash","gemini-2.5-flash"];
   const list=aiOk?[aiOk,...all.filter(x=>x!==aiOk)]:all; const errs=[];
-  for(const m of list) for(let k=0;k<2;k++){
-    try{ const r=await getGenerativeModel(ai,{model:m,generationConfig:{responseMimeType:"application/json",temperature:0.1}}).generateContent(parts); aiOk=m; return r.response.text(); }
-    catch(e){ const em=String(e?.message||e); errs.push(m+": "+em.replace(/^.*?generateContent:\s*/,"").slice(0,120));
-      if(!/404|not found|not supported|500|503|429|high demand|overload|unavailable|exhausted/i.test(em)) throw new Error(errs.join(" | "));
-      if(/404|not found|not supported/i.test(em)) break; await new Promise(r=>setTimeout(r,1500)); } }
+  for(const [n,m] of list.entries()){
+    onTry&&onTry(n+1,list.length);
+    try{
+      const call=getGenerativeModel(ai,{model:m,generationConfig:{responseMimeType:"application/json",temperature:0.1}}).generateContent(parts);
+      const r=await Promise.race([call,new Promise((_,bad)=>setTimeout(()=>bad(new Error("timeout 60s")),60000))]);
+      aiOk=m; return r.response.text();
+    }catch(e){ const em=String(e?.message||e); errs.push(m+": "+em.replace(/^.*?generateContent:\s*/,"").slice(0,120)); if(aiOk===m) aiOk=null;
+      if(!/404|not found|not supported|500|503|429|high demand|overload|unavailable|exhausted|timeout/i.test(em)) throw new Error(errs.join(" | ")); }
+  }
   throw new Error(errs.join(" | "));
 };
 window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
