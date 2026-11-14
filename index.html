@@ -1352,7 +1352,7 @@ onAuthStateChanged(auth,u=>{
   const user={ id:async()=>u.uid, me:async()=>({name}), can:async()=>true };
   window.__fbResolve([db,user]);
 });
-if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{});
 </script>
 </body>
 </html>
