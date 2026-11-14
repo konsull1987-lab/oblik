@@ -893,17 +893,20 @@ async function importEstimate(file,withVat){
   const buf=await file.arrayBuffer();let wb=XLSX.read(buf,{type:"array"});
   const moj=w=>/[À-ÿ]{4,}/.test(w.SheetNames.map(n=>XLSX.utils.sheet_to_csv(w.Sheets[n])).join(" ").slice(0,5000));
   if(moj(wb)) wb=XLSX.read(buf,{type:"array",codepage:1251});
-  let best=[];
-  for(const sn of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});const it=parseEstimateRows(rows,withVat);if(it.length>best.length)best=it}
-  return best;
+  const res=[];
+  for(const sn of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});const it=parseEstimateRows(rows,withVat);if(it.length)res.push({sheet:sn,items:it})}
+  return res;
 }
 function estimateButton(id){return `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:6px"><input type="checkbox" id="${id}Vat" style="width:20px;height:20px"> Брати ціни з ПДВ (якщо у файлі є обидві)</label><label class="btn ghost sm" style="display:block;text-align:center;width:100%;margin-bottom:6px">📄 Завантажити кошторис з Excel / CSV<input type="file" id="${id}" accept=".xlsx,.xls,.xlsm,.ods,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none"></label>`}
 function bindEstimate(id,items,redraw){
   const el=document.getElementById(id); if(!el) return;
   el.onchange=async e=>{const f=e.target.files[0];if(!f)return;toast("Читаю файл…");
-    try{const it=await importEstimate(f,document.getElementById(id+"Vat")?.checked);if(!it.length){toast("Не знайшов у файлі рядків з назвою, кількістю й ціною");return}
-      const empty=items.every(i=>!String(i.name||"").trim()); if(empty) items.length=0;
-      items.push(...it); redraw(); toast(`Додано ${it.length} рядків на ${money(it.reduce((a,i)=>a+i.qty*i.price,0))}`);
+    try{const res=await importEstimate(f,document.getElementById(id+"Vat")?.checked);if(!res.length){toast("Не знайшов у файлі рядків з назвою, кількістю й ціною");return}
+      const apply=it=>{const empty=items.every(i=>!String(i.name||"").trim()); if(empty) items.length=0; items.push(...it); redraw(); toast(`Додано ${it.length} рядків на ${money(it.reduce((a,i)=>a+i.qty*i.price,0))}`)};
+      if(res.length===1) apply(res[0].items);
+      else { const box=document.createElement("div");box.className="overlay";box.style.zIndex=40;
+        box.innerHTML=`<div class="sheet"><h2>У файлі кілька аркушів</h2><p style="color:var(--muted)">Який аркуш взяти в кошторис?</p><div class="list">${res.map((r,i)=>`<div class="card" data-k="${i}"><div class="main"><div class="t">${esc(r.sheet)}</div><div class="m">${r.items.length} рядків · ${money(r.items.reduce((a,x)=>a+x.qty*x.price,0))}</div><div class="m" style="color:var(--muted)">${esc(r.items.slice(0,2).map(x=>x.name).join("; "))}…</div></div></div>`).join("")}</div><div class="actions"><button class="btn ghost" data-x>Скасувати</button></div></div>`;
+        document.body.appendChild(box); box.onclick=e=>{const k=e.target.closest("[data-k]");if(k){apply(res[+k.dataset.k].items);box.remove()}else if(e.target===box||e.target.closest("[data-x]"))box.remove()}; }
     }catch(err){toast("Не вдалося прочитати файл")}
     e.target.value="";};
 }
@@ -1100,7 +1103,7 @@ function openMenu(){
   $("#mImport").onchange=async e=>{
     const file=e.target.files[0]; if(!file)return;
     let data; try{data=JSON.parse(await file.text())}catch(_){toast("Файл пошкоджений");return}
-    const items=[];for(const c of COLS) for(const d of (data[c]||[])) if(d&&d.id) items.push([c,d]);
+    const items=[];for(const c of [...COLS,"files"]) for(const d of (data[c]||[])) if(d&&d.id) items.push([c,d]);
     if(!items.length){toast("У файлі немає даних");return}
     openSheet(`<h2>Завантаження…</h2><p id="impProg">0 / ${items.length}</p>`);
     const ok=await write(async db=>{ await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent=n+" / "+items.length}) });
