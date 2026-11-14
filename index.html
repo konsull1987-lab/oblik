@@ -444,13 +444,13 @@ function photoFlow(){
     openSheet(`<h2>📷 Інструмент з фото</h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
-      <label class="btn" style="display:block;text-align:center;margin-bottom:8px">📷 Зробити / вибрати фото<input type="file" id="pfFile" accept="image/*" multiple style="display:none"></label>
+      <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
       <div id="pfThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${imgs.map((x,i)=>`<div style="position:relative"><img src="${x.thumb}" style="width:72px;height:72px;object-fit:cover;border-radius:8px"><button type="button" data-rmimg="${i}" style="position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:22px;height:22px;background:var(--text);color:var(--bg)">✕</button></div>`).join("")}</div>
       ${imgs.length?`<button class="btn" id="pfGo" style="width:100%">🔍 Розпізнати (${imgs.length} фото)</button>`:""}
       <div id="pfRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     $("#pfMode").onclick=e=>{const b=e.target.closest("button");if(!b)return;mode=b.dataset.v;rows=[];draw()};
-    $("#pfFile").onchange=async e=>{for(const f of e.target.files){try{imgs.push(await shrinkImage(f))}catch(_){}}rows=[];draw()};
+    document.querySelectorAll(".pfFile").forEach(x=>x.onchange=async e=>{for(const f of e.target.files){try{imgs.push(await shrinkImage(f))}catch(_){}}rows=[];draw()});
     $("#pfThumbs").onclick=e=>{const i=e.target.dataset.rmimg;if(i!=null){imgs.splice(+i,1);rows=[];draw()}};
     $("#pfGo")?.addEventListener("click",recognize);
     if(rows.length) drawRows();
@@ -469,7 +469,7 @@ function photoFlow(){
     }catch(err){
       const m=String(err?.message||err);
       b.disabled=false; b.textContent="🔍 Розпізнати ще раз";
-      $("#pfRes").innerHTML=`<div class="banner">${/api|not enabled|permission|403|404|ai/i.test(m)?"Розпізнавання ще не увімкнене у Firebase (AI Logic). Андрій отримав інструкцію в чаті.":"Не вдалося розпізнати: "+esc(m.slice(0,150))}</div>`;
+      $("#pfRes").innerHTML=`<div class="banner">Не вдалося розпізнати. Надішліть скрін цього повідомлення:<br><small style="word-break:break-all">${esc(m.slice(0,400))}</small></div>`;
     }
   }
   function matchRows(fromSite){
@@ -1322,12 +1322,15 @@ const db={collection:p=>wrapC(collection(fs,p)),doc:p=>wrapD(doc(fs,p))};
 
 window.__fbBulk=async(items,prog)=>{ for(let i=0;i<items.length;i+=400){ const b=writeBatch(fs); for(const [c,d] of items.slice(i,i+400)){const {id,...rest}=d; b.set(doc(fs,c,String(id)),rest)} await b.commit(); prog&&prog(Math.min(i+400,items.length)); } };
 window.__fbDelete=async(paths)=>{ for(let i=0;i<paths.length;i+=400){ const b=writeBatch(fs); for(const [c,id] of paths.slice(i,i+400)) b.delete(doc(fs,c,String(id))); await b.commit(); } };
-let aiModel=null;
+let aiMod=null, aiOk=null;
 window.__fbAI=async(imgs,prompt)=>{
-  if(!aiModel){ const {getAI,getGenerativeModel,GoogleAIBackend}=await import("https://www.gstatic.com/firebasejs/11.10.0/firebase-ai.js");
-    aiModel=getGenerativeModel(getAI(app,{backend:new GoogleAIBackend()}),{model:window.AI_MODEL||"gemini-2.5-flash",generationConfig:{responseMimeType:"application/json",temperature:0.1}}); }
-  const r=await aiModel.generateContent([prompt,...imgs.map(x=>({inlineData:{data:x.b64,mimeType:x.mime}}))]);
-  return r.response.text();
+  if(!aiMod) aiMod=await import("https://www.gstatic.com/firebasejs/11.10.0/firebase-ai.js");
+  const {getAI,getGenerativeModel,GoogleAIBackend}=aiMod, ai=getAI(app,{backend:new GoogleAIBackend()});
+  const parts=[prompt,...imgs.map(x=>({inlineData:{data:x.b64,mimeType:x.mime}}))];
+  const list=aiOk?[aiOk]:(CFG.AI_MODELS||["gemini-3.8-flash","gemini-3.6-flash","gemini-2.5-flash"]); let last;
+  for(const m of list){ try{ const r=await getGenerativeModel(ai,{model:m,generationConfig:{responseMimeType:"application/json",temperature:0.1}}).generateContent(parts); aiOk=m; return r.response.text(); }
+    catch(e){ last=e; if(!/404|not found|not supported|unsupported model/i.test(String(e?.message||e))) break; } }
+  throw last;
 };
 window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
 
