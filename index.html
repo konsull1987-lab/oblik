@@ -1327,9 +1327,9 @@ window.__fbAI=async(imgs,prompt)=>{
   if(!aiMod) aiMod=await import("https://www.gstatic.com/firebasejs/11.10.0/firebase-ai.js");
   const {getAI,getGenerativeModel,GoogleAIBackend}=aiMod, ai=getAI(app,{backend:new GoogleAIBackend()});
   const parts=[prompt,...imgs.map(x=>({inlineData:{data:x.b64,mimeType:x.mime}}))];
-  const list=aiOk?[aiOk]:(CFG.AI_MODELS||["gemini-3.8-flash","gemini-3.6-flash","gemini-2.5-flash"]); let last;
+  const list=aiOk?[aiOk]:(CFG.AI_MODELS||["gemini-3.8-flash","gemini-3.6-flash","gemini-3.5-flash-lite","gemini-2.5-flash"]); let last;
   for(const m of list){ try{ const r=await getGenerativeModel(ai,{model:m,generationConfig:{responseMimeType:"application/json",temperature:0.1}}).generateContent(parts); aiOk=m; return r.response.text(); }
-    catch(e){ last=e; if(!/404|not found|not supported|unsupported model/i.test(String(e?.message||e))) break; } }
+    catch(e){ last=e; const em=String(e?.message||e); if(!/404|not found|not supported|unsupported model|500|503|429|high demand|overload|unavailable|exhausted/i.test(em)) break; if(aiOk===m) aiOk=null; } }
   throw last;
 };
 window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
