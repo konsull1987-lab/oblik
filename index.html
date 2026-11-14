@@ -296,12 +296,13 @@ function personOptions(sel,emptyLabel){
 
 function renderTools(){
   const all=[...S.tools.values()];
-  const nOwn=all.filter(t=>roleOf(t)==="owner").length, nW=all.filter(t=>roleOf(t)==="worker").length, nR=all.filter(t=>t.status&&t.status!=="ok").length;
+  const sq=l=>l.reduce((a,t)=>a+qtyOf(t),0);
+  const nOwn=sq(all.filter(t=>roleOf(t)==="owner")), nW=sq(all.filter(t=>roleOf(t)==="worker")), nR=sq(all.filter(t=>t.status&&t.status!=="ok"));
   const st=(k,cls,n,l)=>`<div class="stat ${cls} ${S.holderType===k?"on":""}" data-ht="${k}"><b>${n}</b><span>${l}</span></div>`;
   if(document.activeElement?.id!=="q") $("#headTools").innerHTML=`
-    <div class="stats">${st("all","",all.length,"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}</div>
+    <div class="stats">${st("all","",sq(all),"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}</div>
     <div class="search"><input id="q" type="search" placeholder="Пошук: назва, номер, людина, об'єкт…" value="${esc(S.q)}">
-      <button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
+      ${S.canWrite?`<button class="btn ghost sm" id="photoBtn" title="Розпізнати з фото">📷</button>`:""}<button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
     <div class="filters">
       <select id="fCat">${catOptions(S.cat,true)}</select>
       <select id="fSite">${siteOptions(S.site,"Усі місця")}</select>
@@ -319,7 +320,7 @@ function renderTools(){
       ${S.select?`<input type="checkbox" class="cb" ${S.selected.has(t.id)?"checked":""} tabindex="-1">`:`<div class="stripe ${r==="owner"?"own":r==="worker"?"wrk":""}"></div>`}
       <div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div>
       <div class="m">${esc(t.cat||"")}${t.brand||t.model?" · "+esc([t.brand,t.model].filter(Boolean).join(" ")):""}</div>
-      <div class="tags">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div></div></div>`;
+      <div class="tags">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`;
   }
   $("#view").innerHTML=h+`</div>`;
 }
@@ -327,7 +328,7 @@ function renderTools(){
 function renderSites(){
   $("#headTools").innerHTML="";
   const all=[...S.sites.values()].sort((a,b)=>(b.order||0)-(a.order||0)||byName(a,b));
-  const cnt={}; for(const t of S.tools.values()) if(t.site) cnt[t.site]=(cnt[t.site]||0)+1;
+  const cnt={}; for(const t of S.tools.values()) if(t.site) cnt[t.site]=(cnt[t.site]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте склади й об'єкти кнопкою «+».</div>`; return; }
   const card=s=>`<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}</div>${s.note?`<div class="m">${esc(s.note)}</div>`:""}</div><span class="count">${cnt[s.id]||0} од.</span></div>`;
   let h="";
@@ -346,7 +347,7 @@ function renderSites(){
 function renderPeople(){
   $("#headTools").innerHTML="";
   const all=[...S.people.values()].sort(byName);
-  const cnt={}; for(const t of S.tools.values()) if(t.holder) cnt[t.holder]=(cnt[t.holder]||0)+1;
+  const cnt={}; for(const t of S.tools.values()) if(t.holder) cnt[t.holder]=(cnt[t.holder]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте власників (себе й напарників) та виконавців кнопкою «+».</div>`; return; }
   let h="";
   for(const [role,label,cls] of [["owner","Власники","own"],["worker","Виконавці","wrk"]]){
@@ -360,7 +361,7 @@ function moveLine(m){
   const nm=id=>esc(person(id)?.name||m.names?.[id]||"—");
   const sn=id=>id?esc(site(id)?.name||m.names?.[id]||"—"):"—";
   return `<div class="hist"><div class="when">${fmtDate(m.at)}${m.byName?` · вніс: ${esc(m.byName)}`:""}</div>
-    <div><b>${esc(m.toolName||"")}</b>${m.toolInv?` <span class="inv">#${esc(m.toolInv)}</span>`:""}</div>
+    <div><b>${esc(m.toolName||"")}</b>${m.toolInv?` <span class="inv">#${esc(m.toolInv)}</span>`:""}${m.qty>1?` · <b>${m.qty} шт</b>`:""}</div>
     <div>${nm(m.fromHolder)} (${sn(m.fromSite)}) → <b>${nm(m.toHolder)}</b> (${sn(m.toSite)})</div>
     ${m.note?`<div class="m" style="color:var(--muted)">${esc(m.note)}</div>`:""}</div>`;
 }
@@ -382,6 +383,143 @@ function openSheet(html){ $("#modal").innerHTML=`<div class="overlay"><div class
 function closeSheet(){ $("#modal").innerHTML=""; }
 $("#modal").addEventListener("click",e=>{ if(e.target.classList.contains("overlay")||e.target.closest("[data-close]")) closeSheet(); });
 
+
+// ---------- Кількість і переміщення частинами ----------
+const qtyOf=t=>Math.max(1,+t.qty||1);
+const normName=s=>String(s||"").toLowerCase().replace(/[«»"'’ʼ`.,()\-–—/]/g," ").replace(/\s+/g," ").trim();
+function lotKey(t){return [normName(t.name),t.cat||"",normName(t.brand),normName(t.model)].join("|")}
+function findLot(t,holder,siteId,exceptId){
+  if(t.inv) return null;
+  const k=lotKey(t);
+  return [...S.tools.values()].find(x=>x.id!==exceptId&&!x.inv&&(x.status||"ok")==="ok"&&x.holder===holder&&(x.site||"")===(siteId||"")&&lotKey(x)===k)||null;
+}
+async function moveTool(db,t,qty,holder,siteId,note,byName){
+  const all=qtyOf(t); qty=Math.min(Math.max(1,qty|0),all); const now=Date.now();
+  const names={}; for(const pid of [t.holder,holder]) if(person(pid)) names[pid]=person(pid).name;
+  for(const sid of [t.site,siteId]) if(site(sid)) names[sid]=site(sid).name;
+  const lot=findLot(t,holder,siteId,t.id);
+  if(qty>=all){
+    if(lot){ await db.doc("tools/"+lot.id).update({qty:qtyOf(lot)+qty,updatedAt:now}); await db.doc("tools/"+t.id).delete(); }
+    else await db.doc("tools/"+t.id).update({holder,site:siteId||"",updatedAt:now});
+  } else {
+    await db.doc("tools/"+t.id).update({qty:all-qty,updatedAt:now});
+    if(lot) await db.doc("tools/"+lot.id).update({qty:qtyOf(lot)+qty,updatedAt:now});
+    else { const c={...t}; delete c.id; Object.assign(c,{qty,holder,site:siteId||"",inv:"",createdAt:now,updatedAt:now}); await db.collection("tools").add(c); }
+  }
+  await db.collection("moves").add({tool:lot?.id||t.id,toolName:t.name,toolInv:t.inv||"",qty,fromHolder:t.holder||"",toHolder:holder,fromSite:t.site||"",toSite:siteId||"",note:note||"",at:now,by:S.uid||"",byName:byName||"",names});
+}
+
+// ---------- Розпізнавання інструменту з фото ----------
+async function shrinkImage(file,max=1600){
+  const url=URL.createObjectURL(file);
+  try{ const img=await new Promise((ok,bad)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=bad;i.src=url});
+    const k=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement("canvas");
+    c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+    return {mime:"image/jpeg",b64:c.toDataURL("image/jpeg",0.85).split(",")[1],thumb:c.toDataURL("image/jpeg",0.4)};
+  } finally { URL.revokeObjectURL(url) }
+}
+function aiPrompt(){
+  const cats=Object.values(CATS).flat().join("; ");
+  return `Ти помічник з інвентаризації будівельного інструменту. На фото інструмент, розкладений для обліку. Кожне фото — окрема купа; однакові позиції з різних фото підсумуй.
+Визнач кожен вид інструменту й порахуй кількість однакових одиниць. Рахуй уважно, кожну одиницю окремо.
+Для кожної позиції поверни:
+- name: коротка українська назва з розміром, якщо видно (напр. «Шпатель 100 мм», «Перфоратор», «Рівень 60 см»);
+- cat: рівно одна з категорій: ${cats};
+- brand: марка, лише якщо її видно на фото, інакше "";
+- model: модель, лише якщо видно напис, інакше "";
+- qty: ціле число;
+- confidence: "high", "medium" або "low" — наскільки впевнений у назві й кількості;
+- note: колір, розмір, стан або інші помітні деталі (коротко).
+Не вигадуй марок і моделей. Акумулятори й зарядки рахуй окремими позиціями.
+Відповідь — лише JSON виду {"items":[{"name":"","cat":"","brand":"","model":"","qty":1,"confidence":"high","note":""}]}.`;
+}
+function toolScore(rec,t){
+  const a=new Set(normName(rec.name).split(" ").filter(w=>w.length>1)), b=new Set(normName(t.name+" "+(t.brand||"")+" "+(t.model||"")).split(" ").filter(w=>w.length>1));
+  let s=0; for(const w of a){ if(b.has(w)) s+=2; else for(const x of b){ if(x.length>3&&w.length>3&&(x.startsWith(w.slice(0,4))||w.startsWith(x.slice(0,4)))){s+=1;break} } }
+  if(rec.cat&&rec.cat===t.cat) s+=2; if(rec.brand&&normName(rec.brand)===normName(t.brand)) s+=2; return s;
+}
+function photoFlow(){
+  let mode="add", imgs=[], rows=[];
+  const draw=()=>{
+    openSheet(`<h2>📷 Інструмент з фото</h2>
+      <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
+      <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
+      <label class="btn" style="display:block;text-align:center;margin-bottom:8px">📷 Зробити / вибрати фото<input type="file" id="pfFile" accept="image/*" multiple style="display:none"></label>
+      <div id="pfThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${imgs.map((x,i)=>`<div style="position:relative"><img src="${x.thumb}" style="width:72px;height:72px;object-fit:cover;border-radius:8px"><button type="button" data-rmimg="${i}" style="position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:22px;height:22px;background:var(--text);color:var(--bg)">✕</button></div>`).join("")}</div>
+      ${imgs.length?`<button class="btn" id="pfGo" style="width:100%">🔍 Розпізнати (${imgs.length} фото)</button>`:""}
+      <div id="pfRes"></div>
+      <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+    $("#pfMode").onclick=e=>{const b=e.target.closest("button");if(!b)return;mode=b.dataset.v;rows=[];draw()};
+    $("#pfFile").onchange=async e=>{for(const f of e.target.files){try{imgs.push(await shrinkImage(f))}catch(_){}}rows=[];draw()};
+    $("#pfThumbs").onclick=e=>{const i=e.target.dataset.rmimg;if(i!=null){imgs.splice(+i,1);rows=[];draw()}};
+    $("#pfGo")?.addEventListener("click",recognize);
+    if(rows.length) drawRows();
+  };
+  async function recognize(){
+    if(!window.__fbAI){toast("Розпізнавання недоступне");return}
+    const b=$("#pfGo"); b.disabled=true; b.textContent="⏳ Розпізнаю… (до хвилини)";
+    try{
+      const txt=await window.__fbAI(imgs,aiPrompt());
+      const j=JSON.parse(txt.replace(/^```(json)?|```$/g,"").trim());
+      const allCats=Object.values(CATS).flat();
+      rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),cat:allCats.includes(x.cat)?x.cat:"Інше",brand:String(x.brand||"").trim(),model:String(x.model||"").trim(),qty:Math.max(1,parseInt(x.qty)||1),conf:x.confidence||"medium",note:String(x.note||"").trim()}));
+      if(!rows.length){toast("На фото інструмент не знайдено");b.disabled=false;b.textContent="🔍 Розпізнати";return}
+      if(mode==="move") matchRows();
+      drawRows();
+    }catch(err){
+      const m=String(err?.message||err);
+      b.disabled=false; b.textContent="🔍 Розпізнати ще раз";
+      $("#pfRes").innerHTML=`<div class="banner">${/api|not enabled|permission|403|404|ai/i.test(m)?"Розпізнавання ще не увімкнене у Firebase (AI Logic). Андрій отримав інструкцію в чаті.":"Не вдалося розпізнати: "+esc(m.slice(0,150))}</div>`;
+    }
+  }
+  function matchRows(fromSite){
+    const pool=[...S.tools.values()].filter(t=>!fromSite||t.site===fromSite);
+    for(const r of rows){ const best=pool.map(t=>[toolScore(r,t),t]).filter(x=>x[0]>=2).sort((a,b)=>b[0]-a[0]); r.cands=best.slice(0,8).map(x=>x[1].id); r.match=r.cands[0]||""; if(r.match) r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match))); }
+  }
+  function drawRows(){
+    const confTag=c=>c==="high"?"":`<span class="tag ${c==="low"?"bad":"rep"}">${c==="low"?"перевірте":"можливо"}</span>`;
+    const tOpt=(id,sel)=>{const t=S.tools.get(id);return `<option value="${id}" ${sel===id?"selected":""}>${esc(t.name)}${t.inv?" #"+esc(t.inv):""} · ${qtyOf(t)} шт · ${esc(site(t.site)?.name||person(t.holder)?.name||"")}</option>`};
+    const sum=rows.filter(r=>r.on).reduce((a,r)=>a+(+r.qty||0),0);
+    $("#pfRes").innerHTML=`<div class="section-t" style="display:flex">Розпізнано<span class="count">${rows.filter(r=>r.on).length} поз. · ${sum} шт</span></div>
+      ${mode==="move"?`<div class="field"><label>Звідки (щоб точніше знайти)</label><select id="pfFrom">${siteOptions(S.pfFrom||"","— будь-де")}</select></div>`:""}
+      ${rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
+        <div class="row" style="align-items:center"><input type="checkbox" class="cb" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"><input data-i="${i}" data-k="qty" inputmode="numeric" value="${r.qty}" style="flex:0 0 64px;text-align:center"></div>
+        <div class="row" style="margin-top:6px"><select data-i="${i}" data-k="cat">${catOptions(r.cat,false)}</select><input data-i="${i}" data-k="brand" value="${esc(r.brand)}" placeholder="марка" style="flex:.7"></div>
+        ${mode==="move"?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="">— не знайдено в базі (пропустити)</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select></div>`:""}
+        <div class="m" style="margin-top:4px">${confTag(r.conf)} ${esc(r.note)}</div></div>`).join("")}
+      ${mode==="add"?`<div class="row"><div class="field"><label>У кого</label><select id="pfHolder">${personOptions(owners()[0]?.id||"","— не вказано")}</select></div><div class="field"><label>Де</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`
+        :`<div class="row"><div class="field"><label>Кому *</label><select id="pfHolder">${personOptions("","— виберіть")}</select></div><div class="field"><label>Куди</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`}
+      <button class="btn" id="pfSave" style="width:100%">${mode==="add"?"💾 Додати в облік":"🔄 Перемістити"}</button>`;
+    $("#pfRes").oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;const r=rows[i];
+      if(k==="on"){r.on=e.target.checked;drawRows();return} if(k==="qty") r.qty=Math.max(1,parseInt(e.target.value)||1); else r[k]=e.target.value;};
+    $("#pfRes").onchange=e=>{if(e.target.id==="pfFrom"){S.pfFrom=e.target.value;matchRows(S.pfFrom);drawRows()} else if(e.target.dataset.k==="match"){const r=rows[e.target.dataset.i];r.match=e.target.value;if(r.match)r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match)));drawRows()}};
+    $("#pfSave").onclick=save;
+  }
+  async function save(){
+    const holder=$("#pfHolder").value, siteId=$("#pfSite").value, sel=rows.filter(r=>r.on&&r.name.trim());
+    if(mode==="move"&&!holder){toast("Виберіть, кому передати");return}
+    const btn=$("#pfSave"); btn.disabled=true; btn.textContent="Зачекайте…";
+    let byName=""; try{byName=(await S.user?.me?.())?.name||""}catch(_){}
+    let n=0, skip=0;
+    const ok=await write(async db=>{
+      for(const r of sel){
+        if(mode==="add"){
+          const t={name:r.name.trim(),cat:r.cat,brand:r.brand.trim(),model:r.model||"",qty:r.qty,holder:holder||"",site:siteId||"",status:"ok",note:r.note||"",inv:"",serial:""};
+          const lot=findLot(t,t.holder,t.site);
+          if(lot) await db.doc("tools/"+lot.id).update({qty:qtyOf(lot)+r.qty,updatedAt:Date.now()});
+          else { if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент") t.inv=nextInv(); t.createdAt=t.updatedAt=Date.now(); await db.collection("tools").add(t); }
+          n+=r.qty;
+        } else {
+          const t=r.match&&S.tools.get(r.match); if(!t){skip++;continue}
+          await moveTool(db,t,r.qty,holder,siteId,"з фото",byName); n+=Math.min(r.qty,qtyOf(t));
+        }
+      }
+    });
+    if(ok){closeSheet();toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
+  }
+  draw();
+}
+
 function nextInv(){ let m=0; for(const t of S.tools.values()){const n=parseInt(t.inv,10); if(n>m)m=n} return String(m+1).padStart(4,"0"); }
 
 function toolForm(t){
@@ -393,7 +531,8 @@ function toolForm(t){
       <div class="field"><label>Категорія</label><select name="cat">${catOptions(t.cat||"",false)}</select></div>
       <div class="row"><div class="field"><label>Марка</label><input name="brand" value="${esc(t.brand)}" placeholder="Bosch"></div>
         <div class="field"><label>Модель</label><input name="model" value="${esc(t.model)}" placeholder="GBH 2-26"></div></div>
-      <div class="row"><div class="field"><label>Інв. номер</label><input name="inv" value="${esc(t.inv)}"></div>
+      <div class="row"><div class="field"><label>Кількість</label><input name="qty" inputmode="numeric" value="${qtyOf(t)}"></div>
+        <div class="field"><label>Інв. номер</label><input name="inv" value="${esc(t.inv)}"></div>
         <div class="field"><label>Серійний №</label><input name="serial" value="${esc(t.serial)}"></div></div>
       ${isNew?`<div class="field"><label>У кого зараз</label><select name="holder">${personOptions(defOwner,"— не вказано")}</select></div>
       <div class="field"><label>Де зараз</label><select name="site">${siteOptions("","— не вказано")}</select></div>`:""}
@@ -405,7 +544,7 @@ function toolForm(t){
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target));
     f.name=f.name.trim(); if(!f.name)return;
     const btn=e.target.querySelector("[type=submit]"); btn.disabled=true;
-    const data={name:f.name,cat:f.cat,brand:f.brand.trim(),model:f.model.trim(),inv:f.inv.trim(),serial:f.serial.trim(),status:f.status,note:f.note.trim(),updatedAt:Date.now()};
+    const data={name:f.name,qty:Math.max(1,parseInt(f.qty)||1),cat:f.cat,brand:f.brand.trim(),model:f.model.trim(),inv:f.inv.trim(),serial:f.serial.trim(),status:f.status,note:f.note.trim(),updatedAt:Date.now()};
     const ok=await write(async db=>{
       if(isNew){ data.holder=f.holder||""; data.site=f.site||""; data.createdAt=Date.now(); await db.collection("tools").add(data); }
       else await db.doc("tools/"+t.id).update(data);
@@ -423,7 +562,7 @@ function toolCard(id){
   const hist=S.moves.filter(m=>m.tool===id).slice(0,30);
   openSheet(`<h2>${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</h2>
     <div class="tags" style="display:flex;gap:6px;flex-wrap:wrap">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div>
-    <dl class="kv"><dt>Категорія</dt><dd>${esc(t.cat||"—")}</dd>
+    <dl class="kv">${qtyOf(t)>1?`<dt>Кількість</dt><dd><b>${qtyOf(t)} шт</b></dd>`:""}<dt>Категорія</dt><dd>${esc(t.cat||"—")}</dd>
       ${t.brand||t.model?`<dt>Марка/модель</dt><dd>${esc([t.brand,t.model].filter(Boolean).join(" "))}</dd>`:""}
       ${t.serial?`<dt>Серійний №</dt><dd>${esc(t.serial)}</dd>`:""}
       ${t.note?`<dt>Примітка</dt><dd>${esc(t.note)}</dd>`:""}</dl>
@@ -438,8 +577,9 @@ function moveForm(ids){
   const tools=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!tools.length)return;
   const one=tools.length===1?tools[0]:null;
   openSheet(`<h2>Перемістити ${one?"«"+esc(one.name)+"»":tools.length+" од."}</h2>
-    ${one?`<p style="margin:0 0 10px;color:var(--muted)">Зараз: ${esc(person(one.holder)?.name||"—")}, ${esc(site(one.site)?.name||"—")}</p>`:""}
+    ${one?`<p style="margin:0 0 10px;color:var(--muted)">Зараз: ${esc(person(one.holder)?.name||"—")}, ${esc(site(one.site)?.name||"—")}${qtyOf(one)>1?`, ${qtyOf(one)} шт`:""}</p>`:""}
     <form id="mvForm">
+      ${one&&qtyOf(one)>1?`<div class="field"><label>Скільки перемістити (з ${qtyOf(one)})</label><input name="qty" inputmode="numeric" value="${qtyOf(one)}"></div>`:""}
       <div class="field"><label>Кому передати *</label><select name="holder" required>${personOptions(one?.holder||"","— виберіть")}</select></div>
       <div class="field"><label>Куди (склад / об'єкт)</label><select name="site">${siteOptions(one?.site||"","— не вказано")}</select></div>
       <div class="field"><label>Коментар</label><input name="note" placeholder="необов'язково"></div>
@@ -452,13 +592,8 @@ function moveForm(ids){
     let done=0;
     for(const t of tools){
       if(t.holder===f.holder&&(t.site||"")===(f.site||"")){done++;continue}
-      const names={}; for(const pid of [t.holder,f.holder]) if(person(pid)) names[pid]=person(pid).name;
-      for(const sid of [t.site,f.site]) if(site(sid)) names[sid]=site(sid).name;
-      const now=Date.now();
-      const ok=await write(async db=>{
-        await db.doc("tools/"+t.id).update({holder:f.holder,site:f.site||"",updatedAt:now});
-        await db.collection("moves").add({tool:t.id,toolName:t.name,toolInv:t.inv||"",fromHolder:t.holder||"",toHolder:f.holder,fromSite:t.site||"",toSite:f.site||"",note:f.note.trim(),at:now,by:S.uid||"",byName,names});
-      });
+      const q=one&&f.qty?Math.max(1,parseInt(f.qty)||1):qtyOf(t);
+      const ok=await write(db=>moveTool(db,t,q,f.holder,f.site||"",f.note.trim(),byName));
       if(!ok)break; done++;
     }
     closeSheet(); S.select=false; S.selected.clear(); render();
@@ -1141,6 +1276,7 @@ $("#headTools").addEventListener("click",e=>{
   const st=e.target.closest("[data-ht]"); if(st){S.holderType=st.dataset.ht;render();return}
   const mt=e.target.closest("[data-mt]"); if(mt){S.mtab=mt.dataset.mt;render();return}
   const ow=e.target.closest("[data-own]"); if(ow){Object.assign(S,{mtab:"journal",mOwner:S.mOwner===ow.dataset.own?"":ow.dataset.own});render();return}
+  if(e.target.id==="photoBtn"){photoFlow();return}
   if(e.target.id==="selBtn"){S.select=!S.select;S.selected.clear();render()}
 });
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
@@ -1165,9 +1301,9 @@ init();
 </script>
 <script type="module">
 import {firebaseConfig, ALLOWED} from "./firebase-config.js";
-import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 
 const app=initializeApp(firebaseConfig);
 let fs; try{ fs=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})}) }catch(e){ fs=initializeFirestore(app,{}) }
@@ -1183,6 +1319,13 @@ const db={collection:p=>wrapC(collection(fs,p)),doc:p=>wrapD(doc(fs,p))};
 
 window.__fbBulk=async(items,prog)=>{ for(let i=0;i<items.length;i+=400){ const b=writeBatch(fs); for(const [c,d] of items.slice(i,i+400)){const {id,...rest}=d; b.set(doc(fs,c,String(id)),rest)} await b.commit(); prog&&prog(Math.min(i+400,items.length)); } };
 window.__fbDelete=async(paths)=>{ for(let i=0;i<paths.length;i+=400){ const b=writeBatch(fs); for(const [c,id] of paths.slice(i,i+400)) b.delete(doc(fs,c,String(id))); await b.commit(); } };
+let aiModel=null;
+window.__fbAI=async(imgs,prompt)=>{
+  if(!aiModel){ const {getAI,getGenerativeModel,GoogleAIBackend}=await import("https://www.gstatic.com/firebasejs/11.10.0/firebase-ai.js");
+    aiModel=getGenerativeModel(getAI(app,{backend:new GoogleAIBackend()}),{model:window.AI_MODEL||"gemini-2.5-flash",generationConfig:{responseMimeType:"application/json",temperature:0.1}}); }
+  const r=await aiModel.generateContent([prompt,...imgs.map(x=>({inlineData:{data:x.b64,mimeType:x.mime}}))]);
+  return r.response.text();
+};
 window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
 
 document.getElementById("loginBtn").onclick=async()=>{
