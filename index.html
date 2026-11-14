@@ -1300,12 +1300,15 @@ $("#bulk").addEventListener("click",e=>{
 init();
 </script>
 <script type="module">
-import {firebaseConfig, ALLOWED} from "./firebase-config.js";
+import * as CFG from "./firebase-config.js";
+const {firebaseConfig, ALLOWED}=CFG;
+import {initializeAppCheck, ReCaptchaV3Provider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 
 const app=initializeApp(firebaseConfig);
+if(CFG.RECAPTCHA_KEY){ try{ initializeAppCheck(app,{provider:new ReCaptchaV3Provider(CFG.RECAPTCHA_KEY),isTokenAutoRefreshEnabled:true}) }catch(e){console.warn(e)} }
 let fs; try{ fs=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})}) }catch(e){ fs=initializeFirestore(app,{}) }
 const auth=getAuth(app); auth.languageCode="uk";
 const L=document.getElementById("login"), msg=document.getElementById("loginMsg"), lo2=document.getElementById("logoutBtn2");

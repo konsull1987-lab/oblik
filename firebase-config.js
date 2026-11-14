@@ -9,3 +9,5 @@ export const firebaseConfig = {
 };
 // Доступ задається правилами Firestore у консолі Firebase
 export const ALLOWED = [];
+// Ключ сайту reCAPTCHA v3 для App Check (публічний; потрібен для розпізнавання фото)
+export const RECAPTCHA_KEY = "";
