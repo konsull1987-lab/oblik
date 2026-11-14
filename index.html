@@ -1042,9 +1042,11 @@ function contractView(id,fb){
     <div class="m" style="margin:6px 0">${esc((S.clients.get(c.client)||{}).name||"")}${c.addr?" · "+esc(c.addr):""}</div>
     <div class="sum" style="font-size:16px">Сума: <b>${money(tot)}</b>${c.prepay?` · передоплата ${c.prepay}% = ${money(pp)}`:""}</div>
     <div class="actions"><button class="btn" id="ctPrint">🖨 Договір</button>${c.prepay&&S.canWrite?`<button class="btn ghost" id="ctInv">Рахунок на передоплату</button>`:""}</div>
+    ${S.canWrite&&(c.items||[]).some(i=>i.name)?`<div class="actions"><button class="btn" id="ctAct">Рахунок + акт за кошторисом</button></div>`:""}
     <div class="actions">${S.canWrite?`<button class="btn ghost" id="ctEdit">Редагувати</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
   $("#ctPrint").onclick=()=>printDoc(contractHTML(c),"Договір "+c.no);
   $("#ctEdit")?.addEventListener("click",()=>contractForm(S.contracts.get(id)||c));
+  $("#ctAct")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:(c.items||[]).filter(i=>i.name).map(i=>({...i}))}));
   $("#ctInv")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:[{name:`Передоплата ${c.prepay}% за договором підряду № ${c.no} від ${dShort(c.date)}`,unit:"посл.",qty:1,price:pp}]}));
 }
 
