@@ -492,7 +492,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v28</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v29</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1776,10 +1776,11 @@ window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
 
 document.getElementById("loginBtn").onclick=async()=>{
   const p=new GoogleAuthProvider(); p.setCustomParameters({prompt:"select_account"});
-  try{ await signInWithPopup(auth,p) }catch(e){ if(e.code==="auth/popup-blocked"||e.code==="auth/operation-not-supported-in-this-environment") await signInWithRedirect(auth,p); else msg.textContent="Не вдалося увійти: "+e.code; }
+  msg.textContent="";
+  try{ await signInWithPopup(auth,p) }catch(e){ if(e.code==="auth/popup-blocked"||e.code==="auth/operation-not-supported-in-this-environment") await signInWithRedirect(auth,p); else if(e.code!=="auth/popup-closed-by-user"&&e.code!=="auth/cancelled-popup-request") msg.textContent="Не вдалося увійти: "+e.code; }
 };
 lo2.onclick=()=>window.__fbSignOut();
-getRedirectResult(auth).catch(()=>{});
+getRedirectResult(auth).catch(e=>{ msg.textContent="Не вдалося увійти: "+(e.code||e.message)+". Спробуйте відкрити посилання в Chrome (не з іконки) і увійти ще раз."; });
 
 let started=false;
 onAuthStateChanged(auth,async u=>{
