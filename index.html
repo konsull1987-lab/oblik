@@ -493,7 +493,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v33</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v34</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1687,20 +1687,18 @@ function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
-    <button class="btn" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Копія на Google Диск зараз</button>
-    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">${S.backupAt?"Остання копія: "+fmtDate(S.backupAt):"Копій на Диску ще не було"}. Папка «Облік — резервні копії», зберігаються 12 останніх, разом із файлами договорів.</div><div id="bkMsg" class="m" style="margin-bottom:6px"></div>
-    <button class="btn ghost" id="mExport" style="width:100%;margin-bottom:8px">⬇️ Зберегти резервну копію (файл)</button>
-    <label class="btn" style="display:block;text-align:center;width:100%;margin-bottom:4px">🔄 Синхронізувати з файлу<input type="file" id="mSync" accept=".json,application/json" style="display:none"></label>
-    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Фінанси стануть точно як у файлі (зайві й задубльовані записи видаляться). Записи, внесені в застосунок після створення файлу, збережуться.</div>
-    <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:8px">⬆️ Додати дані з файлу<input type="file" id="mImport" accept=".json,application/json" style="display:none"></label>
-    ${empty?"":`<div style="color:var(--muted);font-size:12.5px;margin:-2px 2px 10px">Завантаження додає записи з файлу; записи з тим самим ID будуть перезаписані.</div>`}
-    <div class="section-t">Google-таблиці</div>
-    <button class="btn" id="mSyncOut" style="width:100%;margin-bottom:4px">📤 Вивантажити зміни для таблиць</button>
-    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Записи, внесені в застосунку, потрапляють у файл на вашому Google Диску; потім напишіть Claude «синхронізуй таблиці» — він перенесе їх у ${S.duoOk?"«ОБЩАК НА 3» і «общак»":"«ОБЩАК НА 3»"}.</div>
-    <button class="btn" id="mGs" style="width:100%;margin-bottom:4px">🔄 Оновити з Google-таблиці ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</button>
-    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Застосунок сам прочитає таблицю — без завантаження файлів.</div>
-    <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:4px">📥 Імпорт з таблиці ${isDuo()?"«общак»":"«ОБЩАК НА 3»"} (Excel)<input type="file" id="mDuo" accept=".xlsx,.xls,.ods" style="display:none"></label>
-    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Таблиця → ⋮ → Поділитися й експортувати → Зберегти як Excel. Рядки з таблиці оновляться, внесені в застосунку й ще не перенесені — залишаться.</div>
+    <div class="section-t">Google-таблиця ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</div>
+    <button class="btn" id="mGs" style="width:100%;margin-bottom:6px">🔄 Оновити з таблиці</button>
+    <button class="btn ghost" id="mSyncOut" style="width:100%;margin-bottom:4px">📤 Вивантажити зміни для таблиці</button>
+    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Після вивантаження напишіть Claude «синхронізуй» — він перенесе записи в таблицю.</div>
+    <div class="section-t">Резервна копія</div>
+    <button class="btn ghost" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Зберегти на Google Диск</button>
+    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 8px">${S.backupAt?"Остання: "+fmtDate(S.backupAt):"Ще не було"} · зберігаються 12 останніх</div><div id="bkMsg" class="m" style="margin-bottom:6px"></div>
+    <details style="margin:4px 0 12px"><summary style="color:var(--muted);font-size:13px;cursor:pointer">Додатково</summary>
+      <button class="btn ghost" id="mExport" style="width:100%;margin:8px 0">⬇️ Зберегти копію на телефон</button>
+      <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:4px">⬆️ Відновити з файлу копії<input type="file" id="mImport" accept=".json,application/json" style="display:none"></label>
+      <div style="color:var(--muted);font-size:12.5px;margin:0 2px">Записи з файлу додаються; з тим самим номером — перезаписуються.</div>
+    </details>
     <button class="btn danger" id="mLogout" style="width:100%">Вийти з акаунта</button>
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#mDrive").onclick=()=>driveBackup();
@@ -1719,7 +1717,7 @@ function openMenu(){
     const ok=await write(async db=>{ await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent=n+" / "+items.length}) });
     closeSheet(); toast(ok?"Завантажено "+items.length+" записів":"Помилка завантаження");
   };
-  $("#mSync").onchange=async e=>{
+  $("#mSync")&&($("#mSync").onchange=async e=>{
     const file=e.target.files[0]; if(!file)return;
     let data; try{data=JSON.parse(await file.text())}catch(_){toast("Файл пошкоджений");return}
     const items=[];for(const c of COLS) for(const d of (data[c]||[])) if(d&&d.id) items.push([R(c),d]);
@@ -1729,9 +1727,9 @@ function openMenu(){
     openSheet(`<h2>Синхронізація…</h2><p id="impProg">Видалення зайвих: ${del.length}</p>`);
     const ok=await write(async db=>{ await window.__fbDelete(del.map(id=>[R("fin"),id])); await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent="Запис: "+n+" / "+items.length}) });
     closeSheet(); toast(ok?`Готово: видалено ${del.length}, оновлено ${items.length}`:"Помилка синхронізації");
-  };
+  });
   $("#mLogout").onclick=()=>window.__fbSignOut();
-  $("#mDuo")?.addEventListener("change",async e=>{const f=e.target.files[0]; if(f) sheetImportPreview(f,isDuo()?"duo":"trio"); e.target.value=""});
+
   $("#mSyncOut").onclick=()=>syncExport();
   $("#mGs").onclick=()=>gsheetImport();
 }
