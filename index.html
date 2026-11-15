@@ -392,10 +392,11 @@ $("#modal").addEventListener("click",e=>{ if(e.target.classList.contains("overla
 const qtyOf=t=>Math.max(1,+t.qty||1);
 const normName=s=>String(s||"").toLowerCase().replace(/[«»"'’ʼ`.,()\-–—/]/g," ").replace(/\s+/g," ").trim();
 function lotKey(t){return [normName(t.name),t.cat||"",normName(t.brand),normName(t.model)].join("|")}
+const isLot=t=>!t.serial&&(qtyOf(t)>1||!t.inv);
 function findLot(t,holder,siteId,exceptId){
-  if(t.inv) return null;
+  if(!isLot(t)) return null;
   const k=lotKey(t);
-  return [...S.tools.values()].find(x=>x.id!==exceptId&&!x.inv&&(x.status||"ok")==="ok"&&x.holder===holder&&(x.site||"")===(siteId||"")&&lotKey(x)===k)||null;
+  return [...S.tools.values()].find(x=>x.id!==exceptId&&isLot(x)&&(x.status||"ok")==="ok"&&x.holder===holder&&(x.site||"")===(siteId||"")&&lotKey(x)===k)||null;
 }
 async function moveTool(db,t,qty,holder,siteId,note,byName){
   const all=qtyOf(t); qty=Math.min(Math.max(1,qty|0),all); const now=Date.now();
@@ -451,7 +452,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v20</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v21</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -644,6 +645,8 @@ function siteForm(s){
   });
   $("#delS")?.addEventListener("click",async()=>{
     if(cnt){toast("Спочатку перемістіть звідси інструмент ("+cnt+")");return}
+    const nf=[...S.fin.values()].filter(f=>f.site===s.id).length+[...S.docs.values()].filter(d=>d.site===s.id).length;
+    if(nf){toast("До об'єкта прив'язано "+nf+" фін. записів — краще зніміть галочку «Активний» (архів)");return}
     if(await write(db=>db.doc("sites/"+s.id).delete())){closeSheet();toast("Видалено")}
   });
 }
@@ -671,6 +674,8 @@ function personForm(p){
   });
   $("#delP")?.addEventListener("click",async()=>{
     if(cnt){toast("Спочатку заберіть у нього інструмент ("+cnt+")");return}
+    const nf=[...S.fin.values()].filter(f=>f.worker===p.id||f.owner===p.id).length;
+    if(nf){toast("На цю людину є "+nf+" фін. записів — видалити не можна");return}
     if(await write(db=>db.doc("people/"+p.id).delete())){closeSheet();toast("Видалено")}
   });
 }
@@ -1332,6 +1337,7 @@ function contractForm(c){
     clearInterval(tick); btn.disabled=false; btn.textContent="🔍 Заповнити форму з договору (ШІ)";
   };
   $("#ctF").onsubmit=async e=>{e.preventDefault();const v=collect();if(!v.client){toast("Виберіть замовника");return}
+    if([...S.contracts.values()].some(x=>x.id!==c.id&&x.fop===v.fop&&String(x.no).trim()===String(v.no).trim())){ let k=2; while([...S.contracts.values()].some(x=>x.fop===v.fop&&x.no===v.no.trim()+"/"+k))k++; v.no=v.no.trim()+"/"+k; toast("Такий № уже є — новий договір отримав № "+v.no) }
     const now=Date.now();const data={orig:orig||null,no:v.no.trim(),date:v.date,until:v.until,fop:v.fop,client:v.client,site:v.site||"",addr:v.addr.trim(),workDesc:v.workDesc.trim(),prepay:v.prepay,days:v.days,warranty:v.warranty,total:v.total,items:v.items,updatedAt:now,createdAt:c.createdAt||now};
     let id=c.id;const ok=await write(async db=>{if(data.client==="__ai"){const r=await db.collection("clients").add(newCli);data.client=r.id}
       if(!id){const r=await db.collection("contracts").add(data);id=r.id}else await db.doc("contracts/"+id).set(data)});
