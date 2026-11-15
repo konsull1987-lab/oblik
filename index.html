@@ -107,6 +107,7 @@ nav button.on{color:var(--accent);font-weight:600}
 .daysep{font-size:12px;color:var(--muted);font-weight:600;margin:10px 2px 4px}
 .count{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600}
 #printArea{display:none}
+body.duo .bal .stat{border-color:#f59e0b}
 @media print{
   @page{size:A4;margin:14mm 16mm}
   body{background:#fff!important;color:#000!important}
@@ -190,8 +191,19 @@ const S = {
   mtab:"journal", mSite:"", mOwner:"", mKind:"", mMonth:"", mType:"",
   tab:"money", q:"", holderType:"all", cat:"", site:"", person:"", status:"",
   select:false, selected:new Set(), loaded:{tools:false,people:false,sites:false,moves:false,fin:false,fops:false,clients:false,docs:false,contracts:false},
-  canWrite:true, db:null, user:null, uid:null, offline:false
+  canWrite:true, db:null, user:null, uid:null, offline:false,
+  base:(()=>{try{return localStorage.getItem("oblikBase")==="duo"?"duo":"trio"}catch(_){return "trio"}})(),
+  B:{trio:{fin:new Map(),sites:new Map()},duo:{fin:new Map(),sites:new Map()}}, duoOk:false, duoLoaded:false
 };
+// ---- Дві бази: «на трьох» (fin, sites) і «общак на двох» (duo_fin, duo_sites) ----
+const DUO_OWNERS=["andriy","serhiy"];
+const isDuo=()=>S.base==="duo"&&S.duoOk;
+function applyBase(){ const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.sites=S.B[k].sites; }
+const R=c=>isDuo()&&(c==="fin"||c==="sites")?"duo_"+c:c;
+const routed=db=>({collection:p=>db.collection(R(p)),doc:p=>{const i=p.indexOf("/");return db.doc(R(p.slice(0,i))+p.slice(i))}});
+function setBase(b){ S.base=b; try{localStorage.setItem("oblikBase",b)}catch(_){}; applyBase(); Object.assign(S,{mSite:"",mOwner:"",mKind:"",mMonth:"",mType:"",sq:""});
+  if(isDuo()&&S.tab==="tools") S.tab="money"; if(isDuo()&&S.mtab==="docs") S.mtab="journal"; render(); }
+function baseSwitch(){ if(!S.duoOk) return ""; return `<div class="seg" style="margin-bottom:8px">${[["trio","👥 На трьох"],["duo","🤝 Общак на двох"]].map(([k,l])=>`<button type="button" data-base="${k}" class="${(isDuo()?"duo":"trio")===k?"on":""}">${l}</button>`).join("")}</div>`; }
 const $ = s=>document.querySelector(s);
 const esc = s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const byName = (a,b)=>(a.name||"").localeCompare(b.name||"","uk");
@@ -219,15 +231,24 @@ async function init(){
     err=>{S.loaded[name]=true; S.err=err?.code||"error"; render();});
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
-  sub("sites",db.collection("sites"),snap=>{S.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
-  sub("fin",db.collection("fin"),snap=>{S.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
+  sub("fin",db.collection("fin"),snap=>{S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
+  // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
+  db.doc("duo_meta/info").get().then(()=>{ S.duoOk=true;
+    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase();render()};
+    let n=0; const done=()=>{if(++n===2){S.duoLoaded=true;render()}};
+    let f1=0,f2=0;
+    db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
+    db.collection("duo_fin").onSnapshot(s=>{mk("fin")(s);if(!s.metadata.fromCache&&!f2++)done()},()=>{});
+    applyBase(); render();
+  }).catch(()=>{ S.duoOk=false; applyBase(); render(); });
   for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   try{ db.doc("meta/backup").get().then(x=>{S.backupAt=x.exists?+x.data().at||0:0;S.backupLoaded=true;render()}).catch(()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()}))});
 }
 async function write(fn){
   if(!S.db){toast("Немає з'єднання з базою");return false}
-  try{ await fn(S.db); return true }
+  try{ await fn(routed(S.db)); return true }
   catch(e){
     if(e?.code==="permission-denied"){toast("У вас немає прав на зміни");}
     else if(e?.code==="resource-exhausted") toast("Перевищено ліміт бази на сьогодні");
@@ -238,7 +259,9 @@ async function write(fn){
 
 // ---------- Рендер ----------
 function render(){
-  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===S.tab));
+  if(isDuo()&&S.tab==="tools") S.tab="money";
+  document.querySelectorAll("nav button").forEach(b=>{b.classList.toggle("on",b.dataset.tab===S.tab); if(b.dataset.tab==="tools") b.style.display=isDuo()?"none":""});
+  document.body.classList.toggle("duo",isDuo());
   const ban=[];
   if(S.offline) ban.push("Не вдалося підключитися до бази. Перевірте інтернет і перезапустіть застосунок.");
   else if(S.slow) ban.push("Дані поки не завантажились — перевірте інтернет.");
@@ -329,7 +352,7 @@ function renderTools(){
 }
 
 function renderSites(){
-  if(!$("#sq")) $("#headTools").innerHTML=`<div class="search"><input id="sq" type="search" placeholder="Пошук об'єкта: перші літери назви…" value="${esc(S.sq||"")}"></div>`;
+  if(!$("#sq")||$("#headTools").dataset.b!==String(isDuo())){ $("#headTools").dataset.b=String(isDuo()); $("#headTools").innerHTML=baseSwitch()+`<div class="search"><input id="sq" type="search" placeholder="Пошук об'єкта: перші літери назви…" value="${esc(S.sq||"")}"></div>`;}
   const sq=(S.sq||"").trim().toLowerCase();
   const hit=s=>!sq||(" "+String(s.name||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ")).includes(" "+sq);
   const all=[...S.sites.values()].filter(hit).sort((a,b)=>(b.order||0)-(a.order||0)||byName(a,b));
@@ -381,8 +404,8 @@ function finLine(f){
     <span class="amt ${k}" style="white-space:nowrap">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
 }
 function renderHistory(){
-  S.htab=S.htab||"money";
-  $("#headTools").innerHTML=`<div class="tabs2">${[["money","💰 Гроші"],["tools","🧰 Інструмент"]].map(([k,l])=>`<button data-hist="${k}" class="${S.htab===k?"on":""}">${l}</button>`).join("")}</div>`;
+  S.htab=isDuo()?"money":(S.htab||"money");
+  $("#headTools").innerHTML=baseSwitch()+`<div class="tabs2">${[["money","💰 Гроші"],...(isDuo()?[]:[["tools","🧰 Інструмент"]])].map(([k,l])=>`<button data-hist="${k}" class="${S.htab===k?"on":""}">${l}</button>`).join("")}</div>`;
   if(S.htab==="tools"){
     if(!S.moves.length){ $("#view").innerHTML=`<div class="empty">Переміщень ще не було.</div>`; return; }
     $("#view").innerHTML=`<div class="card" style="display:block;cursor:default">${S.moves.map(moveLine).join("")}</div>`; return;
@@ -469,7 +492,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v24</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v25</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -702,18 +725,25 @@ function personForm(p){
 // ---------- Гроші ----------
 const KINDS=["Матеріали","Зарплата","Інструменти","Доставка","Відкат","Інше"];
 const money=n=>(Math.round((n||0)*100)/100).toLocaleString("uk-UA",{maximumFractionDigits:2})+" ₴";
-const owners=()=>[...S.people.values()].filter(p=>p.role==="owner").sort(byName);
+const owners=()=>[...S.people.values()].filter(p=>p.role==="owner"&&(!isDuo()||DUO_OWNERS.includes(p.id))).sort(byName);
 const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
 const fmtDay=iso=>{if(!iso)return"без дати";const [y,m,d]=iso.split("-");return `${d}.${m}.${y}`};
 const MONTHS=["січень","лютий","березень","квітень","травень","червень","липень","серпень","вересень","жовтень","листопад","грудень"];
 function siteTotals(){const t={};for(const f of S.fin.values()){if(!f.site||f.type==="accrual")continue;const x=t[f.site]||(t[f.site]={in:0,out:0,n:0});x[f.type==="in"?"in":"out"]+=+f.amount||0;x.n++}return t}
-function ownerBalances(){
-  const b={}; for(const o of owners()) b[o.id]=0;
-  for(const f of S.fin.values()){ if(f.type==="accrual"||!f.owner)continue; if(!(f.owner in b))b[f.owner]=0; b[f.owner]+=(f.type==="in"?1:-1)*(+f.amount||0); }
-  const st=siteTotals(); let shared=0; for(const id in st) if(site(id)?.split) shared+=st[id].in-st[id].out;
-  const n=owners().length||1; for(const k in b) b[k]-=shared/n;
+function balancesFor(fin,sites,ows){
+  const b={}; for(const o of ows) b[o.id]=0; const st={};
+  for(const f of fin.values()){ if(f.type==="accrual")continue;
+    if(f.owner){ if(!(f.owner in b))b[f.owner]=0; b[f.owner]+=(f.type==="in"?1:-1)*(+f.amount||0); }
+    if(f.site){ st[f.site]=(st[f.site]||0)+(f.type==="in"?1:-1)*(+f.amount||0) } }
+  let shared=0; for(const id in st) if(sites.get(id)?.split) shared+=st[id];
+  const n=ows.length||1; for(const k in b) b[k]-=shared/n;
   return {b,shared};
 }
+function ownerBalances(){ return balancesFor(S.fin,S.sites,owners()) }
+function bothBalances(){ if(!S.duoOk||!S.duoLoaded) return null;
+  const all=[...S.people.values()].filter(p=>p.role==="owner"), duoO=all.filter(p=>DUO_OWNERS.includes(p.id));
+  const t=balancesFor(S.B.trio.fin,S.B.trio.sites,all).b, d=balancesFor(S.B.duo.fin,S.B.duo.sites,duoO).b;
+  return duoO.map(o=>({o,trio:t[o.id]||0,duo:d[o.id]||0,sum:(t[o.id]||0)+(d[o.id]||0)})); }
 function workerTotals(){const t={};for(const f of S.fin.values()){if(!f.worker)continue;const x=t[f.worker]||(t[f.worker]={acc:0,paid:0,n:0});if(f.type==="accrual")x.acc+=+f.amount||0;else if(f.type==="out")x.paid+=+f.amount||0;x.n++}return t}
 function customerRows(){const st=siteTotals();return [...S.sites.values()].filter(x=>(+x.contract||0)>0).map(x=>{const paid=st[x.id]?.in||0;return{s:x,contract:+x.contract,paid,debt:+x.contract-paid}}).sort((a,b)=>b.debt-a.debt)}
 function finFiltered(){
@@ -731,9 +761,11 @@ function renderMoney(){
   const months=[...new Set([...S.fin.values()].map(f=>(f.date||"").slice(0,7)).filter(Boolean))].sort().reverse();
   const finSites=new Set([...S.fin.values()].map(f=>f.site).filter(Boolean));
   const siteOpts=[...S.sites.values()].filter(x=>finSites.has(x.id)||x.active!==false).sort(byName);
-  $("#headTools").innerHTML=`
+  const both=bothBalances();
+  $("#headTools").innerHTML=`${baseSwitch()}
     <div class="bal">${owners().map(o=>`<div class="stat own" data-own="${o.id}" title="Скільки загальних грошей на руках"><b class="${b[o.id]<0?"out":""}">${money(b[o.id])}</b><span>у ${esc(o.name)}</span></div>`).join("")}</div>
-    <div class="tabs2">${[["journal","Журнал"],["sites","Об'єкти"],["workers","Виконавці"],["customers","Замовники"],["docs","Рахунки"]].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
+    ${both?`<div class="sum" style="font-size:13px;margin-top:-2px">Разом в обох базах: ${both.map(x=>`${esc(x.o.name)} <b class="${x.sum<0?"out":""}">${money(x.sum)}</b>`).join(" · ")} <span style="color:var(--muted)">(на трьох + на двох)</span></div>`:""}
+    <div class="tabs2">${[["journal","Журнал"],["sites","Об'єкти"],["workers","Виконавці"],["customers","Замовники"],...(isDuo()?[]:[["docs","Рахунки"]])].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
     ${S.mtab==="journal"?`<div class="filters">
       <select id="mMonth"><option value="">Весь час</option>${months.map(m=>`<option value="${m}" ${S.mMonth===m?"selected":""}>${MONTHS[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join("")}</select>
       <select id="mSite"><option value="">Усі об'єкти</option>${siteOpts.map(x=>`<option value="${x.id}" ${S.mSite===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
@@ -1453,6 +1485,74 @@ async function driveBackup(silent){
   }catch(e){ const m=String(e?.message||e); say(""); if(!/popup-closed|cancelled/i.test(m)) toast("Не вдалося зберегти копію: "+m.slice(0,150)); return false }
 }
 
+
+// ---------- Імпорт таблиці «общак» (на двох) ----------
+function duoParse(XLSX,wb,cutoff){
+  const sh=n=>wb.Sheets[wb.SheetNames.find(x=>x.trim().toLowerCase()===n)];
+  const J=sh("журнал"), O=sh("отчет")||sh("отчёт"); if(!J) throw new Error("У файлі немає аркуша «журнал»");
+  const rows=XLSX.utils.sheet_to_json(J,{header:1,raw:true,defval:""});
+  const num=x=>{ if(typeof x==="number") return x; const n=parseFloat(String(x).replace(/\s/g,"").replace(",",".")); return isFinite(n)?n:0 };
+  const date=x=>{ if(typeof x==="number"){const d=XLSX.SSF.parse_date_code(x); return d?`${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`:""}
+    const m=String(x).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})/); if(!m) return ""; let y=m[3]; if(y.length===2) y="20"+y; y=y.padStart(4,"0"); return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}` };
+  const own=x=>{const t=String(x).trim().toLowerCase(); return /^андр/.test(t)?"andriy":/^серг/.test(t)?"serhiy":""};
+  const KIND={"з\\п":"Зарплата","з/п":"Зарплата","зп":"Зарплата","материалы":"Матеріали","матеріали":"Матеріали","доставка":"Доставка","инструменты":"Інструменти","інструменти":"Інструменти","инструмент":"Інструменти"};
+  const split={}, names=[]; let expA=null, expS=null;
+  if(O){ const r=XLSX.utils.sheet_to_json(O,{header:1,raw:true,defval:""}); expA=num(r[1]?.[1]); expS=num(r[1]?.[2]);
+    for(const x of r.slice(1)){ const n=String(x[4]||"").trim(); if(n){ names.push(n); if(String(x[8]).trim()==="1") split[n]=true } } }
+  const ent=[]; let skipped=0;
+  rows.slice(1).forEach((r,i)=>{ const row=i+2, amt=num(r[5]), t=String(r[2]).trim().toLowerCase(), o=own(r[4]);
+    if(!amt||!o||!/^(приход|расход|прихід|витрата)/.test(t)){ if(String(r[5]).trim()||String(r[2]).trim()) skipped++; return }
+    const g=String(r[6]||"").trim(), k=KIND[g.toLowerCase()];
+    const note=[String(r[3]||"").trim()&&"🔧 "+String(r[3]).trim(), !k&&g&&g.toLowerCase()!=="расход"?g:"", String(r[7]||"").trim()].filter(Boolean).join(" · ");
+    ent.push({row,date:date(r[0]),site:String(r[1]||"").trim(),type:/^(приход|прихід)/.test(t)?"in":"out",owner:o,amount:Math.round(amt*100)/100,kind:k||"",note}); });
+  // взаємозаліки: сусідні рядки без об'єкта, однакова дата й сума, протилежні типи
+  for(let i=0;i<ent.length-1;i++){ const a=ent[i],b=ent[i+1]; if(!a.site&&!b.site&&!a.pair&&a.date===b.date&&a.amount===b.amount&&a.type!==b.type&&a.owner!==b.owner){ a.pair=b.pair="d"+a.row; a.kind=b.kind="Взаємозалік"; i++ } }
+  // перевірка за формулою таблиці
+  const bal={andriy:0,serhiy:0}, st={}; for(const e of ent){ bal[e.owner]+=(e.type==="in"?1:-1)*e.amount; if(e.site) st[e.site]=(st[e.site]||0)+(e.type==="in"?1:-1)*e.amount }
+  let sh2=0; for(const n in st) if(split[n]) sh2+=st[n]; for(const k in bal) bal[k]-=sh2/2;
+  // згортання старих записів у залишки
+  let out=ent, folded=0;
+  if(cutoff){ const old=ent.filter(e=>e.date&&e.date<cutoff&&!e.pair), keep=ent.filter(e=>!(e.date&&e.date<cutoff&&!e.pair)); const agg={};
+    for(const e of old){ const k=e.site+"|"+e.owner+"|"+e.type; (agg[k]=agg[k]||{...e,amount:0,n:0,kind:"",note:""}).amount+=e.amount; agg[k].n++ }
+    const prev=new Date(cutoff); prev.setDate(prev.getDate()-1); const pd=prev.toISOString().slice(0,10);
+    out=[...Object.values(agg).map((a,i)=>({...a,row:"z"+i,date:pd,amount:Math.round(a.amount*100)/100,note:`залишок: ${a.n} зап. до ${fmtDay(cutoff)}`})),...keep]; folded=old.length; }
+  const siteNames=[...new Set([...names,...ent.map(e=>e.site).filter(Boolean)])];
+  return {ent:out,all:ent.length,folded,skipped,bal,expA,expS,split,siteNames};
+}
+async function duoImportPreview(file){
+  openSheet(`<h2>📥 Імпорт общаку</h2><p id="duoMsg">Читаю файл…</p>`);
+  try{ const XLSX=await loadXLSX(); const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+    const draw=cut=>{ const r=duoParse(XLSX,wb,cut); const ok=(a,b)=>b==null||Math.abs(a-b)<1;
+      openSheet(`<h2>📥 Імпорт общаку</h2>
+        <div class="sum">Записів у журналі: <b>${r.all}</b>${r.skipped?` · пропущено порожніх/нечитаних: ${r.skipped}`:""} · об'єктів: <b>${r.siteNames.length}</b></div>
+        <div class="sum">Общак за імпортом: Андрій <b>${money(r.bal.andriy)}</b> · Сергій <b>${money(r.bal.serhiy)}</b></div>
+        ${r.expA!=null?`<div class="sum">У таблиці (аркуш «отчет»): Андрій <b>${money(r.expA)}</b> · Сергій <b>${money(r.expS)}</b> ${ok(r.bal.andriy,r.expA)&&ok(r.bal.serhiy,r.expS)?"✅ збігається":"⚠️ не збігається — перевірте"}</div>`:""}
+        <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" id="duoFold" style="width:22px;height:22px" ${cut?"checked":""}> Згорнути записи до 2026 року в залишки по об'єктах</label>
+        <div class="m" style="color:var(--muted);font-size:12.5px">${cut?`${r.folded} старих записів → ${r.ent.length-(r.all-r.folded)} рядків залишку. Баланси й суми по об'єктах не зміняться, застосунок працюватиме швидше.`:"Усі записи імпортуються окремо."} Буде записано: <b>${r.ent.length}</b>.</div></div>
+        <div class="actions"><button class="btn ghost" data-close>Скасувати</button><button class="btn" id="duoGo">Імпортувати</button></div>`);
+      $("#duoFold").onchange=e=>draw(e.target.checked?"2026-01-01":"");
+      $("#duoGo").onclick=()=>duoImportRun(r); };
+    draw("2026-01-01");
+  }catch(e){ $("#duoMsg").textContent="Не вдалося прочитати: "+String(e?.message||e).slice(0,200) }
+}
+async function duoImportRun(r){
+  openSheet(`<h2>Імпорт…</h2><p id="impProg">Підготовка</p>`); const prog=t=>{const el=$("#impProg"); if(el) el.textContent=t};
+  const byName=new Map([...S.B.duo.sites.values()].map(x=>[String(x.name).trim().toLowerCase(),x.id]));
+  const lastUse={}; for(const e of r.ent) if(e.site&&(!lastUse[e.site]||e.date>lastUse[e.site])) lastUse[e.site]=e.date;
+  const recent=new Date(); recent.setDate(recent.getDate()-120); const rIso=recent.toISOString().slice(0,10);
+  const sites=[]; let k=0; const sid={};
+  r.siteNames.forEach((n,i)=>{ const ex=byName.get(n.toLowerCase()); const id=ex||("ds"+Date.now().toString(36)+(k++)); sid[n]=id;
+    const old=S.B.duo.sites.get(id)||{}; sites.push({...old,id,name:n,type:"site",split:!!r.split[n],active:(lastUse[n]||"")>=rIso,order:i+1}); });
+  const fin=r.ent.map(e=>{ const d={id:"d"+String(e.row).padStart(5,"0"),date:e.date,type:e.type,owner:e.owner,amount:e.amount,site:e.site?sid[e.site]:"",kind:e.kind,worker:"",note:e.note,createdAt:typeof e.row==="number"?e.row:0}; if(e.pair) d.pair=e.pair; return d });
+  const keep=new Set(fin.map(f=>f.id)); const del=[...S.B.duo.fin.values()].filter(f=>(+f.createdAt||0)<1e12&&!keep.has(f.id)).map(f=>["duo_fin",f.id]);
+  try{ prog("Видалення застарілих: "+del.length); await window.__fbDelete(del);
+    const items=[...sites.map(x=>["duo_sites",x]),...fin.map(x=>["duo_fin",x])];
+    await window.__fbBulk(items,n=>prog("Запис: "+n+" / "+items.length));
+    await window.__fbBulk([["duo_meta",{id:"info",importedAt:Date.now(),rows:r.all}]]);
+    closeSheet(); toast("Імпортовано: "+fin.length+" записів, "+sites.length+" об'єктів");
+  }catch(e){ closeSheet(); toast("Помилка імпорту: "+String(e?.code||e?.message||e).slice(0,100)) }
+}
+
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
 function openMenu(){
@@ -1466,6 +1566,8 @@ function openMenu(){
     <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Фінанси стануть точно як у файлі (зайві й задубльовані записи видаляться). Записи, внесені в застосунок після створення файлу, збережуться.</div>
     <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:8px">⬆️ Додати дані з файлу<input type="file" id="mImport" accept=".json,application/json" style="display:none"></label>
     ${empty?"":`<div style="color:var(--muted);font-size:12.5px;margin:-2px 2px 10px">Завантаження додає записи з файлу; записи з тим самим ID будуть перезаписані.</div>`}
+    ${isDuo()?`<label class="btn" style="display:block;text-align:center;width:100%;margin-bottom:4px">📥 Імпорт общаку з таблиці (Excel)<input type="file" id="mDuo" accept=".xlsx,.xls,.ods" style="display:none"></label>
+    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Таблиця «общак» → Файл → Завантажити → Microsoft Excel. Записи з таблиці оновляться, внесені в застосунку — залишаться.</div>`:""}
     <button class="btn danger" id="mLogout" style="width:100%">Вийти з акаунта</button>
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#mDrive").onclick=()=>driveBackup();
@@ -1478,7 +1580,7 @@ function openMenu(){
   $("#mImport").onchange=async e=>{
     const file=e.target.files[0]; if(!file)return;
     let data; try{data=JSON.parse(await file.text())}catch(_){toast("Файл пошкоджений");return}
-    const items=[];for(const c of [...COLS,"files"]) for(const d of (data[c]||[])) if(d&&d.id) items.push([c,d]);
+    const items=[];for(const c of [...COLS,"files"]) for(const d of (data[c]||[])) if(d&&d.id) items.push([R(c),d]);
     if(!items.length){toast("У файлі немає даних");return}
     openSheet(`<h2>Завантаження…</h2><p id="impProg">0 / ${items.length}</p>`);
     const ok=await write(async db=>{ await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent=n+" / "+items.length}) });
@@ -1487,15 +1589,16 @@ function openMenu(){
   $("#mSync").onchange=async e=>{
     const file=e.target.files[0]; if(!file)return;
     let data; try{data=JSON.parse(await file.text())}catch(_){toast("Файл пошкоджений");return}
-    const items=[];for(const c of COLS) for(const d of (data[c]||[])) if(d&&d.id) items.push([c,d]);
+    const items=[];for(const c of COLS) for(const d of (data[c]||[])) if(d&&d.id) items.push([R(c),d]);
     const keep=new Set((data.fin||[]).map(d=>String(d.id)));
     const cutoff=+data.exportedAtMs||0;
     const del=[...S.fin.values()].filter(f=>!keep.has(f.id)&&((+f.createdAt||0)<1e12||(+f.createdAt||0)<cutoff)).map(f=>f.id);
     openSheet(`<h2>Синхронізація…</h2><p id="impProg">Видалення зайвих: ${del.length}</p>`);
-    const ok=await write(async db=>{ await window.__fbDelete(del.map(id=>["fin",id])); await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent="Запис: "+n+" / "+items.length}) });
+    const ok=await write(async db=>{ await window.__fbDelete(del.map(id=>[R("fin"),id])); await window.__fbBulk(items,(n)=>{const el=$("#impProg"); if(el) el.textContent="Запис: "+n+" / "+items.length}) });
     closeSheet(); toast(ok?`Готово: видалено ${del.length}, оновлено ${items.length}`:"Помилка синхронізації");
   };
   $("#mLogout").onclick=()=>window.__fbSignOut();
+  $("#mDuo")?.addEventListener("change",async e=>{const f=e.target.files[0]; if(f) duoImportPreview(f); e.target.value=""});
 }
 $("#menuBtn").addEventListener("click",openMenu);
 $("#banner").addEventListener("click",e=>{ if(e.target.id==="bkNow"){e.preventDefault();e.target.textContent="Зачекайте…";driveBackup().then(()=>{const a=$("#bkNow");if(a)a.textContent="Зберегти зараз"})} });
@@ -1515,6 +1618,7 @@ $("#headTools").addEventListener("change",e=>{
   render();
 });
 $("#headTools").addEventListener("click",e=>{
+  const bb=e.target.closest("[data-base]"); if(bb){ setBase(bb.dataset.base); return }
   const hb=e.target.closest("[data-hist]"); if(hb){S.htab=hb.dataset.hist;render();return}
   const st=e.target.closest("[data-ht]"); if(st){S.holderType=st.dataset.ht;render();return}
   const mt=e.target.closest("[data-mt]"); if(mt){S.mtab=mt.dataset.mt;render();return}
@@ -1600,7 +1704,7 @@ window.__fbAI=async(imgs,prompt,onTry)=>{
   throw new Error(errs.join(" | "));
 };
 window.__fbDump=async()=>{ const out={exportedAt:new Date().toISOString(),exportedAtMs:Date.now()};
-  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files"]){ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }
+  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","duo_fin","duo_sites"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
   return out; };
 let drvTok=null, drvExp=0;
 window.__driveToken=async()=>{ if(drvTok&&Date.now()<drvExp) return drvTok;
