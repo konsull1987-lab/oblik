@@ -558,7 +558,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v37</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v38</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -762,7 +762,7 @@ function personForm(p){
   const isNew=!p; p=p||{role:"worker"};
   const cnt=[...S.tools.values()].filter(t=>t.holder===p.id).length;
   openSheet(`<h2>${isNew?"Нова людина":esc(p.name)}</h2>
-    ${!isNew&&p.role==="worker"?(()=>{const x=workerTotals()[p.id];const d=x?x.acc-x.paid:0;return `<button class="btn ghost" id="showW" style="width:100%;margin-bottom:8px">Розрахунки: ${d>0?"винні "+money(d):d<0?"аванс "+money(-d):"боргу немає"}</button>`})():""}
+    ${!isNew&&p.role==="worker"?(()=>{const x=workerTotals()[p.id];const d=x?x.acc-x.paid:0;return `<button class="btn ghost" id="showW" style="width:100%;margin-bottom:8px">Розрахунки: ${x&&!x.acc?"виплачено "+money(x.paid):d>0?"винні "+money(d):d<0?"аванс "+money(-d):"боргу немає"}</button>`})():""}
     ${!isNew?`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showP">Інструмент у нього (${cnt})</button>${cnt?`<button class="btn ghost" id="hoP">🧰 Список / повернути</button>`:""}</div>`:""}
     <form id="pForm">
       <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
@@ -885,7 +885,7 @@ function renderMoneyWorkers(){
   for(const r of rows){const d=r.acc-r.paid;
     h+=`<div class="card" data-mworker="${r.id}"><div class="stripe wrk"></div><div class="main"><div class="t">${esc(r.p.name)}</div>
       <div class="m">нараховано ${money(r.acc)} · виплачено ${money(r.paid)}</div></div>
-      <span class="amt ${d>0?"out":d<0?"acc":""}">${d>0?"винні "+money(d):d<0?"аванс "+money(-d):"0 ₴"}</span></div>`}
+      <span class="amt ${!r.acc?"":d>0?"out":d<0?"acc":""}">${!r.acc?"виплачено "+money(r.paid):d>0?"винні "+money(d):d<0?"аванс "+money(-d):"0 ₴"}</span></div>`}
   $("#view").innerHTML=h+`</div>`;
 }
 function renderMoneyCustomers(){
@@ -904,7 +904,7 @@ function workerSheet(id){
   const list=[...S.fin.values()].filter(f=>f.worker===id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
   openSheet(`<h2>🔧 ${esc(p.name)}</h2>
     <div class="sum">Нараховано <b>${money(x.acc)}</b> · Виплачено <b>${money(x.paid)}</b></div>
-    <div class="sum" style="font-size:16px">${d>0?`Винні йому: <b class="out">${money(d)}</b>`:d<0?`Аванс (переплата): <b class="acc">${money(-d)}</b>`:"Розраховані повністю"}</div>
+    <div class="sum" style="font-size:16px">${!x.acc?`Виплачено: <b>${money(x.paid)}</b><div class="m" style="color:var(--muted);font-size:12.5px;font-weight:400">Борг не рахується, бо не внесено нарахувань. Щоб бачити, скільки винні, натисніть «+ Нарахувати» й внесіть домовлену суму.</div>`:d>0?`Винні йому: <b class="out">${money(d)}</b>`:d<0?`Аванс (переплата): <b class="acc">${money(-d)}</b>`:"Розраховані повністю"}</div>
     ${S.canWrite?`<div class="actions" style="margin-top:4px"><button class="btn ghost" id="wAcc">+ Нарахувати</button><button class="btn" id="wPay">+ Виплатити</button></div>`:""}
     <div class="section-t">Історія</div>
     ${list.length?list.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)}${f.site?" · "+esc(site(f.site)?.name||""):""}</div><div>${f.type==="accrual"?"Нараховано":"Виплачено"+(person(f.owner)?" ("+esc(person(f.owner).name)+")":"")}${f.note?" · "+esc(f.note):""}</div></div><span class="amt ${f.type==="accrual"?"acc":"out"}">${money(f.amount)}</span></div>`).join(""):`<div class="m" style="color:var(--muted)">Записів немає</div>`}
