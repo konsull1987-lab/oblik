@@ -327,10 +327,12 @@ function renderTools(){
 }
 
 function renderSites(){
-  $("#headTools").innerHTML="";
-  const all=[...S.sites.values()].sort((a,b)=>(b.order||0)-(a.order||0)||byName(a,b));
+  if(!$("#sq")) $("#headTools").innerHTML=`<div class="search"><input id="sq" type="search" placeholder="Пошук об'єкта: перші літери назви…" value="${esc(S.sq||"")}"></div>`;
+  const sq=(S.sq||"").trim().toLowerCase();
+  const hit=s=>!sq||(" "+String(s.name||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ")).includes(" "+sq);
+  const all=[...S.sites.values()].filter(hit).sort((a,b)=>(b.order||0)-(a.order||0)||byName(a,b));
   const cnt={}; for(const t of S.tools.values()) if(t.site) cnt[t.site]=(cnt[t.site]||0)+qtyOf(t);
-  if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте склади й об'єкти кнопкою «+».</div>`; return; }
+  if(!all.length){ $("#view").innerHTML=`<div class="empty">${sq?"Нічого не знайдено":"Додайте склади й об'єкти кнопкою «+»."}</div>`; return; }
   const card=s=>`<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}</div>${s.note?`<div class="m">${esc(s.note)}</div>`:""}</div><span class="count">${cnt[s.id]||0} од.</span></div>`;
   let h="";
   for(const [type,label] of [["warehouse","Склади"],["site","Активні об'єкти"]]){
@@ -339,8 +341,9 @@ function renderSites(){
   }
   const arch=all.filter(s=>s.active===false);
   if(arch.length){
-    h+=`<div class="section-t" id="archT" style="cursor:pointer">${S.showArch?"▾":"▸"} Архів (${arch.length})</div>`;
-    if(S.showArch) h+=`<input id="archQ" type="search" placeholder="Пошук в архіві" value="${esc(S.archQ||"")}" style="margin-bottom:8px"><div class="list">`+arch.filter(s=>!S.archQ||s.name.toLowerCase().includes(S.archQ.toLowerCase())).map(card).join("")+`</div>`;
+    const openA=S.showArch||!!sq;
+    h+=`<div class="section-t" id="archT" style="cursor:pointer">${openA?"▾":"▸"} Архів (${arch.length})</div>`;
+    if(openA) h+=`${sq?"":`<input id="archQ" type="search" placeholder="Пошук в архіві" value="${esc(S.archQ||"")}" style="margin-bottom:8px">`}<div class="list">`+arch.filter(s=>!S.archQ||s.name.toLowerCase().includes(S.archQ.toLowerCase())).map(card).join("")+`</div>`;
   }
   $("#view").innerHTML=h;
 }
@@ -1278,6 +1281,7 @@ $("#nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)
 $("#fab").addEventListener("click",()=>({tools:()=>toolForm(),sites:()=>siteForm(),people:()=>personForm(),money:()=>S.mtab==="docs"?(S.fops.size?docForm():reqForm("fops")):finForm()})[S.tab]?.());
 $("#headTools").addEventListener("input",e=>{
   if(e.target.id==="q"){S.q=e.target.value; renderTools();}
+  if(e.target.id==="sq"){S.sq=e.target.value; renderSites();}
 });
 $("#headTools").addEventListener("change",e=>{
   if(["mMonth","mSite","mOwner","mType","mKind"].includes(e.target.id)){S[e.target.id]=e.target.value;render();return}
