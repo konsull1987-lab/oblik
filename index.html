@@ -371,10 +371,25 @@ function moveLine(m){
     <div>${nm(m.fromHolder)} (${sn(m.fromSite)}) → <b>${nm(m.toHolder)}</b> (${sn(m.toSite)})</div>
     ${m.note?`<div class="m" style="color:var(--muted)">${esc(m.note)}</div>`:""}</div>`;
 }
+function finLine(f){
+  const o=person(f.owner), w=person(f.worker), k=f.type==="in"?"in":f.type==="accrual"?"acc":"out";
+  const what=f.kind==="Взаємозалік"?(f.type==="in"?"Взаємозалік: отримав":"Взаємозалік: віддав"):f.type==="in"?"Прихід":f.type==="accrual"?"Нарахування":"Витрата"+(f.kind?" · "+f.kind:"");
+  return `<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1;min-width:0">
+    <div class="when">${f.createdAt>1e12?fmtDate(f.createdAt):fmtDay(f.date)}${f.byName?` · вніс: ${esc(f.byName)}`:""}${f.createdAt>1e12&&f.date&&f.date!==new Date(f.createdAt).toISOString().slice(0,10)?` · дата операції ${fmtDay(f.date)}`:""}</div>
+    <div><b>${what}</b>${o?" · "+esc(o.name):""}${w?" · 🔧 "+esc(w.name):""}</div>
+    <div class="m" style="color:var(--muted)">${f.site?esc(site(f.site)?.name||"—"):"без об'єкта"}${f.note?" · "+esc(f.note):""}</div></div>
+    <span class="amt ${k}" style="white-space:nowrap">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
+}
 function renderHistory(){
-  $("#headTools").innerHTML="";
-  if(!S.moves.length){ $("#view").innerHTML=`<div class="empty">Переміщень ще не було.</div>`; return; }
-  $("#view").innerHTML=`<div class="card" style="display:block;cursor:default">${S.moves.map(moveLine).join("")}</div>`;
+  S.htab=S.htab||"money";
+  $("#headTools").innerHTML=`<div class="tabs2">${[["money","💰 Гроші"],["tools","🧰 Інструмент"]].map(([k,l])=>`<button data-hist="${k}" class="${S.htab===k?"on":""}">${l}</button>`).join("")}</div>`;
+  if(S.htab==="tools"){
+    if(!S.moves.length){ $("#view").innerHTML=`<div class="empty">Переміщень ще не було.</div>`; return; }
+    $("#view").innerHTML=`<div class="card" style="display:block;cursor:default">${S.moves.map(moveLine).join("")}</div>`; return;
+  }
+  const l=[...S.fin.values()].sort((a,b)=>((b.createdAt>1e12?b.createdAt:0)-(a.createdAt>1e12?a.createdAt:0))||(b.date||"").localeCompare(a.date||"")).slice(0,300);
+  if(!l.length){ $("#view").innerHTML=`<div class="empty">Грошових записів ще немає.</div>`; return; }
+  $("#view").innerHTML=`<div class="sum" style="color:var(--muted)">Останні внесені записи — спершу найновіші</div><div class="card" style="display:block;cursor:default">${l.map(finLine).join("")}</div>`;
 }
 
 function renderBulk(){
@@ -454,7 +469,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v23</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v24</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -827,7 +842,8 @@ function finForm(f,preset){
     const amount=parseFloat(String(v.amount).replace(/\s/g,"").replace(",","."));
     if(!(amount>0)){toast("Вкажіть суму");return}
     const btn=e.target.querySelector("[type=submit]"); btn.disabled=true;
-    const now=Date.now(), base={date:v.date,amount,note:v.note.trim(),updatedAt:now,by:S.uid||""};
+    let byName=f.byName||""; if(isNew){ try{byName=(await S.user?.me?.())?.name||""}catch(_){} }
+    const now=Date.now(), base={date:v.date,amount,note:v.note.trim(),updatedAt:now,by:f.by||S.uid||"",byName};
     let ok;
     if(mode==="xfer"){
       if(v.from===v.to){toast("Виберіть різних людей");btn.disabled=false;return}
@@ -1499,6 +1515,7 @@ $("#headTools").addEventListener("change",e=>{
   render();
 });
 $("#headTools").addEventListener("click",e=>{
+  const hb=e.target.closest("[data-hist]"); if(hb){S.htab=hb.dataset.hist;render();return}
   const st=e.target.closest("[data-ht]"); if(st){S.holderType=st.dataset.ht;render();return}
   const mt=e.target.closest("[data-mt]"); if(mt){S.mtab=mt.dataset.mt;render();return}
   const ow=e.target.closest("[data-own]"); if(ow){Object.assign(S,{mtab:"journal",mOwner:S.mOwner===ow.dataset.own?"":ow.dataset.own});render();return}
@@ -1508,6 +1525,7 @@ $("#headTools").addEventListener("click",e=>{
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
 $("#view").addEventListener("click",e=>{
   if(e.target.id==="archT"){S.showArch=!S.showArch;renderSites();return}
+  const hf=e.target.closest(".hist[data-fin]"); if(hf){ if(S.canWrite) finForm(S.fin.get(hf.dataset.fin)); return }
   const c=e.target.closest(".card"); if(!c)return;
   if(c.dataset.tool){ if(S.select){const id=c.dataset.tool; S.selected.has(id)?S.selected.delete(id):S.selected.add(id); render(); } else toolCard(c.dataset.tool); }
   else if(c.dataset.site) siteForm(S.sites.get(c.dataset.site));
