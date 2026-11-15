@@ -242,7 +242,7 @@ function render(){
   if(S.offline) ban.push("Не вдалося підключитися до бази. Перевірте інтернет і перезапустіть застосунок.");
   else if(S.slow) ban.push("Дані поки не завантажились — перевірте інтернет.");
   if(S.err) ban.push(S.err==="permission-denied"?"Ця пошта не має доступу до бази. Попросіть Андрія додати вас.":"Помилка доступу до бази ("+esc(S.err)+").");
-  if(window.__demo) ban.push("🧪 Демо-режим: можна пробувати все, але зміни бачите лише ви й зникнуть після оновлення сторінки. У базу нічого не записується.");
+  if(window.__demo) ban.push('🧪 Демо-режим: це окрема копія даних для тесту — усе, що ви тут змінюєте, зберігається лише в ній і не зачіпає реальну базу. <a href="#" id="demoReset" style="color:inherit;text-decoration:underline;white-space:nowrap">Скинути демо</a>');
   else if(!S.canWrite) ban.push("Режим перегляду: зміни можуть вносити лише власники.");
   $("#banner").innerHTML=ban.map(b=>`<div class="banner">${b}</div>`).join("");
   $("#fab").style.display=(S.canWrite&&!S.select&&S.tab!=="history")?"":"none";
@@ -1318,7 +1318,7 @@ import * as CFG from "./firebase-config.js";
 const {firebaseConfig, ALLOWED}=CFG; const DEMO_EMAILS=(CFG.DEMO_EMAILS||[]).map(x=>x.toLowerCase()); let DEMO=false;
 import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
-import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc, getDocs} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 
 const app=initializeApp(firebaseConfig);
@@ -1327,38 +1327,30 @@ let fs; try{ fs=initializeFirestore(app,{localCache:persistentLocalCache({tabMan
 const auth=getAuth(app); auth.languageCode="uk";
 const L=document.getElementById("login"), msg=document.getElementById("loginMsg"), lo2=document.getElementById("logoutBtn2");
 
-// ---- Демо-режим: правки лишаються в пам'яті сторінки, у Firestore нічого не пишеться ----
-const dBase=new Map(), dOv=new Map(), dSubs=new Map(), dMeta=new Map();
-const ovOf=c=>{ if(!dOv.has(c)) dOv.set(c,new Map()); return dOv.get(c) };
-const dDerive=(c,m)=>{ const r=new Map(dBase.get(c)||[]); for(const [id,v] of ovOf(c)){ if(v===null) r.delete(id); else r.set(id,v) }
-  let a=[...r].map(([id,data])=>({id,data})); if(m.order){ const [f,dir]=m.order, k=dir==="desc"?-1:1; a.sort((x,y)=>k*((x.data[f]>y.data[f])-(x.data[f]<y.data[f]))) } if(m.lim) a=a.slice(0,m.lim); return a };
-const dEmit=c=>{ for(const f of [...(dSubs.get(c)||[])]) f() };
-const dCur=async r=>{ const c=r.parent.path, ov=ovOf(c); if(ov.has(r.id)) return ov.get(r.id); if(dBase.get(c)?.has(r.id)) return dBase.get(c).get(r.id); const x=await getDoc(r); return x.exists()?x.data():null };
-const dPut=(r,v)=>{ const c=r.parent.path; ovOf(c).set(r.id,v); dEmit(c) };
-
+// ---- Демо-режим: Сергій працює у власних колекціях demo_* (копія реальних даних), реальні не чіпає ----
+const px=c=>DEMO&&!String(c).startsWith("demo_")?"demo_"+c:c;
+const pxPath=p=>{ const i=p.indexOf("/"); return px(p.slice(0,i))+p.slice(i) };
 const snapW=s=>({docs:s.docs.map(d=>({id:d.id,exists:true,data:()=>d.data(),metadata:d.metadata})),metadata:s.metadata});
-const wrapQ=(q,m)=>({ onSnapshot:(next,err)=>{
-    if(!DEMO) return onSnapshot(q,{includeMetadataChanges:true},s=>next(snapW(s)),e=>err&&err({code:e.code,message:e.message}));
-    const c=m.path; if(!dSubs.has(c)) dSubs.set(c,new Set());
-    const emit=()=>next({docs:dDerive(c,m).map(x=>({id:x.id,exists:true,data:()=>x.data,metadata:{}})),metadata:dMeta.get(c)||{fromCache:true}});
-    dSubs.get(c).add(emit);
-    return onSnapshot(collection(fs,c),{includeMetadataChanges:true},s=>{ dBase.set(c,new Map(s.docs.map(d=>[d.id,d.data()]))); dMeta.set(c,s.metadata); emit() },e=>err&&err({code:e.code,message:e.message}));
-  },
-  orderBy:(f,d)=>wrapQ(query(q,orderBy(f,d)),{...m,order:[f,d]}), limit:n=>wrapQ(query(q,limit(n)),{...m,lim:n}) });
-const wrapD=r=>({id:r.id,path:r.path,
-  get:async()=>{ if(DEMO){ const v=await dCur(r); return{exists:v!=null,data:()=>v} } const x=await getDoc(r);return{exists:x.exists(),data:()=>x.data()}},
-  set:async d=>{ if(DEMO) return dPut(r,{...d}); return setDoc(r,d) },
-  update:async d=>{ if(DEMO){ const cur=await dCur(r); return dPut(r,{...(cur||{}),...d}) } return updateDoc(r,d) },
-  delete:async()=>{ if(DEMO) return dPut(r,null); return deleteDoc(r) }});
-const wrapC=c=>({...wrapQ(c,{path:c.path}),path:c.path,add:async d=>{ if(DEMO){ const r=doc(c); dPut(r,{...d}); return wrapD(r) } return wrapD(await addDoc(c,d)) },doc:id=>wrapD(id?doc(c,id):doc(c))});
-const db={collection:p=>wrapC(collection(fs,p)),doc:p=>wrapD(doc(fs,p))};
+const wrapQ=q=>({ onSnapshot:(next,err)=>onSnapshot(q,{includeMetadataChanges:true},s=>next(snapW(s)),e=>err&&err({code:e.code,message:e.message})),
+  orderBy:(f,d)=>wrapQ(query(q,orderBy(f,d))), limit:n=>wrapQ(query(q,limit(n))) });
+const wrapD=r=>({id:r.id,path:r.path,get:async()=>{ let x=await getDoc(r);
+    if(DEMO&&!x.exists()&&r.parent.path==="demo_files") x=await getDoc(doc(fs,"files",r.id)); // оригінали файлів читаємо з реальної бази
+    return{exists:x.exists(),data:()=>x.data()}},set:d=>setDoc(r,d),update:d=>updateDoc(r,d),delete:()=>deleteDoc(r)});
+const wrapC=c=>({...wrapQ(c),path:c.path,add:async d=>wrapD(await addDoc(c,d)),doc:id=>wrapD(id?doc(c,id):doc(c))});
+const db={collection:p=>wrapC(collection(fs,px(p))),doc:p=>wrapD(doc(fs,pxPath(p)))};
+const DEMO_COLS=["tools","people","sites","fin","fops","clients","docs","contracts","moves"];
+const batchOps=async(ops)=>{ for(let i=0;i<ops.length;i+=400){ const b=writeBatch(fs); ops.slice(i,i+400).forEach(f=>f(b)); await b.commit(); } };
+async function demoWipe(){ for(const c of [...DEMO_COLS,"files","meta"]){ const sn=await getDocs(collection(fs,"demo_"+c)); await batchOps(sn.docs.map(d=>b=>b.delete(d.ref))); } }
+async function demoSeed(){ for(const c of DEMO_COLS){ const sn=await getDocs(collection(fs,c)); await batchOps(sn.docs.map(d=>b=>b.set(doc(fs,"demo_"+c,d.id),d.data()))); }
+  await setDoc(doc(fs,"demo_meta","seed"),{at:Date.now()}); }
+async function demoPrepare(){ try{ const m=await getDoc(doc(fs,"demo_meta","seed")); if(!m.exists()) await demoSeed(); }catch(e){ console.warn("demo seed",e) } }
+window.__demoReset=async()=>{ await demoWipe(); await demoSeed(); };
+document.addEventListener("click",async e=>{ if(e.target.id!=="demoReset") return; e.preventDefault();
+  if(!confirm("Видалити всі ваші демо-записи й завантажити свіжу копію реальних даних?")) return;
+  e.target.textContent="Скидаю…"; try{ await window.__demoReset(); location.reload() }catch(err){ alert("Не вдалося: "+(err.code||err.message)); e.target.textContent="Скинути демо" } });
 
-window.__fbBulk=async(items,prog)=>{
-  if(DEMO){ for(const [c,d] of items){ const {id,...rest}=d; ovOf(c).set(String(id),rest) } for(const c of new Set(items.map(x=>x[0]))) dEmit(c); prog&&prog(items.length); return; }
-  for(let i=0;i<items.length;i+=400){ const b=writeBatch(fs); for(const [c,d] of items.slice(i,i+400)){const {id,...rest}=d; b.set(doc(fs,c,String(id)),rest)} await b.commit(); prog&&prog(Math.min(i+400,items.length)); } };
-window.__fbDelete=async(paths)=>{
-  if(DEMO){ for(const [c,id] of paths) ovOf(c).set(String(id),null); for(const c of new Set(paths.map(x=>x[0]))) dEmit(c); return; }
-  for(let i=0;i<paths.length;i+=400){ const b=writeBatch(fs); for(const [c,id] of paths.slice(i,i+400)) b.delete(doc(fs,c,String(id))); await b.commit(); } };
+window.__fbBulk=async(items,prog)=>{ for(let i=0;i<items.length;i+=400){ const b=writeBatch(fs); for(const [c,d] of items.slice(i,i+400)){const {id,...rest}=d; b.set(doc(fs,px(c),String(id)),rest)} await b.commit(); prog&&prog(Math.min(i+400,items.length)); } };
+window.__fbDelete=async(paths)=>{ for(let i=0;i<paths.length;i+=400){ const b=writeBatch(fs); for(const [c,id] of paths.slice(i,i+400)) b.delete(doc(fs,px(c),String(id))); await b.commit(); } };
 let aiMod=null, aiOk=null;
 window.__fbAI=async(imgs,prompt,onTry)=>{
   if(!aiMod) aiMod=await import("https://www.gstatic.com/firebasejs/11.10.0/firebase-ai.js");
@@ -1391,11 +1383,11 @@ onAuthStateChanged(auth,u=>{
   if(!u){ L.style.display="flex"; return; }
   const email=(u.email||"").toLowerCase();
   if(ALLOWED.length&&!ALLOWED.includes(email)){ L.style.display="flex"; msg.innerHTML="Пошта <b>"+email+"</b> не має доступу.<br>Попросіть Андрія додати її."; document.getElementById("loginBtn").style.display="none"; lo2.style.display=""; return; }
-  L.style.display="none"; window.__fbEmail=email; DEMO=DEMO_EMAILS.includes(email); window.__demo=DEMO;
+  L.style.display="none"; window.__fbEmail=email; DEMO=DEMO_EMAILS.includes(email)||new URLSearchParams(location.search).has("demo"); window.__demo=DEMO;
   if(started) return; started=true;
   const name=u.displayName||email;
   const user={ id:async()=>u.uid, me:async()=>({name}), can:async()=>true };
-  window.__fbResolve([db,user]);
+  (DEMO?demoPrepare():Promise.resolve()).then(()=>window.__fbResolve([db,user]));
 });
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{});
 </script>
