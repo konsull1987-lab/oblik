@@ -926,18 +926,28 @@ function docForm(d){
     <div class="field"><label>Замовник</label><select name="client" id="dCli">${cliOpts}</select></div>
     <div class="field"><label>Об'єкт (необов'язково)</label><select name="site">${siteOptions(d.site||"","—")}</select></div>
     <div class="row"><div class="field"><label>№ рахунку</label><input name="invNo" id="dInv" value="${esc(d.invNo||"")}"></div><div class="field"><label>№ акту</label><input name="actNo" id="dAct" value="${esc(d.actNo||"")}" placeholder="порожньо — без акту"></div></div>
-    <div class="section-t">Роботи / послуги</div><div id="dItems"></div>
+    <div class="section-t">Роботи / послуги</div>
+    <div class="field" id="dCtBox" style="display:none"><label>Взяти рядки з договору замовника</label><select id="dCt"></select></div>
+    ${estimateButton("dXls")}<div id="dItems"></div>
     <button type="button" class="btn ghost sm" id="dAdd" style="width:100%">+ Додати рядок</button>
     <div class="sum" style="font-size:15px">Всього: <b id="dTot"></b></div>
     <div class="actions">${!isNew?`<button type="button" class="btn danger" id="dDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
   const setNos=()=>{const f=S.fops.get($("#dFop").value);if(!f||!isNew)return;$("#dInv").value=nextNo(f.invPrefix,f.invNext||1);$("#dAct").value=nextNo(f.actPrefix,f.actNext||1)};
   if(isNew&&!d.invNo)setNos(); $("#dFop").onchange=setNos;
+  $("#dCli").addEventListener("change",e=>{if(e.target.value!=="__new") fillCts()});
   $("#dCli").onchange=e=>{if(e.target.value==="__new"){const keep=collect();reqForm("clients",null,id=>docForm({...keep,client:id}))}};
   const drawItems=()=>{$("#dItems").innerHTML=items.map((it,i)=>`<div class="card" style="display:block;margin-bottom:6px;cursor:default">
       <input data-i="${i}" data-k="name" value="${esc(it.name)}" placeholder="Назва роботи" style="margin-bottom:6px">
       <div class="row"><input data-i="${i}" data-k="unit" value="${esc(it.unit)}" placeholder="од." style="flex:.6"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${esc(it.qty)}" placeholder="к-сть" style="flex:.8"><input data-i="${i}" data-k="price" inputmode="decimal" value="${esc(it.price)}" placeholder="ціна"><button type="button" class="btn ghost sm" data-rm="${i}" style="flex:0 0 auto">✕</button></div></div>`).join("");
     $("#dTot").textContent=money(docTotal({items}));};
   drawItems();
+  bindEstimate("dXls",items,drawItems);
+  const fillCts=()=>{ const cid=$("#dCli").value, l=[...S.contracts.values()].filter(c=>c.client===cid&&(c.items||[]).some(i=>i.name)).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    $("#dCtBox").style.display=l.length?"":"none"; $("#dCt").innerHTML=`<option value="">— вибрати —</option>`+l.map(c=>`<option value="${c.id}">№ ${esc(c.no)} від ${dShort(c.date)} · ${c.items.filter(i=>i.name).length} поз.</option>`).join("") };
+  $("#dCt").onchange=e=>{ const c=S.contracts.get(e.target.value); if(!c) return;
+    if(items.some(i=>String(i.name||"").trim())&&!confirm("Замінити поточні рядки рядками з договору?")){e.target.value="";return}
+    items.length=0; items.push(...c.items.filter(i=>i.name).map(i=>({...i}))); drawItems(); if(!$("#dCli").value) $("#dCli").value=c.client };
+  fillCts();
   $("#dItems").oninput=e=>{const i=e.target.dataset.i;if(i==null)return;items[i][e.target.dataset.k]=e.target.value;$("#dTot").textContent=money(docTotal({items:items.map(x=>({qty:String(x.qty).replace(",","."),price:String(x.price).replace(",",".")}))}))};
   $("#dItems").onclick=e=>{const r=e.target.dataset.rm;if(r!=null){items.splice(+r,1);if(!items.length)items.push({name:"",unit:"посл.",qty:1,price:""});drawItems()}};
   $("#dAdd").onclick=()=>{items.push({name:"",unit:"посл.",qty:1,price:""});drawItems()};
@@ -1049,17 +1059,27 @@ async function importEstimate(file,withVat){
   for(const sn of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});const it=parseEstimateRows(rows,withVat);if(it.length)res.push({sheet:sn,items:it})}
   return res;
 }
-function estimateButton(id){return `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:6px"><input type="checkbox" id="${id}Vat" style="width:20px;height:20px"> Брати ціни з ПДВ (якщо у файлі є обидві)</label><label class="btn ghost sm" style="display:block;text-align:center;width:100%;margin-bottom:6px">📄 Завантажити кошторис з Excel / CSV<input type="file" id="${id}" accept=".xlsx,.xls,.xlsm,.ods,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none"></label>`}
+function estimateButton(id){return `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:6px"><input type="checkbox" id="${id}Vat" style="width:20px;height:20px"> Брати ціни з ПДВ (якщо у файлі є обидві)</label><label class="btn ghost sm" style="display:block;text-align:center;width:100%;margin-bottom:6px">📄 Завантажити перелік робіт: Excel / CSV / PDF / фото / Word<input type="file" id="${id}" accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf,.docx,image/*,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none"></label>`}
 function bindEstimate(id,items,redraw){
   const el=document.getElementById(id); if(!el) return;
   el.onchange=async e=>{const f=e.target.files[0];if(!f)return;toast("Читаю файл…");
-    try{const res=await importEstimate(f,document.getElementById(id+"Vat")?.checked);if(!res.length){toast("Не знайшов у файлі рядків з назвою, кількістю й ціною");return}
+    try{const ext=(f.name.split(".").pop()||"").toLowerCase(), viaAI=ext==="pdf"||ext==="docx"||/^image\//.test(f.type);
+      let res;
+      if(viaAI){ if(!window.__fbAI){toast("Розпізнавання недоступне");e.target.value="";return}
+        toast("Розпізнаю перелік робіт (до хвилини)…");
+        const parts=await aiParts(f.name,f.type,await f.arrayBuffer());
+        const txt=await window.__fbAI(parts,itemsPrompt());
+        const j=JSON.parse(txt.replace(/^```(json)?|```$/g,"").trim());
+        const num=x=>{const n=parseFloat(String(x??"").replace(/\s/g,"").replace(",","."));return isFinite(n)?n:0};
+        const its=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),unit:String(x.unit||"од.").trim(),qty:num(x.qty)||1,price:num(x.price)}));
+        res=its.length?[{sheet:f.name,items:its}]:[];
+      } else res=await importEstimate(f,document.getElementById(id+"Vat")?.checked);if(!res.length){toast("Не знайшов у файлі рядків з назвою, кількістю й ціною");return}
       const apply=it=>{const empty=items.every(i=>!String(i.name||"").trim()); if(empty) items.length=0; items.push(...it); redraw(); toast(`Додано ${it.length} рядків на ${money(it.reduce((a,i)=>a+i.qty*i.price,0))}`)};
       if(res.length===1) apply(res[0].items);
       else { const box=document.createElement("div");box.className="overlay";box.style.zIndex=40;
         box.innerHTML=`<div class="sheet"><h2>У файлі кілька аркушів</h2><p style="color:var(--muted)">Який аркуш взяти в кошторис?</p><div class="list">${res.map((r,i)=>`<div class="card" data-k="${i}"><div class="main"><div class="t">${esc(r.sheet)}</div><div class="m">${r.items.length} рядків · ${money(r.items.reduce((a,x)=>a+x.qty*x.price,0))}</div><div class="m" style="color:var(--muted)">${esc(r.items.slice(0,2).map(x=>x.name).join("; "))}…</div></div></div>`).join("")}</div><div class="actions"><button class="btn ghost" data-x>Скасувати</button></div></div>`;
         document.body.appendChild(box); box.onclick=e=>{const k=e.target.closest("[data-k]");if(k){apply(res[+k.dataset.k].items);box.remove()}else if(e.target===box||e.target.closest("[data-x]"))box.remove()}; }
-    }catch(err){toast("Не вдалося прочитати файл")}
+    }catch(err){toast("Не вдалося прочитати файл"+(err?.message?": "+String(err.message).slice(0,80):""))}
     e.target.value="";};
 }
 
@@ -1193,6 +1213,11 @@ async function aiParts(name,type,buf){
   if(/^image\//.test(type)||["jpg","jpeg","png","webp","heic"].includes(ext)) return [{b64:b64(),mime:/^image\//.test(type)?type:"image/"+(ext==="jpg"?"jpeg":ext)}];
   if(ext==="docx") return [{text:"ТЕКСТ ДОГОВОРУ:\n"+await docxText(buf)}];
   throw new Error("Формат не підтримується. Потрібен PDF, фото або Word (.docx)");
+}
+function itemsPrompt(){
+  return `Це перелік (кошторис, прайс або відомість) будівельних робіт чи послуг українською. Витягни всі рядки робіт і поверни ЛИШЕ JSON:
+{"items":[{"name":"назва роботи/матеріалу","unit":"од. виміру (м², м.п., шт., посл. тощо)","qty":кількість числом,"price":ціна за одиницю числом}]}
+Правила: не вигадуй; пропускай заголовки, підсумки, «Всього», ПДВ-рядки. Якщо є колонки з ПДВ і без ПДВ — бери ціну без ПДВ. Якщо є лише сума по рядку й кількість — price = сума / кількість. Якщо ціни немає — price 0. Числа без пробілів, десятковий роздільник — крапка.`;
 }
 function contractPrompt(){
   return `Ти помічник бухгалтера будівельної фірми в Україні. Перед тобою договір підряду (або кошторис до нього). Витягни дані й поверни ЛИШЕ JSON такої структури:
