@@ -107,7 +107,14 @@ nav button.on{color:var(--accent);font-weight:600}
 .daysep{font-size:12px;color:var(--muted);font-weight:600;margin:10px 2px 4px}
 .count{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600}
 #printArea{display:none}
-body.duo .bal .stat{border-color:#f59e0b}
+/* ---- Общак на двох: теплий бурштиновий відтінок замість бірюзового ---- */
+body.duo{--accent:#b45309;--accent-ink:#fff;--bg:#faf6ee}
+@media (prefers-color-scheme: dark){ body.duo{--accent:#f59e0b;--accent-ink:#2a1a03;--bg:#14110b} }
+body.duo header{box-shadow:inset 0 4px 0 var(--accent)}
+body.duo .bal .stat{border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+body.duo .card{border-left:3px solid color-mix(in srgb,var(--accent) 45%,transparent)}
+.seg [data-base].on{background:var(--accent);color:var(--accent-ink)}
+.basebadge{display:inline-block;white-space:nowrap;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
 @media print{
   @page{size:A4;margin:14mm 16mm}
   body{background:#fff!important;color:#000!important}
@@ -263,6 +270,8 @@ function render(){
   if(isDuo()&&S.tab==="tools") S.tab="money";
   document.querySelectorAll("nav button").forEach(b=>{b.classList.toggle("on",b.dataset.tab===S.tab); if(b.dataset.tab==="tools") b.style.display=isDuo()?"none":""});
   document.body.classList.toggle("duo",isDuo());
+  { const m=document.querySelector('meta[name="theme-color"]'); if(m) m.content=isDuo()?"#b45309":"#0f766e";
+    const w=$("#who"); if(w&&S.duoOk){ let b=$("#baseBadge"); if(!b){b=document.createElement("span");b.id="baseBadge";b.className="basebadge";w.before(b)} b.textContent=isDuo()?"🤝 на двох":"👥 на трьох" } }
   const ban=[];
   if(S.offline) ban.push("Не вдалося підключитися до бази. Перевірте інтернет і перезапустіть застосунок.");
   else if(S.slow) ban.push("Дані поки не завантажились — перевірте інтернет.");
@@ -500,7 +509,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v35</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v36</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
