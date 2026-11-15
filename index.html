@@ -359,8 +359,15 @@ function renderSites(){
   const all=[...S.sites.values()].filter(hit).sort((a,b)=>(b.order||0)-(a.order||0)||byName(a,b));
   const cnt={}; for(const t of S.tools.values()) if(t.site) cnt[t.site]=(cnt[t.site]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">${sq?"Нічого не знайдено":"Додайте склади й об'єкти кнопкою «+»."}</div>`; return; }
-  const card=s=>`<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}</div>${s.note?`<div class="m">${esc(s.note)}</div>`:""}</div><span class="count">${cnt[s.id]||0} од.</span></div>`;
+  const tot=siteTotals();
+  const card=s=>{ const t=tot[s.id], p=t?t.in-t.out:0, debt=(+s.contract||0)>0?(+s.contract)-(t?.in||0):0;
+    return `<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}${s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
+    ${t?`<div class="m">прихід <span class="in">${money(t.in)}</span> · витрати <span class="out">${money(t.out)}</span> · прибуток <b class="${p<0?"out":""}">${money(p)}</b></div>`:""}
+    ${debt>0?`<div class="m">👤 ${esc(s.customer||"замовник")} винен <b class="in">${money(debt)}</b></div>`:""}
+    ${s.note?`<div class="m">${esc(s.note)}</div>`:""}</div>${isDuo()?"":`<span class="count">${cnt[s.id]||0} од.</span>`}</div>` };
   let h="";
+  { const {shared}=ownerBalances(); const owe=customerRows().reduce((a,r)=>a+Math.max(0,r.debt),0);
+    if(S.fin.size) h+=`<div class="sum" style="color:var(--muted)">Поділено між власниками: <b>${money(shared)}</b>${owe>0?` · замовники винні: <b class="in">${money(owe)}</b>`:""}</div>` }
   for(const [type,label] of [["warehouse","Склади"],["site","Активні об'єкти"]]){
     const l=all.filter(s=>s.type===type&&s.active!==false); if(!l.length)continue;
     h+=`<div class="section-t">${label} (${l.length})</div><div class="list">`+l.map(card).join("")+`</div>`;
@@ -493,7 +500,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v34</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v35</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -758,6 +765,7 @@ function finFiltered(){
   }).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
 }
 function renderMoney(){
+  if(S.mtab==="sites"||S.mtab==="customers") S.mtab="journal";
   const {b,shared}=ownerBalances();
   const months=[...new Set([...S.fin.values()].map(f=>(f.date||"").slice(0,7)).filter(Boolean))].sort().reverse();
   const finSites=new Set([...S.fin.values()].map(f=>f.site).filter(Boolean));
@@ -766,7 +774,7 @@ function renderMoney(){
   $("#headTools").innerHTML=`${baseSwitch()}
     <div class="bal">${owners().map(o=>`<div class="stat own" data-own="${o.id}" title="Скільки загальних грошей на руках"><b class="${b[o.id]<0?"out":""}">${money(b[o.id])}</b><span>у ${esc(o.name)}</span></div>`).join("")}</div>
     ${both?`<div class="sum" style="font-size:13px;margin-top:-2px">Разом в обох базах: ${both.map(x=>`${esc(x.o.name)} <b class="${x.sum<0?"out":""}">${money(x.sum)}</b>`).join(" · ")} <span style="color:var(--muted)">(на трьох + на двох)</span></div>`:""}
-    <div class="tabs2">${[["journal","Журнал"],["sites","Об'єкти"],["workers","Виконавці"],["customers","Замовники"],["stats","📈 Аналітика"],...(isDuo()?[]:[["docs","Рахунки"]])].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
+    <div class="tabs2">${[["journal","Журнал"],["workers","Виконавці"],["stats","📈 Аналітика"],...(isDuo()?[]:[["docs","Рахунки"]])].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
     ${S.mtab==="journal"?`<div class="filters">
       <select id="mMonth"><option value="">Весь час</option>${months.map(m=>`<option value="${m}" ${S.mMonth===m?"selected":""}>${MONTHS[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join("")}</select>
       <select id="mSite"><option value="">Усі об'єкти</option>${siteOpts.map(x=>`<option value="${x.id}" ${S.mSite===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
@@ -1527,7 +1535,11 @@ async function driveBackup(silent){
     r=await fetch(api+"?q="+encodeURIComponent(`'${folder}' in parents and trashed=false`)+"&orderBy=createdTime desc&fields=files(id)&pageSize=100",{headers:H});
     if(r.ok){ const old=((await r.json()).files||[]).slice(12); for(const f of old) await fetch(api+"/"+f.id,{method:"DELETE",headers:H}).catch(()=>{}) }
     await write(db=>db.doc("meta/backup").set({at:Date.now(),by:window.__fbEmail||"",size:body.length}));
-    S.backupAt=Date.now(); say(""); toast("✅ Копію збережено на Google Диск ("+Math.round(body.length/1024)+" КБ)"); render(); return true;
+    say("⏳ Записи для таблиць…"); let n3=0,n2=0;
+    try{ const dels=async c=>{ try{ return (await window.__fbList(c)).map(x=>({id:x.id,at:x.at})) }catch(_){ return [] } };
+      const t=syncPayload(S.B.trio,await dels("del")); n3=t.rows.length; await driveSave("oblik-sync-3.json",JSON.stringify({at:new Date().toISOString(),table:"ОБЩАК НА 3",...t}),H);
+      if(S.duoOk){ const d=syncPayload(S.B.duo,await dels("duo_del")); n2=d.rows.length; await driveSave("oblik-sync-2.json",JSON.stringify({at:new Date().toISOString(),table:"общак",...d}),H) } }catch(e){ console.warn(e) }
+    S.backupAt=Date.now(); say(""); toast(`✅ Збережено на Google Диск. Для таблиць: на трьох ${n3}${S.duoOk?`, на двох ${n2}`:""} зап. — напишіть Claude «синхронізуй»`); render(); return true;
   }catch(e){ const m=String(e?.message||e); say(""); if(!/popup-closed|cancelled/i.test(m)) toast("Не вдалося зберегти копію: "+m.slice(0,150)); return false }
 }
 
@@ -1689,11 +1701,8 @@ function openMenu(){
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
     <div class="section-t">Google-таблиця ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</div>
     <button class="btn" id="mGs" style="width:100%;margin-bottom:6px">🔄 Оновити з таблиці</button>
-    <button class="btn ghost" id="mSyncOut" style="width:100%;margin-bottom:4px">📤 Вивантажити зміни для таблиці</button>
-    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Після вивантаження напишіть Claude «синхронізуй» — він перенесе записи в таблицю.</div>
-    <div class="section-t">Резервна копія</div>
     <button class="btn ghost" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Зберегти на Google Диск</button>
-    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 8px">${S.backupAt?"Остання: "+fmtDate(S.backupAt):"Ще не було"} · зберігаються 12 останніх</div><div id="bkMsg" class="m" style="margin-bottom:6px"></div>
+    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 8px">Резервна копія + нові записи для таблиць. Потім напишіть Claude «синхронізуй» — він перенесе їх у таблицю. ${S.backupAt?"Останнє збереження: "+fmtDate(S.backupAt):"Ще не зберігали"}.</div><div id="bkMsg" class="m" style="margin-bottom:6px"></div>
     <details style="margin:4px 0 12px"><summary style="color:var(--muted);font-size:13px;cursor:pointer">Додатково</summary>
       <button class="btn ghost" id="mExport" style="width:100%;margin:8px 0">⬇️ Зберегти копію на телефон</button>
       <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:4px">⬆️ Відновити з файлу копії<input type="file" id="mImport" accept=".json,application/json" style="display:none"></label>
@@ -1730,7 +1739,7 @@ function openMenu(){
   });
   $("#mLogout").onclick=()=>window.__fbSignOut();
 
-  $("#mSyncOut").onclick=()=>syncExport();
+
   $("#mGs").onclick=()=>gsheetImport();
 }
 $("#menuBtn").addEventListener("click",openMenu);
