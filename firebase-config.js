@@ -11,3 +11,6 @@ export const firebaseConfig = {
 export const ALLOWED = [];
 // Ключ сайту reCAPTCHA v3 для App Check (публічний; потрібен для розпізнавання фото)
 export const RECAPTCHA_KEY = "6Lf3kSAuAAAAALkdn1RBve1QGP_UzjlrytNO2TGt";
+
+// Ці пошти працюють у демо-режимі: можуть редагувати, але нічого не записується в базу
+export const DEMO_EMAILS = ["esmik7686@gmail.com"];
