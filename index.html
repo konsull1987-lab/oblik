@@ -1100,10 +1100,10 @@ function contractHTML(c){
   ${P("1.2.","Перелік, обсяг і вартість Робіт визначаються Кошторисом (Додаток № 1) та/або Специфікаціями, які є невід'ємними частинами Договору. Сторони можуть погоджувати перелік, обсяг і вартість Робіт в Актах приймання-передачі виконаних робіт (далі — Акт) без оформлення Специфікацій.")}
   ${P("1.3.","Роботи виконуються з матеріалів Замовника із використанням інструменту та обладнання Підрядника, якщо інше не погоджено Сторонами.")}
   <h4>2. ЦІНА ДОГОВОРУ ТА ПОРЯДОК РОЗРАХУНКІВ</h4>
-  ${P("2.1.",`Загальна вартість Робіт за Договором складає ${sumTxt(tot)}, без ПДВ (Підрядник не є платником ПДВ).`)}
+  ${tot>0?P("2.1.",`Загальна вартість Робіт за Договором складає ${sumTxt(tot)}, без ПДВ (Підрядник не є платником ПДВ).`):P("2.1.","Вартість Робіт за Договором визначається за фактом їх виконання на підставі Актів виконаних робіт, без ПДВ (Підрядник не є платником ПДВ).")}
   ${P("2.2.","Ціна Договору включає вартість Робіт, використання інструменту та обладнання Підрядника і податки Підрядника. Вартість матеріалів, які надає Замовник, до ціни Договору не входить.")}
   ${P("2.3.","Ціна Договору визначена для обсягу Робіт згідно з Кошторисом. Додаткові роботи, не передбачені Кошторисом, збільшення обсягів за ініціативою Замовника, а також роботи, необхідність яких виявлена під час виконання (прихований стан основ, конструкцій, комунікацій тощо), оплачуються Замовником додатково за погодженими Сторонами цінами.")}
-  ${pp?P("2.4.",`Замовник здійснює попередню оплату в розмірі ${pp}% від ціни Договору, що становить ${sumTxt(ppAmt)}, протягом 3 (трьох) банківських днів з дня підписання Договору на підставі рахунку Підрядника.`):""}
+  ${pp&&tot>0?P("2.4.",`Замовник здійснює попередню оплату в розмірі ${pp}% від ціни Договору, що становить ${sumTxt(ppAmt)}, протягом 3 (трьох) банківських днів з дня підписання Договору на підставі рахунку Підрядника.`):""}
   ${P(pp?"2.5.":"2.4.",`Подальша оплата здійснюється за фактично виконані Роботи на підставі проміжних та/або остаточного Актів протягом 3 (трьох) банківських днів з дня їх підписання (або з дня, коли Роботи вважаються прийнятими відповідно до п. 4.2.3).${pp?" Сума попередньої оплати зараховується в рахунок оплати за Актами.":""}`)}
   ${P(pp?"2.6.":"2.5.","Розрахунки проводяться у гривні в безготівковій формі на поточний рахунок Підрядника. Датою оплати є дата зарахування коштів на рахунок Підрядника.")}
   <h4>3. СТРОКИ ВИКОНАННЯ РОБІТ</h4>
@@ -1227,7 +1227,7 @@ function contractForm(c){
     <div class="row">${I("prepay","Передоплата, %","number")}${I("days","Строк, робочих днів","number")}${I("warranty","Гарантія, міс.","number")}</div>
     <div class="section-t">Кошторис (Додаток № 1)</div><div class="m" style="color:var(--muted);font-size:12.5px;margin:-4px 2px 6px">Можна не заповнювати й вказати лише загальну суму.</div>
     ${estimateButton("ctXls")}<div id="ctItems"></div><button type="button" class="btn ghost sm" id="ctAdd" style="width:100%">+ Додати рядок</button>
-    ${I("total","Загальна сума, ₴ (якщо без кошторису)","number")}
+    ${I("total","Загальна сума, ₴ (0 — договір без суми, оплата за актами)","number")}
     <div class="sum" style="font-size:15px">Сума договору: <b id="ctTot"></b></div>
     <div class="actions">${!isNew?`<button type="button" class="btn danger" id="ctDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
   const tot=()=>$("#ctTot").textContent=money(ctTotal({items:items.map(i=>({...i,qty:parseFloat(String(i.qty).replace(",","."))||0,price:parseFloat(String(i.price).replace(/\s/g,"").replace(",","."))||0})),total:parseFloat(String($("#ctF [name=total]").value).replace(/\s/g,"").replace(",","."))||0}));
@@ -1290,7 +1290,7 @@ function contractForm(c){
     }catch(err){ const m=String(err?.message||err); msgEl.innerHTML=`<div class="banner">Не вдалося розпізнати: ${esc(m.slice(0,300))}</div>` }
     clearInterval(tick); btn.disabled=false; btn.textContent="🔍 Заповнити форму з договору (ШІ)";
   };
-  $("#ctF").onsubmit=async e=>{e.preventDefault();const v=collect();if(!v.client){toast("Виберіть замовника");return}if(!(ctTotal(v)>0)){toast("Вкажіть суму або кошторис");return}
+  $("#ctF").onsubmit=async e=>{e.preventDefault();const v=collect();if(!v.client){toast("Виберіть замовника");return}
     const now=Date.now();const data={orig:orig||null,no:v.no.trim(),date:v.date,until:v.until,fop:v.fop,client:v.client,site:v.site||"",addr:v.addr.trim(),workDesc:v.workDesc.trim(),prepay:v.prepay,days:v.days,warranty:v.warranty,total:v.total,items:v.items,updatedAt:now,createdAt:c.createdAt||now};
     let id=c.id;const ok=await write(async db=>{if(data.client==="__ai"){const r=await db.collection("clients").add(newCli);data.client=r.id}
       if(!id){const r=await db.collection("contracts").add(data);id=r.id}else await db.doc("contracts/"+id).set(data)});
@@ -1301,15 +1301,17 @@ function contractView(id,fb){
   const c=S.contracts.get(id)||{id,...fb};const tot=ctTotal(c),pp=Math.round(tot*(+c.prepay||0))/100;
   openSheet(`<h2>Договір № ${esc(c.no)}</h2><div class="m" style="color:var(--muted)">${dLong(c.date)} · ${esc((S.fops.get(c.fop)||{}).short||"")}</div>
     <div class="m" style="margin:6px 0">${esc((S.clients.get(c.client)||{}).name||"")}${c.addr?" · "+esc(c.addr):""}</div>
-    <div class="sum" style="font-size:16px">Сума: <b>${money(tot)}</b>${c.prepay?` · передоплата ${c.prepay}% = ${money(pp)}`:""}</div>
+    <div class="sum" style="font-size:16px">${tot>0?`Сума: <b>${money(tot)}</b>${c.prepay?` · передоплата ${c.prepay}% = ${money(pp)}`:""}`:`Договір <b>без фіксованої суми</b> — оплата за актами`}</div>
     ${c.orig?`<div class="actions"><button class="btn" id="ctOpen">📎 Відкрити оригінал</button></div>`:""}
-    <div class="actions"><button class="btn ${c.orig?"ghost":""}" id="ctPrint">🖨 ${c.orig?"Друк за шаблоном застосунку":"Договір"}</button>${c.prepay&&S.canWrite?`<button class="btn ghost" id="ctInv">Рахунок на передоплату</button>`:""}</div>
+    <div class="actions"><button class="btn ${c.orig?"ghost":""}" id="ctPrint">🖨 ${c.orig?"Друк за шаблоном застосунку":"Договір"}</button>${c.prepay&&pp>0&&S.canWrite?`<button class="btn ghost" id="ctInv">Рахунок на передоплату</button>`:""}</div>
+    ${S.canWrite&&!(c.items||[]).some(i=>i.name)?`<div class="actions"><button class="btn" id="ctNewDoc">+ Рахунок / акт за договором</button></div>`:""}
     ${S.canWrite&&(c.items||[]).some(i=>i.name)?`<div class="actions"><button class="btn" id="ctAct">Рахунок + акт за кошторисом</button></div>`:""}
     <div class="actions">${S.canWrite?`<button class="btn ghost" id="ctEdit">Редагувати</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
   $("#ctPrint").onclick=()=>printDoc(contractHTML(c),"Договір "+c.no);
   $("#ctOpen")?.addEventListener("click",()=>openFile(c.orig.id));
   $("#ctEdit")?.addEventListener("click",()=>contractForm(S.contracts.get(id)||c));
   $("#ctAct")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:(c.items||[]).filter(i=>i.name).map(i=>({...i}))}));
+  $("#ctNewDoc")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:[{name:`Роботи за договором підряду № ${c.no} від ${dShort(c.date)}`,unit:"посл.",qty:1,price:""}]}));
   $("#ctInv")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:[{name:`Передоплата ${c.prepay}% за договором підряду № ${c.no} від ${dShort(c.date)}`,unit:"посл.",qty:1,price:pp}]}));
 }
 
