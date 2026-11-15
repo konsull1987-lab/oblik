@@ -492,7 +492,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v25</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v26</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -765,7 +765,7 @@ function renderMoney(){
   $("#headTools").innerHTML=`${baseSwitch()}
     <div class="bal">${owners().map(o=>`<div class="stat own" data-own="${o.id}" title="Скільки загальних грошей на руках"><b class="${b[o.id]<0?"out":""}">${money(b[o.id])}</b><span>у ${esc(o.name)}</span></div>`).join("")}</div>
     ${both?`<div class="sum" style="font-size:13px;margin-top:-2px">Разом в обох базах: ${both.map(x=>`${esc(x.o.name)} <b class="${x.sum<0?"out":""}">${money(x.sum)}</b>`).join(" · ")} <span style="color:var(--muted)">(на трьох + на двох)</span></div>`:""}
-    <div class="tabs2">${[["journal","Журнал"],["sites","Об'єкти"],["workers","Виконавці"],["customers","Замовники"],...(isDuo()?[]:[["docs","Рахунки"]])].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
+    <div class="tabs2">${[["journal","Журнал"],["sites","Об'єкти"],["workers","Виконавці"],["customers","Замовники"],["stats","📈 Аналітика"],...(isDuo()?[]:[["docs","Рахунки"]])].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
     ${S.mtab==="journal"?`<div class="filters">
       <select id="mMonth"><option value="">Весь час</option>${months.map(m=>`<option value="${m}" ${S.mMonth===m?"selected":""}>${MONTHS[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join("")}</select>
       <select id="mSite"><option value="">Усі об'єкти</option>${siteOpts.map(x=>`<option value="${x.id}" ${S.mSite===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
@@ -775,6 +775,7 @@ function renderMoney(){
       <select id="mKind"><option value="">Усі види</option>${[...KINDS,"Взаємозалік"].map(k=>`<option ${S.mKind===k?"selected":""}>${k}</option>`).join("")}</select>
     </div>`:""}`;
   if(S.mtab==="docs") return renderMoneyDocs();
+  if(S.mtab==="stats") return renderMoneyStats();
   if(!S.fin.size){$("#view").innerHTML=`<div class="empty">Записів ще немає. Натисніть «+», щоб додати прихід чи витрату.</div>`;return}
   if(S.mtab==="sites") return renderMoneySites(shared);
   if(S.mtab==="workers") return renderMoneyWorkers();
@@ -907,6 +908,49 @@ function finForm(f,preset){
     openSheet(`<h2>Видалити запис?</h2><p>${esc(fmtDay(f.date))} · ${money(f.amount)}${pair?" (обидві частини взаємозаліку)":""}</p><div class="actions"><button class="btn ghost" data-close>Ні</button><button class="btn danger" id="yesDelF">Видалити</button></div>`);
     $("#yesDelF").onclick=async()=>{ if(await write(async db=>{await db.doc("fin/"+f.id).delete(); if(pair) await db.doc("fin/"+pair.id).delete();})){closeSheet();toast("Видалено")} };
   });
+}
+
+
+// ---------- Аналітика: скільки заробив кожен за місяць ----------
+// Прибуток місяця = прихід − витрати (без взаємозаліків і нарахувань); частка = прибуток / кількість власників бази.
+function monthStats(fin,ows){
+  const m={};
+  for(const f of fin.values()){ if(f.type==="accrual"||f.kind==="Взаємозалік"||!f.date) continue;
+    const k=f.date.slice(0,7), x=m[k]||(m[k]={in:0,out:0,p:{}}), a=+f.amount||0;
+    if(f.type==="in") x.in+=a; else x.out+=a;
+    if(f.owner){ const q=x.p[f.owner]||(x.p[f.owner]={in:0,out:0}); if(f.type==="in") q.in+=a; else q.out+=a } }
+  for(const k in m){ m[k].profit=m[k].in-m[k].out; m[k].share=m[k].profit/(ows.length||1) }
+  return m;
+}
+function renderMoneyStats(){
+  const all=[...S.people.values()].filter(p=>p.role==="owner").sort(byName);
+  const duoO=all.filter(p=>DUO_OWNERS.includes(p.id));
+  const T=monthStats(S.B.trio.fin,all), withDuo=S.duoOk&&S.duoLoaded, D=withDuo?monthStats(S.B.duo.fin,duoO):{};
+  const years=[...new Set([...Object.keys(T),...Object.keys(D)].map(k=>k.slice(0,4)))].filter(y=>+y>=2000).sort().reverse();
+  S.sYear=S.sYear&&years.includes(S.sYear)?S.sYear:(years[0]||String(new Date().getFullYear()));
+  const months=[...new Set([...Object.keys(T),...Object.keys(D)])].filter(k=>k.startsWith(S.sYear)).sort().reverse();
+  const cls=v=>v<0?"out":"in";
+  const yT=months.reduce((a,k)=>a+(T[k]?.profit||0),0), yD=months.reduce((a,k)=>a+(D[k]?.profit||0),0);
+  const person=o=>(DUO_OWNERS.includes(o.id)&&withDuo);
+  const perYear=all.map(o=>({o,v:yT/all.length+(person(o)?yD/duoO.length:0)}));
+  let h=`<div class="filters"><select id="sYear">${years.map(y=>`<option ${y===S.sYear?"selected":""}>${y}</option>`).join("")}</select></div>
+    <div class="sum" style="color:var(--muted);font-size:12.5px">Заробіток = прихід − витрати за місяць (без взаємозаліків), поділений порівну між власниками бази${withDuo?": на трьох — на 3, общак — на 2":""}.</div>
+    <div class="card" style="display:block;cursor:default;margin-bottom:10px"><div class="t" style="font-weight:700;margin-bottom:6px">За ${S.sYear} рік</div>
+      ${perYear.map(x=>`<div style="display:flex;gap:8px"><span style="flex:1">${esc(x.o.name)}${person(x.o)?` <span style="color:var(--muted);font-size:12px">(на трьох ${money(yT/all.length)} + на двох ${money(yD/duoO.length)})</span>`:""}</span><b class="${cls(x.v)}">${money(x.v)}</b></div>`).join("")}
+      <div class="m" style="margin-top:6px;color:var(--muted)">Прибуток на трьох: <b>${money(yT)}</b>${withDuo?` · общак на двох: <b>${money(yD)}</b>`:""}</div></div>`;
+  if(!months.length) h+=`<div class="empty">За ${S.sYear} рік записів немає</div>`;
+  for(const k of months){ const t=T[k]||{in:0,out:0,profit:0,share:0,p:{}}, d=D[k];
+    const pl=(st,o)=>{const q=st?.p?.[o.id];return q?`отримав ${money(q.in)} · витратив ${money(q.out)}`:"—"};
+    h+=`<div class="card" style="display:block;cursor:default;margin-bottom:8px">
+      <div style="display:flex"><div class="t" style="flex:1;font-weight:700">${MONTHS[+k.slice(5)-1]} ${k.slice(0,4)}</div></div>
+      ${all.map(o=>{const v=t.share+(person(o)&&d?d.share:0); return `<div style="display:flex;gap:8px;margin-top:4px"><span style="flex:1">${esc(o.name)}${person(o)&&d?` <span style="color:var(--muted);font-size:12px">(${money(t.share)} + ${money(d.share)})</span>`:""}</span><b class="${cls(v)}">${money(v)}</b></div>`}).join("")}
+      <details style="margin-top:6px"><summary class="m" style="color:var(--muted);cursor:pointer">Деталі</summary>
+        <div class="m" style="margin-top:4px"><b>На трьох:</b> прихід ${money(t.in)} · витрати ${money(t.out)} · прибуток <b class="${cls(t.profit)}">${money(t.profit)}</b> → кожному ${money(t.share)}</div>
+        ${all.map(o=>`<div class="m" style="color:var(--muted)">${esc(o.name)}: ${pl(t,o)}</div>`).join("")}
+        ${withDuo?`<div class="m" style="margin-top:6px"><b>Общак на двох:</b> ${d?`прихід ${money(d.in)} · витрати ${money(d.out)} · прибуток <b class="${cls(d.profit)}">${money(d.profit)}</b> → кожному ${money(d.share)}`:"записів немає"}</div>
+        ${d?duoO.map(o=>`<div class="m" style="color:var(--muted)">${esc(o.name)}: ${pl(d,o)}</div>`).join(""):""}`:""}
+      </details></div>`; }
+  $("#view").innerHTML=h;
 }
 
 // ---------- Документи: рахунок і акт ----------
@@ -1611,6 +1655,7 @@ $("#headTools").addEventListener("input",e=>{
   if(e.target.id==="sq"){S.sq=e.target.value; renderSites();}
 });
 $("#headTools").addEventListener("change",e=>{
+  if(e.target.id==="sYear"){S.sYear=e.target.value;render();return}
   if(["mMonth","mSite","mOwner","mType","mKind"].includes(e.target.id)){S[e.target.id]=e.target.value;render();return}
   if(e.target.id==="fCat")S.cat=e.target.value;
   if(e.target.id==="fSite")S.site=e.target.value;
@@ -1626,6 +1671,7 @@ $("#headTools").addEventListener("click",e=>{
   if(e.target.id==="photoBtn"){photoFlow();return}
   if(e.target.id==="selBtn"){S.select=!S.select;S.selected.clear();render()}
 });
+$("#view").addEventListener("change",e=>{ if(e.target.id==="sYear"){S.sYear=e.target.value;render()} });
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
 $("#view").addEventListener("click",e=>{
   if(e.target.id==="archT"){S.showArch=!S.showArch;renderSites();return}
