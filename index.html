@@ -222,6 +222,7 @@ async function init(){
   sub("sites",db.collection("sites"),snap=>{S.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("fin",db.collection("fin"),snap=>{S.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  try{ db.doc("meta/backup").get().then(x=>{S.backupAt=x.exists?+x.data().at||0:0;S.backupLoaded=true;render()}).catch(()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()}))});
 }
 async function write(fn){
@@ -244,6 +245,7 @@ function render(){
   if(S.err) ban.push(S.err==="permission-denied"?"Ця пошта не має доступу до бази. Попросіть Андрія додати вас.":"Помилка доступу до бази ("+esc(S.err)+").");
   if(window.__demo) ban.push('🧪 Демо-режим: це окрема копія даних для тесту — усе, що ви тут змінюєте, зберігається лише в ній і не зачіпає реальну базу. <a href="#" id="demoReset" style="color:inherit;text-decoration:underline;white-space:nowrap">Скинути демо</a>');
   else if(!S.canWrite) ban.push("Режим перегляду: зміни можуть вносити лише власники.");
+  if(S.canWrite&&!window.__demo&&S.backupLoaded&&Date.now()-(S.backupAt||0)>BACKUP_DAYS*864e5&&S.tools.size+S.fin.size>0) ban.push(`☁️ ${S.backupAt?"Минув тиждень з останньої резервної копії":"Резервної копії на Google Диску ще немає"}. <a href="#" id="bkNow" style="color:inherit;text-decoration:underline;white-space:nowrap">Зберегти зараз</a> <span id="bkMsg"></span>`);
   $("#banner").innerHTML=ban.map(b=>`<div class="banner">${b}</div>`).join("");
   $("#fab").style.display=(S.canWrite&&!S.select&&S.tab!=="history")?"":"none";
   ({tools:renderTools,sites:renderSites,people:renderPeople,history:renderHistory,money:renderMoney})[S.tab]();
@@ -452,7 +454,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v21</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v22</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -623,7 +625,7 @@ function siteForm(s){
   const isNew=!s; s=s||{type:"site"};
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
   openSheet(`<h2>${isNew?"Новий склад / об'єкт":esc(s.name)}</h2>
-    ${!isNew?(()=>{const t=siteTotals()[s.id];return t||s.contract?`<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}<button class="btn ghost" id="showSiteFin" style="width:100%;margin-bottom:8px">Показати гроші по об'єкту</button>`:""})()+`<button class="btn ghost" id="showSite" style="width:100%;margin-bottom:12px">Показати інструмент тут (${cnt})</button>`:""}
+    ${!isNew?(()=>{const t=siteTotals()[s.id];return t||s.contract?`<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}<button class="btn ghost" id="showSiteFin" style="width:100%;margin-bottom:8px">Показати гроші по об'єкту</button>`:""})()+`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showSite">Інструмент тут (${cnt})</button>${cnt?`<button class="btn ghost" id="hoS">🧰 Список / повернути</button>`:""}</div>`:""}
     <form id="siteForm">
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
       <div class="field"><label>Назва *</label><input name="name" required value="${esc(s.name)}" placeholder="напр. Склад на Зіньківській / ЖК Сонячний"></div>
@@ -637,6 +639,7 @@ function siteForm(s){
   let type=s.type;
   $("#segT").onclick=e=>{const b=e.target.closest("button");if(!b)return;type=b.dataset.v;[...$("#segT").children].forEach(x=>x.classList.toggle("on",x===b))};
   $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
+  $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),note:f.note.trim(),type,active:!!f.active,split:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
@@ -656,7 +659,7 @@ function personForm(p){
   const cnt=[...S.tools.values()].filter(t=>t.holder===p.id).length;
   openSheet(`<h2>${isNew?"Нова людина":esc(p.name)}</h2>
     ${!isNew&&p.role==="worker"?(()=>{const x=workerTotals()[p.id];const d=x?x.acc-x.paid:0;return `<button class="btn ghost" id="showW" style="width:100%;margin-bottom:8px">Розрахунки: ${d>0?"винні "+money(d):d<0?"аванс "+money(-d):"боргу немає"}</button>`})():""}
-    ${!isNew?`<button class="btn ghost" id="showP" style="width:100%;margin-bottom:12px">Показати інструмент у нього (${cnt})</button>`:""}
+    ${!isNew?`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showP">Інструмент у нього (${cnt})</button>${cnt?`<button class="btn ghost" id="hoP">🧰 Список / повернути</button>`:""}</div>`:""}
     <form id="pForm">
       <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
       <div class="field"><label>Ім'я *</label><input name="name" required value="${esc(p.name)}"></div>
@@ -666,6 +669,7 @@ function personForm(p){
   let role=p.role;
   $("#segR").onclick=e=>{const b=e.target.closest("button");if(!b)return;role=b.dataset.v;[...$("#segR").children].forEach(x=>x.classList.toggle("on",x===b))};
   $("#showW")?.addEventListener("click",()=>workerSheet(p.id));
+  $("#hoP")?.addEventListener("click",()=>handoverSheet("person",p.id));
   $("#showP")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",person:p.id,site:"",cat:"",holderType:"all",q:""});render()});
   $("#pForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role};
@@ -1362,12 +1366,85 @@ function contractView(id,fb){
   $("#ctInv")?.addEventListener("click",()=>docForm({date:todayISO(),fop:c.fop,client:c.client,site:c.site,items:[{name:`Передоплата ${c.prepay}% за договором підряду № ${c.no} від ${dShort(c.date)}`,unit:"посл.",qty:1,price:pp}]}));
 }
 
+// ---------- Список виданого / повернення ----------
+function toolsWhere(kind,id){ return [...S.tools.values()].filter(t=>kind==="person"?t.holder===id:t.site===id).sort((a,b)=>(a.cat||"").localeCompare(b.cat||"","uk")||byName(a,b)) }
+function handoverHTML(kind,id){
+  const l=toolsWhere(kind,id), who=kind==="person"?person(id)?.name:site(id)?.name, total=l.reduce((a,t)=>a+qtyOf(t),0);
+  return `<div class="doc"><h3>Перелік інструменту ${kind==="person"?"у "+esc(who||""):"на об'єкті «"+esc(who||"")+"»"}<br>станом на ${dLong(todayISO())}</h3>
+  <table class="items"><tr><th>№</th><th>Найменування</th><th>Інв. №</th><th>К-сть</th>${kind==="person"?"<th>Де</th>":"<th>У кого</th>"}<th>Стан</th></tr>
+  ${l.map((t,i)=>`<tr><td class="r">${i+1}</td><td>${esc(t.name)}${t.brand||t.model?" "+esc([t.brand,t.model].filter(Boolean).join(" ")):""}</td><td>${esc(t.inv||"")}</td><td class="r">${qtyOf(t)}</td><td>${esc(kind==="person"?(site(t.site)?.name||""):(person(t.holder)?.name||""))}</td><td>${t.status&&t.status!=="ok"?esc(STATUS[t.status]):""}</td></tr>`).join("")}
+  <tr class="tot"><td colspan="3" class="r b">Всього:</td><td class="r b box">${total}</td><td colspan="2"></td></tr></table>
+  <table class="two" style="margin-top:28px"><tr><td>Видав: <span class="line"></span></td><td>Отримав: <span class="line"></span>${kind==="person"?"<br>"+esc(who||""):""}</td></tr></table></div>`;
+}
+function handoverText(kind,id){
+  const l=toolsWhere(kind,id), who=kind==="person"?person(id)?.name:site(id)?.name;
+  return `🧰 Інструмент ${kind==="person"?"у "+who:"на об'єкті «"+who+"»"} (${fmtDay(todayISO())}):\n`+l.map((t,i)=>`${i+1}. ${t.name}${t.inv?" #"+t.inv:""}${qtyOf(t)>1?" — "+qtyOf(t)+" шт":""}${kind==="site"&&person(t.holder)?" ("+person(t.holder).name+")":""}`).join("\n")+`\nВсього: ${l.reduce((a,t)=>a+qtyOf(t),0)} шт`;
+}
+function handoverSheet(kind,id){
+  const l=toolsWhere(kind,id), who=kind==="person"?person(id)?.name:site(id)?.name;
+  openSheet(`<h2>🧰 ${kind==="person"?"Видано: "+esc(who||""):"На об'єкті: "+esc(who||"")}</h2>
+    <div class="sum">${l.length} поз. · ${l.reduce((a,t)=>a+qtyOf(t),0)} шт</div>
+    ${l.length?`<div class="list">${l.map(t=>`<div class="card" style="cursor:default"><div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="tags">${kind==="person"?siteTag(t.site):holderTag(t.holder)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`).join("")}</div>
+    <div class="actions"><button class="btn ghost" id="hoPrint">🖨 Друк</button><button class="btn ghost" id="hoShare">📤 Надіслати</button></div>
+    ${S.canWrite?`<div class="actions"><button class="btn" id="hoBack" style="width:100%">↩️ Повернути все</button></div>`:""}`:`<div class="m" style="color:var(--muted)">Інструменту немає</div>`}
+    <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  $("#hoPrint")?.addEventListener("click",()=>printDoc(handoverHTML(kind,id),"Інструмент — "+(who||"")));
+  $("#hoShare")?.addEventListener("click",async()=>{const text=handoverText(kind,id);
+    try{ if(navigator.share){await navigator.share({text});return} }catch(e){ if(e?.name==="AbortError")return }
+    window.open("https://t.me/share/url?url=%20&text="+encodeURIComponent(text),"_blank")});
+  $("#hoBack")?.addEventListener("click",()=>returnAllForm(kind,id));
+}
+function returnAllForm(kind,id){
+  const l=toolsWhere(kind,id), who=kind==="person"?person(id)?.name:site(id)?.name;
+  const wh=[...S.sites.values()].find(s=>s.type==="warehouse"&&s.active!==false);
+  openSheet(`<h2>↩️ Повернути все (${l.reduce((a,t)=>a+qtyOf(t),0)} шт)</h2>
+    <p style="margin:0 0 10px;color:var(--muted)">${kind==="person"?"Від: "+esc(who||""):"З об'єкта: "+esc(who||"")}</p>
+    <form id="rbF"><div class="field"><label>Кому *</label><select name="holder" required>${personOptions(owners()[0]?.id||"","— виберіть")}</select></div>
+    <div class="field"><label>Куди *</label><select name="site">${siteOptions(wh?.id||"","— не вказано")}</select></div>
+    ${kind==="site"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="arch" style="width:22px;height:22px"> Після повернення перенести об'єкт в архів</label></div>`:""}
+    <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Повернути</button></div></form>`);
+  $("#rbF").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));if(!f.holder)return;
+    const btn=e.target.querySelector("[type=submit]");btn.disabled=true;btn.textContent="Зачекайте…";
+    let byName="";try{byName=(await S.user?.me?.())?.name||""}catch(_){}
+    let n=0; for(const t of toolsWhere(kind,id)){ const cur=S.tools.get(t.id); if(!cur) continue; if(cur.holder===f.holder&&(cur.site||"")===(f.site||"")){n+=qtyOf(cur);continue}
+      const ok=await write(db=>moveTool(db,cur,qtyOf(cur),f.holder,f.site||"","повернення"+(kind==="site"?" з об'єкта":""),byName)); if(!ok)break; n+=qtyOf(cur); }
+    if(f.arch) await write(db=>db.doc("sites/"+id).update({active:false}));
+    closeSheet(); toast("Повернено "+n+" шт"+(f.arch?", об'єкт в архіві":""));};
+}
+
+// ---------- Резервна копія на Google Диск ----------
+const BACKUP_DAYS=7;
+async function driveBackup(silent){
+  if(!window.__fbDump||!window.__driveToken){toast("Недоступно");return false}
+  const bar=$("#bkMsg"); const say=t=>{ if(bar) bar.textContent=t };
+  try{
+    say("⏳ Вхід у Google Диск…"); const tok=await window.__driveToken();
+    say("⏳ Збираю дані…"); const data=await window.__fbDump();
+    const H={Authorization:"Bearer "+tok}, api="https://www.googleapis.com/drive/v3/files";
+    const q=encodeURIComponent("name='Облік — резервні копії' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+    let r=await fetch(api+"?q="+q+"&fields=files(id)",{headers:H}); if(!r.ok) throw new Error("Drive "+r.status+": "+(await r.text()).slice(0,200));
+    let folder=(await r.json()).files?.[0]?.id;
+    if(!folder){ r=await fetch(api+"?fields=id",{method:"POST",headers:{...H,"Content-Type":"application/json"},body:JSON.stringify({name:"Облік — резервні копії",mimeType:"application/vnd.google-apps.folder"})}); if(!r.ok) throw new Error("Drive "+r.status); folder=(await r.json()).id }
+    say("⏳ Завантажую на Диск…");
+    const name="oblik-backup-"+todayISO()+".json", body=JSON.stringify(data), b="oblik"+Date.now();
+    const mp=`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({name,parents:[folder]})}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+    r=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{...H,"Content-Type":"multipart/related; boundary="+b},body:mp}); if(!r.ok) throw new Error("Drive "+r.status+": "+(await r.text()).slice(0,200));
+    // залишаємо 12 останніх копій
+    r=await fetch(api+"?q="+encodeURIComponent(`'${folder}' in parents and trashed=false`)+"&orderBy=createdTime desc&fields=files(id)&pageSize=100",{headers:H});
+    if(r.ok){ const old=((await r.json()).files||[]).slice(12); for(const f of old) await fetch(api+"/"+f.id,{method:"DELETE",headers:H}).catch(()=>{}) }
+    await write(db=>db.doc("meta/backup").set({at:Date.now(),by:window.__fbEmail||"",size:body.length}));
+    S.backupAt=Date.now(); say(""); toast("✅ Копію збережено на Google Диск ("+Math.round(body.length/1024)+" КБ)"); render(); return true;
+  }catch(e){ const m=String(e?.message||e); say(""); if(!/popup-closed|cancelled/i.test(m)) toast("Не вдалося зберегти копію: "+m.slice(0,150)); return false }
+}
+
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
+    <button class="btn" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Копія на Google Диск зараз</button>
+    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">${S.backupAt?"Остання копія: "+fmtDate(S.backupAt):"Копій на Диску ще не було"}. Папка «Облік — резервні копії», зберігаються 12 останніх, разом із файлами договорів.</div><div id="bkMsg" class="m" style="margin-bottom:6px"></div>
     <button class="btn ghost" id="mExport" style="width:100%;margin-bottom:8px">⬇️ Зберегти резервну копію (файл)</button>
     <label class="btn" style="display:block;text-align:center;width:100%;margin-bottom:4px">🔄 Синхронізувати з файлу<input type="file" id="mSync" accept=".json,application/json" style="display:none"></label>
     <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Фінанси стануть точно як у файлі (зайві й задубльовані записи видаляться). Записи, внесені в застосунок після створення файлу, збережуться.</div>
@@ -1375,6 +1452,7 @@ function openMenu(){
     ${empty?"":`<div style="color:var(--muted);font-size:12.5px;margin:-2px 2px 10px">Завантаження додає записи з файлу; записи з тим самим ID будуть перезаписані.</div>`}
     <button class="btn danger" id="mLogout" style="width:100%">Вийти з акаунта</button>
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  $("#mDrive").onclick=()=>driveBackup();
   $("#mExport").onclick=()=>{
     const out={exportedAt:new Date().toISOString()};
     out.people=[...S.people.values()];out.sites=[...S.sites.values()];out.tools=[...S.tools.values()];out.fin=[...S.fin.values()];out.moves=S.moves;out.fops=[...S.fops.values()];out.clients=[...S.clients.values()];out.docs=[...S.docs.values()];out.contracts=[...S.contracts.values()];
@@ -1404,6 +1482,7 @@ function openMenu(){
   $("#mLogout").onclick=()=>window.__fbSignOut();
 }
 $("#menuBtn").addEventListener("click",openMenu);
+$("#banner").addEventListener("click",e=>{ if(e.target.id==="bkNow"){e.preventDefault();e.target.textContent="Зачекайте…";driveBackup().then(()=>{const a=$("#bkNow");if(a)a.textContent="Зберегти зараз"})} });
 
 // ---------- Події ----------
 $("#nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S.tab=b.dataset.tab;S.select=false;S.selected.clear();window.scrollTo(0,0);render()});
@@ -1452,7 +1531,7 @@ const {firebaseConfig, ALLOWED}=CFG; const DEMO_EMAILS=(CFG.DEMO_EMAILS||[]).map
 import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc, getDocs} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
-import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut, reauthenticateWithPopup} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 
 const app=initializeApp(firebaseConfig);
 if(CFG.RECAPTCHA_KEY){ try{ initializeAppCheck(app,{provider:new ReCaptchaEnterpriseProvider(CFG.RECAPTCHA_KEY),isTokenAutoRefreshEnabled:true}) }catch(e){console.warn(e)} }
@@ -1502,6 +1581,14 @@ window.__fbAI=async(imgs,prompt,onTry)=>{
   }
   throw new Error(errs.join(" | "));
 };
+window.__fbDump=async()=>{ const out={exportedAt:new Date().toISOString(),exportedAtMs:Date.now()};
+  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files"]){ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }
+  return out; };
+let drvTok=null, drvExp=0;
+window.__driveToken=async()=>{ if(drvTok&&Date.now()<drvExp) return drvTok;
+  const p=new GoogleAuthProvider(); p.addScope("https://www.googleapis.com/auth/drive.file"); if(auth.currentUser?.email) p.setCustomParameters({login_hint:auth.currentUser.email});
+  const r=await reauthenticateWithPopup(auth.currentUser,p); const c=GoogleAuthProvider.credentialFromResult(r); if(!c?.accessToken) throw new Error("Немає доступу до Google Диска");
+  drvTok=c.accessToken; drvExp=Date.now()+50*60e3; return drvTok; };
 window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
 
 document.getElementById("loginBtn").onclick=async()=>{
