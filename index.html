@@ -493,7 +493,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v32</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v33</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1579,10 +1579,10 @@ function sheetParse(XLSX,wb,cutoff,cfg){
     out=[...Object.values(agg).map((a,i)=>({...a,row:"z"+i,id:"",date:pd,amount:Math.round(a.amount*100)/100,note:`залишок: ${a.n} зап. до ${fmtDay(cutoff)}`})),...keep]; folded=old.length; }
   return {cfg,ent:out,all:ent.length,folded,ign,noOwner,bal,exp,rep,order,diffs,dupl};
 }
-async function sheetImportPreview(file,kind){
+async function sheetImportPreview(file,kind,gsheet){
   const cfg=SHEET_CFG[kind];
-  openSheet(`<h2>📥 Імпорт: ${cfg.title}</h2><p id="duoMsg">Читаю файл…</p>`);
-  try{ const XLSX=await loadXLSX(); const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+  openSheet(`<h2>📥 Імпорт: ${cfg.title}</h2><p id="duoMsg">${gsheet?"Читаю Google-таблицю…":"Читаю файл…"}</p>`);
+  try{ const XLSX=await loadXLSX(); const wb=gsheet?await gsheetWB(XLSX,gsheet):XLSX.read(await file.arrayBuffer(),{type:"array"});
     const draw=cut=>{ const r=sheetParse(XLSX,wb,cut,cfg); const ok=(a,b)=>b==null||Math.abs(a-b)<1; const hasExp=cfg.ows.some(k=>r.exp[k]!=null);
       const line=src=>cfg.ows.map(k=>`${OWN_NAME[k]} <b>${money(src[k]||0)}</b>`).join(" · ");
       openSheet(`<h2>📥 Імпорт: ${cfg.title}</h2>
@@ -1617,9 +1617,35 @@ async function sheetImportRun(r){
   try{ prog("Видалення застарілих: "+del.length); await window.__fbDelete(del);
     const items=[...sites.map(x=>[cfg.sites,x]),...fin.map(x=>[cfg.fin,x])];
     await window.__fbBulk(items,n=>prog("Запис: "+n+" / "+items.length));
-    if(cfg===SHEET_CFG.duo) await window.__fbBulk([["duo_meta",{id:"info",importedAt:Date.now(),rows:r.all}]]);
+    if(cfg===SHEET_CFG.duo){ let old={}; try{ const m=await S.db.doc("duo_meta/info").get(); if(m.exists) old=m.data() }catch(_){}
+      await window.__fbBulk([["duo_meta",{...old,id:"info",importedAt:Date.now(),rows:r.all}]]); }
     closeSheet(); toast("Імпортовано: "+fin.length+" записів"+(sites.length?", об'єктів оновлено/додано: "+sites.length:""));
   }catch(e){ closeSheet(); toast("Помилка імпорту: "+String(e?.code||e?.message||e).slice(0,100)) }
+}
+
+
+// ---------- Пряме читання Google-таблиці (без Excel) ----------
+async function gsheetWB(XLSX,id){
+  const tok=await window.__sheetsToken();
+  const u=`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?ranges=${encodeURIComponent("журнал!A:I")}&ranges=${encodeURIComponent("отчет!A:J")}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
+  const r=await fetch(u,{headers:{Authorization:"Bearer "+tok}});
+  if(!r.ok){ const t=await r.text(); if(/SERVICE_DISABLED|has not been used|is disabled/i.test(t)) throw new Error("Google Sheets API не увімкнено в проєкті (Андрій отримав інструкцію)"); if(r.status===403||r.status===404) throw new Error("Немає доступу до таблиці цим акаунтом"); throw new Error("Sheets "+r.status+": "+t.slice(0,150)) }
+  const j=await r.json(), wb={SheetNames:[],Sheets:{}};
+  for(const v of j.valueRanges||[]){ const name=String(v.range).split("!")[0].replace(/'/g,""); wb.SheetNames.push(name); wb.Sheets[name]=XLSX.utils.aoa_to_sheet(v.values||[]) }
+  return wb;
+}
+const sheetIdOf=x=>(String(x||"").match(/\/d\/([\w-]{20,})/)||String(x||"").match(/^([\w-]{20,})$/)||[])[1]||"";
+async function gsheetImport(){
+  const kind=isDuo()?"duo":"trio", cfg=SHEET_CFG[kind], metaPath=kind==="duo"?"duo_meta/info":"meta/sheets";
+  let saved=""; try{ const m=await S.db.doc(metaPath).get(); saved=m.exists?(m.data()[kind==="duo"?"sheetId":"trio"]||""):"" }catch(_){}
+  const ask=()=>{ openSheet(`<h2>🔗 Таблиця ${kind==="duo"?"«общак»":"«ОБЩАК НА 3»"}</h2><p style="color:var(--muted)">Один раз вставте посилання на Google-таблицю (відкрийте її → Поділитися → Копіювати посилання).</p>
+      <div class="field"><input id="gsUrl" placeholder="https://docs.google.com/spreadsheets/d/…" value="${esc(saved)}"></div>
+      <div class="actions"><button class="btn ghost" data-close>Скасувати</button><button class="btn" id="gsOk">Зберегти й оновити</button></div>`);
+    $("#gsOk").onclick=async()=>{ const id=sheetIdOf($("#gsUrl").value); if(!id){toast("Не схоже на посилання на таблицю");return}
+      try{ await S.db.doc(metaPath).set({...(await S.db.doc(metaPath).get().then(m=>m.exists?m.data():{}).catch(()=>({}))),[kind==="duo"?"sheetId":"trio"]:id}) }catch(_){}
+      sheetImportPreview(null,kind,id) } };
+  if(!saved) return ask();
+  sheetImportPreview(null,kind,saved);
 }
 
 // ---------- Вивантаження змін із застосунку для перенесення в Google-таблиці ----------
@@ -1671,6 +1697,8 @@ function openMenu(){
     <div class="section-t">Google-таблиці</div>
     <button class="btn" id="mSyncOut" style="width:100%;margin-bottom:4px">📤 Вивантажити зміни для таблиць</button>
     <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Записи, внесені в застосунку, потрапляють у файл на вашому Google Диску; потім напишіть Claude «синхронізуй таблиці» — він перенесе їх у ${S.duoOk?"«ОБЩАК НА 3» і «общак»":"«ОБЩАК НА 3»"}.</div>
+    <button class="btn" id="mGs" style="width:100%;margin-bottom:4px">🔄 Оновити з Google-таблиці ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</button>
+    <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Застосунок сам прочитає таблицю — без завантаження файлів.</div>
     <label class="btn ghost" style="display:block;text-align:center;width:100%;margin-bottom:4px">📥 Імпорт з таблиці ${isDuo()?"«общак»":"«ОБЩАК НА 3»"} (Excel)<input type="file" id="mDuo" accept=".xlsx,.xls,.ods" style="display:none"></label>
     <div style="color:var(--muted);font-size:12.5px;margin:0 2px 10px">Таблиця → ⋮ → Поділитися й експортувати → Зберегти як Excel. Рядки з таблиці оновляться, внесені в застосунку й ще не перенесені — залишаться.</div>
     <button class="btn danger" id="mLogout" style="width:100%">Вийти з акаунта</button>
@@ -1705,6 +1733,7 @@ function openMenu(){
   $("#mLogout").onclick=()=>window.__fbSignOut();
   $("#mDuo")?.addEventListener("change",async e=>{const f=e.target.files[0]; if(f) sheetImportPreview(f,isDuo()?"duo":"trio"); e.target.value=""});
   $("#mSyncOut").onclick=()=>syncExport();
+  $("#mGs").onclick=()=>gsheetImport();
 }
 $("#menuBtn").addEventListener("click",openMenu);
 $("#banner").addEventListener("click",e=>{ if(e.target.id==="bkNow"){e.preventDefault();e.target.textContent="Зачекайте…";driveBackup().then(()=>{const a=$("#bkNow");if(a)a.textContent="Зберегти зараз"})} });
@@ -1820,6 +1849,11 @@ window.__driveToken=async()=>{ if(drvTok&&Date.now()<drvExp) return drvTok;
   const p=new GoogleAuthProvider(); p.addScope("https://www.googleapis.com/auth/drive.file"); if(auth.currentUser?.email) p.setCustomParameters({login_hint:auth.currentUser.email});
   const r=await reauthenticateWithPopup(auth.currentUser,p); const c=GoogleAuthProvider.credentialFromResult(r); if(!c?.accessToken) throw new Error("Немає доступу до Google Диска");
   drvTok=c.accessToken; drvExp=Date.now()+50*60e3; return drvTok; };
+let shTok=null, shExp=0;
+window.__sheetsToken=async()=>{ if(shTok&&Date.now()<shExp) return shTok;
+  const p=new GoogleAuthProvider(); p.addScope("https://www.googleapis.com/auth/spreadsheets.readonly"); p.addScope("https://www.googleapis.com/auth/drive.file"); if(auth.currentUser?.email) p.setCustomParameters({login_hint:auth.currentUser.email});
+  const r=await reauthenticateWithPopup(auth.currentUser,p); const c=GoogleAuthProvider.credentialFromResult(r); if(!c?.accessToken) throw new Error("Немає доступу до Google-таблиць");
+  shTok=drvTok=c.accessToken; shExp=drvExp=Date.now()+50*60e3; return shTok; };
 window.__fbList=async c=>{ const sn=await getDocs(collection(fs,px(c))); return sn.docs.map(d=>({id:d.id,...d.data()})) };
 window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
 
