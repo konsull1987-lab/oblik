@@ -558,7 +558,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v40</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v41</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1020,6 +1020,22 @@ function monthStats(fin,ows){
   for(const k in m){ m[k].profit=m[k].in-m[k].out; m[k].share=m[k].profit/(ows.length||1) }
   return m;
 }
+// Мінімальні перекази між власниками, щоб усі балансі стали нулями
+function settle(b){ const pos=[],neg=[]; for(const k in b){ const v=Math.round(b[k]*100)/100; if(v>0.5) pos.push([k,v]); else if(v<-0.5) neg.push([k,-v]) }
+  pos.sort((a,c)=>c[1]-a[1]); neg.sort((a,c)=>c[1]-a[1]); const out=[]; let i=0,j=0;
+  while(i<pos.length&&j<neg.length){ const t=Math.min(pos[i][1],neg[j][1]); out.push({from:pos[i][0],to:neg[j][0],amount:Math.round(t*100)/100}); pos[i][1]-=t; neg[j][1]-=t; if(pos[i][1]<0.5)i++; if(neg[j][1]<0.5)j++ }
+  return out }
+const dat=n=>({andriy:"Андрію",serhiy:"Сергію",dmytro:"Дмитру"})[n]||(person(n)?.name||"");
+function settleBlock(){
+  const all=[...S.people.values()].filter(p=>p.role==="owner"), duoO=all.filter(p=>DUO_OWNERS.includes(p.id));
+  const bases=[["trio","👥 На трьох",balancesFor(S.B.trio.fin,S.B.trio.sites,all).b]];
+  if(S.duoOk&&S.duoLoaded) bases.push(["duo","🤝 Общак на двох",balancesFor(S.B.duo.fin,S.B.duo.sites,duoO).b]);
+  return `<div class="card" style="display:block;cursor:default;margin-bottom:10px"><div class="t" style="font-weight:700;margin-bottom:4px">⚖️ Щоб вийти в нулі</div>
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Хто кому має передати гроші, щоб у кожного спільних грошей на руках стало 0 (з урахуванням поділених об'єктів).</div>
+    ${bases.map(([k,label,b])=>{ const l=settle(b); return `${bases.length>1?`<div class="m" style="font-weight:600;margin-top:6px">${label}</div>`:""}
+      ${l.length?l.map(x=>`<div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span style="flex:1">${esc(person(x.from)?.name||x.from)} → ${esc(dat(x.to))}</span><b>${money(x.amount)}</b>${S.canWrite?`<button class="btn ghost sm" data-settle="${k}|${x.from}|${x.to}|${x.amount}">⇄ Записати</button>`:""}</div>`).join(""):`<div class="m" style="margin-top:4px">✅ Усі в нулях</div>`}
+      ${Object.values(b).reduce((a,v)=>a+v,0)>0.5?`<div class="m" style="color:var(--muted);font-size:12px;margin-top:2px">Ще не поділено прибутку: ${money(Object.values(b).reduce((a,v)=>a+v,0))} (неподілені об'єкти) — він лишається в того, хто отримав.</div>`:""}` }).join("")}</div>`;
+}
 function renderMoneyStats(){
   const all=[...S.people.values()].filter(p=>p.role==="owner").sort(byName);
   const duoO=all.filter(p=>DUO_OWNERS.includes(p.id));
@@ -1031,7 +1047,7 @@ function renderMoneyStats(){
   const yT=months.reduce((a,k)=>a+(T[k]?.profit||0),0), yD=months.reduce((a,k)=>a+(D[k]?.profit||0),0);
   const person=o=>(DUO_OWNERS.includes(o.id)&&withDuo);
   const perYear=all.map(o=>({o,v:yT/all.length+(person(o)?yD/duoO.length:0)}));
-  let h=`<div class="filters"><select id="sYear">${years.map(y=>`<option ${y===S.sYear?"selected":""}>${y}</option>`).join("")}</select></div>
+  let h=settleBlock()+`<div class="filters"><select id="sYear">${years.map(y=>`<option ${y===S.sYear?"selected":""}>${y}</option>`).join("")}</select></div>
     <div class="sum" style="color:var(--muted);font-size:12.5px">Заробіток = прихід − витрати за місяць (без взаємозаліків), поділений порівну між власниками бази${withDuo?": на трьох — на 3, общак — на 2":""}.</div>
     <div class="card" style="display:block;cursor:default;margin-bottom:10px"><div class="t" style="font-weight:700;margin-bottom:6px">За ${S.sYear} рік</div>
       ${perYear.map(x=>`<div style="display:flex;gap:8px"><span style="flex:1">${esc(x.o.name)}${person(x.o)?` <span style="color:var(--muted);font-size:12px">(на трьох ${money(yT/all.length)} + на двох ${money(yD/duoO.length)})</span>`:""}</span><b class="${cls(x.v)}">${money(x.v)}</b></div>`).join("")}
@@ -1861,6 +1877,10 @@ $("#view").addEventListener("change",e=>{ if(e.target.id==="sYear"){S.sYear=e.ta
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
 $("#view").addEventListener("click",e=>{
   const u=e.target.closest("[data-undo]"); if(u){ undoLog(u.dataset.undo); return }
+  const st=e.target.closest("[data-settle]"); if(st){ const [base,from,to,amt]=st.dataset.settle.split("|");
+    if((base==="duo")!==isDuo()) setBase(base);
+    finForm(null,{kind:"Взаємозалік",type:"out",amount:+amt,note:"вирівнювання балансів"});
+    setTimeout(()=>{ const a=$("#finForm [name=from]"), b=$("#finForm [name=to]"); if(a)a.value=from; if(b)b.value=to },0); return }
   if(e.target.id==="archT"){S.showArch=!S.showArch;renderSites();return}
   const hf=e.target.closest(".hist[data-fin]"); if(hf){ if(S.canWrite) finForm(S.fin.get(hf.dataset.fin)); return }
   const c=e.target.closest(".card"); if(!c)return;
