@@ -1172,6 +1172,39 @@ function contractHTML(c){
   <table class="two" style="margin-top:30px"><tr><td>Замовник<br><br><span class="line"></span></td><td>Підрядник<br><br><span class="line"></span></td></tr></table>`:""}
   </div>`;
 }
+// ---------- Розпізнавання договору замовника (ШІ) ----------
+async function docxText(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf); let e=-1;
+  for(let i=u8.length-22;i>=Math.max(0,u8.length-70000);i--) if(dv.getUint32(i,true)===0x06054b50){e=i;break}
+  if(e<0) throw new Error("не docx");
+  const n=dv.getUint16(e+10,true); let p=dv.getUint32(e+16,true), ent=null;
+  for(let k=0;k<n;k++){ const m=dv.getUint16(p+10,true), cs=dv.getUint32(p+20,true), nl=dv.getUint16(p+28,true), xl=dv.getUint16(p+30,true), cl=dv.getUint16(p+32,true), lo=dv.getUint32(p+42,true);
+    const name=new TextDecoder().decode(u8.slice(p+46,p+46+nl)); if(name==="word/document.xml"){ent={m,cs,lo};break} p+=46+nl+xl+cl }
+  if(!ent) throw new Error("немає document.xml");
+  const ls=ent.lo+30+dv.getUint16(ent.lo+26,true)+dv.getUint16(ent.lo+28,true), raw=u8.slice(ls,ls+ent.cs);
+  let xml; if(ent.m===0) xml=new TextDecoder().decode(raw);
+  else { const ds=new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw")); xml=await new Response(ds).text() }
+  return xml.replace(/<w:tab\/>/g,"\t").replace(/<w:br[^>]*\/>/g,"\n").replace(/<\/w:tc>/g," | ").replace(/<\/w:p>/g,"\n").replace(/<[^>]+>/g,"")
+    .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&").replace(/\n{3,}/g,"\n\n").trim();
+}
+async function aiParts(name,type,buf){
+  const ext=(name.split(".").pop()||"").toLowerCase(), b64=()=>{let b="";const u=new Uint8Array(buf);for(let i=0;i<u.length;i+=0x8000)b+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(b)};
+  if(type==="application/pdf"||ext==="pdf") return [{b64:b64(),mime:"application/pdf"}];
+  if(/^image\//.test(type)||["jpg","jpeg","png","webp","heic"].includes(ext)) return [{b64:b64(),mime:/^image\//.test(type)?type:"image/"+(ext==="jpg"?"jpeg":ext)}];
+  if(ext==="docx") return [{text:"ТЕКСТ ДОГОВОРУ:\n"+await docxText(buf)}];
+  throw new Error("Формат не підтримується. Потрібен PDF, фото або Word (.docx)");
+}
+function contractPrompt(){
+  return `Ти помічник бухгалтера будівельної фірми в Україні. Перед тобою договір підряду (або кошторис до нього). Витягни дані й поверни ЛИШЕ JSON такої структури:
+{"no":"№ договору","date":"YYYY-MM-DD","until":"YYYY-MM-DD або null (до якої дати діє)",
+ "client":{"name":"назва замовника (організація або ФОП/ПІБ)","edrpou":"ЄДРПОУ або ІПН (лише цифри)","phone":"","address":"юридична адреса","signerTitle":"посада підписанта замовника","signerName":"ПІБ підписанта у форматі Прізвище І.Б.","repText":"фраза з договору «в особі …, що діє на підставі …» для замовника"},
+ "contractor":{"name":"назва підрядника","edrpou":"ЄДРПОУ/ІПН підрядника (лише цифри)"},
+ "addr":"адреса об'єкта, де виконуються роботи","workDesc":"коротко, які роботи за предметом договору",
+ "prepayPercent":число або null,"days":число робочих/календарних днів строку виконання або null,"warrantyMonths":число або null,"total":загальна сума договору числом або null,
+ "items":[{"name":"назва роботи/матеріалу","unit":"од. виміру","qty":число,"price":ціна за одиницю числом}],
+ "warnings":["що незрозуміло або погано видно"]}
+Правила: Замовник — сторона, яка замовляє й оплачує роботи; Підрядник — яка їх виконує. Не вигадуй: чого немає в документі — став null або "". Усі суми та кількості — числа без пробілів. Дати — лише у форматі YYYY-MM-DD. Якщо є кошторис (додаток) — заповни items усіма рядками, а total залиш, лише якщо кошторису немає.`;
+}
 function contractForm(c){
   const isNew=!c||!c.id; const fop0=[...S.fops.values()][0];
   const now=new Date(); const y=now.getFullYear();
@@ -1189,7 +1222,8 @@ function contractForm(c){
     ${I("workDesc","Які роботи (для п. 1.1)","text","ремонтні роботи / покрівельні роботи …")}
     <div class="field"><label>Оригінал договору (Word / PDF / фото), якщо договір уже підписаний</label>
       <div id="ctOrig" class="m" style="margin-bottom:6px">${c.orig?`📎 ${esc(c.orig.name)} <button type="button" class="btn ghost sm" id="ctOrigDel">✕</button>`:""}</div>
-      <label class="btn ghost sm" style="display:block;text-align:center">📎 ${c.orig?"Замінити":"Прикріпити"} файл<input type="file" id="ctOrigF" style="display:none"></label></div>
+      <label class="btn ghost sm" style="display:block;text-align:center">📎 ${c.orig?"Замінити":"Прикріпити"} файл<input type="file" id="ctOrigF" style="display:none"></label>
+      <button type="button" class="btn sm" id="ctAi" style="width:100%;margin-top:6px;${c.orig?"":"display:none"}">🔍 Заповнити форму з договору (ШІ)</button><div id="ctAiMsg" class="m" style="margin-top:6px"></div></div>
     <div class="row">${I("prepay","Передоплата, %","number")}${I("days","Строк, робочих днів","number")}${I("warranty","Гарантія, міс.","number")}</div>
     <div class="section-t">Кошторис (Додаток № 1)</div><div class="m" style="color:var(--muted);font-size:12.5px;margin:-4px 2px 6px">Можна не заповнювати й вказати лише загальну суму.</div>
     ${estimateButton("ctXls")}<div id="ctItems"></div><button type="button" class="btn ghost sm" id="ctAdd" style="width:100%">+ Додати рядок</button>
@@ -1207,13 +1241,59 @@ function contractForm(c){
   const collect=()=>{const v=Object.fromEntries(new FormData($("#ctF")));const num=x=>parseFloat(String(x||"").replace(/\s/g,"").replace(",","."))||0;
     return {...c,...v,client:v.client==="__new"?"":v.client,prepay:num(v.prepay),days:num(v.days),warranty:num(v.warranty)||12,total:num(v.total),items:items.map(i=>({name:String(i.name).trim(),unit:String(i.unit).trim(),qty:num(i.qty),price:num(i.price)})).filter(i=>i.name)}};
   $("#ctCli").onchange=e=>{if(e.target.value==="__new"){const keep=collect();reqForm("clients",null,id=>contractForm({...keep,client:id}))}};
-  let orig=c.orig||null; const oldOrig=c.orig?.id;
+  let orig=c.orig||null, origFile=null, newCli=null; const oldOrig=c.orig?.id;
   $("#ctOrigF").onchange=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>8*1024*1024){toast("Файл більший за 8 МБ");return}
-    toast("Завантажую…");try{orig=await saveFile(f);$("#ctOrig").innerHTML="📎 "+esc(orig.name);toast("Файл прикріплено")}catch(_){toast("Не вдалося завантажити файл")}};
-  $("#ctOrigDel")?.addEventListener("click",()=>{orig=null;$("#ctOrig").innerHTML=""});
+    toast("Завантажую…");try{orig=await saveFile(f);origFile=f;$("#ctOrig").innerHTML="📎 "+esc(orig.name);$("#ctAi").style.display="";toast("Файл прикріплено")}catch(_){toast("Не вдалося завантажити файл")}};
+  $("#ctOrigDel")?.addEventListener("click",()=>{orig=null;origFile=null;$("#ctOrig").innerHTML="";$("#ctAi").style.display="none"});
+  // --- розпізнавання ---
+  const mark=el=>{ if(!el) return; el.style.boxShadow="0 0 0 2px #f0b429"; el.addEventListener("input",()=>{el.style.boxShadow=""},{once:true}) };
+  const setF=(n,v)=>{ const el=$("#ctF [name="+n+"]"); if(el&&v!=null&&v!==""){ el.value=v; mark(el); return true } return false };
+  const digits=x=>String(x||"").replace(/\D/g,""), normN=x=>String(x||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
+  const isDate=x=>/^\d{4}-\d{2}-\d{2}$/.test(String(x||""));
+  async function aiRead(){
+    if(origFile) return {name:origFile.name,type:origFile.type,buf:await origFile.arrayBuffer()};
+    const m=await S.db.doc("files/"+orig.id).get(); if(!m.exists) throw new Error("Файл не знайдено"); const meta=m.data(); let b64="";
+    for(let i=0;i<meta.chunks;i++){const x=await S.db.doc("files/"+orig.id+"_"+i).get(); b64+=x.data().d}
+    const bin=atob(b64),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i); return {name:meta.name,type:meta.type,buf:arr.buffer};
+  }
+  $("#ctAi").onclick=async()=>{
+    const btn=$("#ctAi"), msgEl=$("#ctAiMsg"); if(!window.__fbAI){toast("Розпізнавання недоступне");return}
+    if(!orig){toast("Спершу прикріпіть файл");return}
+    btn.disabled=true; const t0=Date.now(); let tr=""; const tick=setInterval(()=>{btn.textContent=`⏳ Читаю договір… ${Math.round((Date.now()-t0)/1000)} с${tr}`},1000);
+    try{
+      const f=await aiRead(); const parts=await aiParts(f.name,f.type,f.buf);
+      const txt=await window.__fbAI(parts,contractPrompt(),(n,all)=>{tr=n>1?` (спроба ${n}/${all})`:""});
+      const j=JSON.parse(txt.replace(/^```(json)?|```$/g,"").trim()); const got=[], miss=[];
+      const put=(n,v,l)=>{ (setF(n,v)?got:miss).push(l) };
+      put("no",j.no&&String(j.no).trim(),"№"); put("date",isDate(j.date)?j.date:null,"дата"); put("until",isDate(j.until)?j.until:null,"діє до");
+      put("addr",j.addr&&String(j.addr).trim(),"адреса об'єкта"); put("workDesc",j.workDesc&&String(j.workDesc).trim(),"роботи");
+      put("prepay",j.prepayPercent!=null&&+j.prepayPercent>=0?+j.prepayPercent:null,"передоплата"); put("days",+j.days>0?+j.days:null,"строк"); put("warranty",+j.warrantyMonths>0?+j.warrantyMonths:null,"гарантія");
+      // підрядник → наш ФОП
+      const ce=digits(j.contractor?.edrpou), cn=normN(j.contractor?.name); const mf=[...S.fops.values()].find(x=>(ce&&digits(x.edrpou)===ce)||(cn&&normN(x.name)===cn));
+      if(mf){ $("#ctF [name=fop]").value=mf.id; mark($("#ctF [name=fop]")); got.push("підрядник") }
+      // замовник
+      const cl=j.client||{}, ke=digits(cl.edrpou), kn=normN(cl.name);
+      if(cl.name){
+        const ex=[...S.clients.values()].find(x=>(ke&&digits(x.edrpou)===ke)||(kn&&normN(x.name)===kn)); const sel=$("#ctCli");
+        if(ex){ sel.value=ex.id; newCli=null; got.push("замовник (вже є в довіднику)") }
+        else { newCli={name:String(cl.name).trim(),edrpou:String(cl.edrpou||"").trim(),phone:String(cl.phone||"").trim(),address:String(cl.address||"").trim(),signerTitle:String(cl.signerTitle||"Директор").trim(),signerName:String(cl.signerName||"").trim(),repText:String(cl.repText||"").trim()};
+          let o=sel.querySelector('option[value="__ai"]'); if(!o){o=document.createElement("option");o.value="__ai";sel.insertBefore(o,sel.querySelector('option[value="__new"]'))}
+          o.textContent="✨ Новий: "+newCli.name+" (з договору)"; sel.value="__ai"; got.push("новий замовник «"+newCli.name+"» — буде створено при збереженні") }
+        mark($("#ctCli"));
+      } else miss.push("замовник");
+      // кошторис
+      const its=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),unit:String(x.unit||"од.").trim(),qty:x.qty??"",price:x.price??""}));
+      if(its.length){ if(!items.some(i=>i.name)||confirm("Замінити поточні рядки кошторису розпізнаними ("+its.length+")?")){ items.length=0; items.push(...its); draw(); $("#ctItems").style.boxShadow="0 0 0 2px #f0b429"; got.push("кошторис: "+its.length+" поз.") } }
+      else if(+j.total>0){ put("total",+j.total,"сума") } else miss.push("сума / кошторис");
+      const w=(j.warnings||[]).filter(Boolean);
+      msgEl.innerHTML=`<div class="banner" style="background:#e8f5e9;color:#1b5e20">✅ Заповнено: ${esc(got.join(", ")||"нічого")}. Поля з жовтою рамкою перевірте з оригіналом.${miss.length?`<br>❔ Не знайдено: ${esc(miss.join(", "))}.`:""}${w.length?`<br>⚠️ ${esc(w.join("; "))}`:""}</div>`;
+    }catch(err){ const m=String(err?.message||err); msgEl.innerHTML=`<div class="banner">Не вдалося розпізнати: ${esc(m.slice(0,300))}</div>` }
+    clearInterval(tick); btn.disabled=false; btn.textContent="🔍 Заповнити форму з договору (ШІ)";
+  };
   $("#ctF").onsubmit=async e=>{e.preventDefault();const v=collect();if(!v.client){toast("Виберіть замовника");return}if(!(ctTotal(v)>0)){toast("Вкажіть суму або кошторис");return}
     const now=Date.now();const data={orig:orig||null,no:v.no.trim(),date:v.date,until:v.until,fop:v.fop,client:v.client,site:v.site||"",addr:v.addr.trim(),workDesc:v.workDesc.trim(),prepay:v.prepay,days:v.days,warranty:v.warranty,total:v.total,items:v.items,updatedAt:now,createdAt:c.createdAt||now};
-    let id=c.id;const ok=await write(async db=>{if(!id){const r=await db.collection("contracts").add(data);id=r.id}else await db.doc("contracts/"+id).set(data)});
+    let id=c.id;const ok=await write(async db=>{if(data.client==="__ai"){const r=await db.collection("clients").add(newCli);data.client=r.id}
+      if(!id){const r=await db.collection("contracts").add(data);id=r.id}else await db.doc("contracts/"+id).set(data)});
     if(ok){ if(oldOrig&&oldOrig!==orig?.id) deleteFile(oldOrig).catch(()=>{}); toast("Збережено");contractView(id,data)}};
   $("#ctDel")?.addEventListener("click",async()=>{if(await write(db=>db.doc("contracts/"+c.id).delete())){if(c.orig)deleteFile(c.orig.id).catch(()=>{});closeSheet();toast("Видалено")}});
 }
@@ -1359,7 +1439,7 @@ let aiMod=null, aiOk=null;
 window.__fbAI=async(imgs,prompt,onTry)=>{
   if(!aiMod) aiMod=await import("https://www.gstatic.com/firebasejs/11.10.0/firebase-ai.js");
   const {getAI,getGenerativeModel,GoogleAIBackend}=aiMod, ai=getAI(app,{backend:new GoogleAIBackend()});
-  const parts=[prompt,...imgs.map(x=>({inlineData:{data:x.b64,mimeType:x.mime}}))];
+  const parts=[prompt,...imgs.map(x=>x.text!=null?x.text:({inlineData:{data:x.b64,mimeType:x.mime}}))];
   const all=CFG.AI_MODELS||["gemini-3.8-flash","gemini-3.5-flash-lite","gemini-3.6-flash","gemini-2.5-flash"];
   const list=aiOk?[aiOk,...all.filter(x=>x!==aiOk)]:all; const errs=[];
   for(const [n,m] of list.entries()){
