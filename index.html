@@ -151,6 +151,7 @@ body.duo .bal .stat{border-color:#f59e0b}
   <div style="font-size:54px">🧰</div><h2 style="margin:0">Облік інструменту</h2>
   <div id="loginMsg" style="color:var(--muted);max-width:320px">Увійдіть своїм Google-акаунтом</div>
   <button class="btn" id="loginBtn" style="min-width:220px">Увійти через Google</button>
+  <div style="color:var(--muted);font-size:12.5px;max-width:320px">Якщо посилання відкрилось у Telegram, Viber чи іншому месенджері — натисніть ⋯ і виберіть «Відкрити в Safari / Chrome», там вхід через Google працює.</div>
   <button class="btn ghost" id="logoutBtn2" style="display:none">Вийти й увійти іншим акаунтом</button>
 </div>
 
@@ -492,7 +493,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v29</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v30</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
