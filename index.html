@@ -873,7 +873,9 @@ function uaWords(num){
   const s=out.join(" ")+" "+form(Math.floor(num),["гривня","гривні","гривень"])+" "+String(kop).padStart(2,"0")+" "+form(kop,["копійка","копійки","копійок"]);
   return s.charAt(0).toUpperCase()+s.slice(1);
 }
-const docTotal=d=>(d.items||[]).reduce((a,i)=>a+(+i.qty||0)*(+i.price||0),0);
+const docTotal=d=>{ const sh=d.short; if(sh&&+sh.sum>0&&(d.view?.inv==="short"||d.view?.act==="short")) return +sh.sum; return (d.items||[]).reduce((a,i)=>a+(+i.qty||0)*(+i.price||0),0) };
+// що друкувати: повний перелік або один рядок із загальною сумою
+const docItems=(d,kind)=>(d.view?.[kind]==="short"&&d.short)?[{name:d.short.name||"Виконані роботи",unit:"посл.",qty:1,price:+d.short.sum||docTotal(d)}]:(d.items||[]);
 const fopOf=d=>S.fops.get(d.fop)||{}, cliOf=d=>S.clients.get(d.client)||{};
 const fopReq=f=>`${esc(f.name)}<br>ЄДРПОУ ${esc(f.edrpou)}${f.phone?", тел. "+esc(f.phone):""}<br>Р/р ${esc(f.iban)}${f.bank?" в "+esc(f.bank):""}${f.mfo?" МФО "+esc(f.mfo):""}${f.ipn?"<br>ІПН "+esc(f.ipn):""}<br>Адреса ${esc(f.address)}`;
 
@@ -930,6 +932,11 @@ function docForm(d){
     <div class="field" id="dCtBox" style="display:none"><label>Взяти рядки з договору замовника</label><select id="dCt"></select></div>
     ${estimateButton("dXls")}<div id="dItems"></div>
     <button type="button" class="btn ghost sm" id="dAdd" style="width:100%">+ Додати рядок</button>
+    <div class="section-t">Як показувати роботи в документах</div>
+    <div class="row"><div class="field"><label>У рахунку</label><select id="dvInv"><option value="full">Повний перелік</option><option value="short" ${d.view?.inv==="short"?"selected":""}>Одним рядком</option></select></div>
+      <div class="field"><label>В акті</label><select id="dvAct"><option value="full">Повний перелік</option><option value="short" ${d.view?.act==="short"?"selected":""}>Одним рядком</option></select></div></div>
+    <div id="dShort" style="display:none"><div class="field"><label>Назва рядка</label><input id="dShName" value="${esc(d.short?.name||"")}" placeholder="Виконані роботи за договором підряду № …"></div>
+      <div class="field"><label>Сума, ₴ (порожньо — взяти суму переліку)</label><input id="dShSum" inputmode="decimal" value="${esc(d.short?.sum||"")}" placeholder="напр. 150000"></div></div>
     <div class="sum" style="font-size:15px">Всього: <b id="dTot"></b></div>
     <div class="actions">${!isNew?`<button type="button" class="btn danger" id="dDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
   const setNos=()=>{const f=S.fops.get($("#dFop").value);if(!f||!isNew)return;$("#dInv").value=nextNo(f.invPrefix,f.invNext||1);$("#dAct").value=nextNo(f.actPrefix,f.actNext||1)};
@@ -939,22 +946,31 @@ function docForm(d){
   const drawItems=()=>{$("#dItems").innerHTML=items.map((it,i)=>`<div class="card" style="display:block;margin-bottom:6px;cursor:default">
       <input data-i="${i}" data-k="name" value="${esc(it.name)}" placeholder="Назва роботи" style="margin-bottom:6px">
       <div class="row"><input data-i="${i}" data-k="unit" value="${esc(it.unit)}" placeholder="од." style="flex:.6"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${esc(it.qty)}" placeholder="к-сть" style="flex:.8"><input data-i="${i}" data-k="price" inputmode="decimal" value="${esc(it.price)}" placeholder="ціна"><button type="button" class="btn ghost sm" data-rm="${i}" style="flex:0 0 auto">✕</button></div></div>`).join("");
-    $("#dTot").textContent=money(docTotal({items}));};
+    updTot();};
+  const numv=x=>parseFloat(String(x||"").replace(/\s/g,"").replace(",","."))||0;
+  const isShort=()=>$("#dvInv").value==="short"||$("#dvAct").value==="short";
+  function updTot(){ const lt=items.reduce((a,i)=>a+numv(i.qty)*numv(i.price),0), sv=numv($("#dShSum")?.value); $("#dShort").style.display=isShort()?"":"none"; $("#dTot").textContent=money(isShort()&&sv>0?sv:lt) }
+  ["dvInv","dvAct"].forEach(k=>$("#"+k).onchange=updTot); $("#dShSum").oninput=updTot;
   drawItems();
   bindEstimate("dXls",items,drawItems);
   const fillCts=()=>{ const cid=$("#dCli").value, l=[...S.contracts.values()].filter(c=>c.client===cid&&(c.items||[]).some(i=>i.name)).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
     $("#dCtBox").style.display=l.length?"":"none"; $("#dCt").innerHTML=`<option value="">— вибрати —</option>`+l.map(c=>`<option value="${c.id}">№ ${esc(c.no)} від ${dShort(c.date)} · ${c.items.filter(i=>i.name).length} поз.</option>`).join("") };
   $("#dCt").onchange=e=>{ const c=S.contracts.get(e.target.value); if(!c) return;
     if(items.some(i=>String(i.name||"").trim())&&!confirm("Замінити поточні рядки рядками з договору?")){e.target.value="";return}
-    items.length=0; items.push(...c.items.filter(i=>i.name).map(i=>({...i}))); drawItems(); if(!$("#dCli").value) $("#dCli").value=c.client };
+    items.length=0; items.push(...c.items.filter(i=>i.name).map(i=>({...i}))); if(!$("#dShName").value) $("#dShName").value=`Виконані роботи за договором підряду № ${c.no} від ${dShort(c.date)}`; drawItems(); if(!$("#dCli").value) $("#dCli").value=c.client };
   fillCts();
-  $("#dItems").oninput=e=>{const i=e.target.dataset.i;if(i==null)return;items[i][e.target.dataset.k]=e.target.value;$("#dTot").textContent=money(docTotal({items:items.map(x=>({qty:String(x.qty).replace(",","."),price:String(x.price).replace(",",".")}))}))};
+  $("#dItems").oninput=e=>{const i=e.target.dataset.i;if(i==null)return;items[i][e.target.dataset.k]=e.target.value;updTot()};
   $("#dItems").onclick=e=>{const r=e.target.dataset.rm;if(r!=null){items.splice(+r,1);if(!items.length)items.push({name:"",unit:"посл.",qty:1,price:""});drawItems()}};
   $("#dAdd").onclick=()=>{items.push({name:"",unit:"посл.",qty:1,price:""});drawItems()};
-  function collect(){const v=Object.fromEntries(new FormData($("#docF")));return {...d,...v,client:v.client==="__new"?"":v.client,items:items.map(i=>({name:String(i.name).trim(),unit:String(i.unit).trim()||"посл.",qty:parseFloat(String(i.qty).replace(",","."))||0,price:parseFloat(String(i.price).replace(/\s/g,"").replace(",","."))||0}))}}
+  function collect(){const v=Object.fromEntries(new FormData($("#docF")));return {...d,...v,view:{inv:$("#dvInv").value,act:$("#dvAct").value},short:{name:$("#dShName").value.trim(),sum:numv($("#dShSum").value)},client:v.client==="__new"?"":v.client,items:items.map(i=>({name:String(i.name).trim(),unit:String(i.unit).trim()||"посл.",qty:parseFloat(String(i.qty).replace(",","."))||0,price:parseFloat(String(i.price).replace(/\s/g,"").replace(",","."))||0}))}}
   $("#docF").onsubmit=async e=>{e.preventDefault();const v=collect();
-    if(!v.client){toast("Виберіть замовника");return} v.items=v.items.filter(i=>i.name); if(!v.items.length){toast("Додайте хоча б одну роботу");return}
-    const fop=S.fops.get(v.fop); const now=Date.now(); const data={fop:v.fop,client:v.client,site:v.site||"",date:v.date,invNo:v.invNo.trim(),actNo:v.actNo.trim(),items:v.items,total:docTotal(v),updatedAt:now,createdAt:d.createdAt||now};
+    if(!v.client){toast("Виберіть замовника");return} v.items=v.items.filter(i=>i.name);
+    const anyShort=v.view.inv==="short"||v.view.act==="short", listTot=v.items.reduce((a,i)=>a+i.qty*i.price,0); let shSum=v.short.sum;
+    if(anyShort){ if(!(shSum>0)) shSum=listTot; if(!(shSum>0)){toast("Вкажіть суму або додайте перелік з цінами");return}
+      if((v.view.inv==="full"||v.view.act==="full")&&(!v.items.length||Math.abs(shSum-listTot)>0.005)){toast("Де показується повний перелік, сума рядка має збігатися з сумою переліку ("+money(listTot)+")");return}
+      if(!v.short.name) v.short.name="Виконані роботи"; v.short.sum=shSum; }
+    else if(!v.items.length){toast("Додайте хоча б одну роботу");return}
+    const fop=S.fops.get(v.fop); const now=Date.now(); const data={fop:v.fop,client:v.client,site:v.site||"",date:v.date,invNo:v.invNo.trim(),actNo:v.actNo.trim(),items:v.items,view:v.view,short:anyShort?v.short:null,total:anyShort?shSum:listTot,updatedAt:now,createdAt:d.createdAt||now};
     let id=d.id; const ok=await write(async db=>{
       if(!id){const r=await db.collection("docs").add(data);id=r.id} else await db.doc("docs/"+id).set(data);
       if(fop&&isNew){const num=s=>parseInt(String(s).replace(/\D/g,""))||0;const u={};if(num(data.invNo)>=(fop.invNext||1))u.invNext=num(data.invNo)+1;if(data.actNo&&num(data.actNo)>=(fop.actNext||1))u.actNext=num(data.actNo)+1;if(Object.keys(u).length)await db.doc("fops/"+fop.id).update(u)}
@@ -967,7 +983,7 @@ function docView(id,fallback){
   openSheet(`<h2>Рахунок № ${esc(d.invNo)}</h2>
     <div class="m" style="color:var(--muted)">${dLong(d.date)} · ${esc(fopOf(d).name||"")}</div>
     <div class="m" style="margin:6px 0">${esc(cliOf(d).name||"")}</div>
-    ${(d.items||[]).map(i=>`<div class="hist" style="display:flex;gap:8px"><div style="flex:1">${esc(i.name)} <span style="color:var(--muted)">· ${i.qty} ${esc(i.unit)}</span></div><b>${money(i.qty*i.price)}</b></div>`).join("")}
+    ${docItems(d,"inv").map(i=>`<div class="hist" style="display:flex;gap:8px"><div style="flex:1">${esc(i.name)} <span style="color:var(--muted)">· ${i.qty} ${esc(i.unit)}</span></div><b>${money(i.qty*i.price)}</b></div>`).join("")}
     <div class="sum" style="font-size:16px">Всього: <b>${money(tot)}</b></div>
     <div class="actions"><button class="btn" id="pInv">🖨 Рахунок</button>${d.actNo?`<button class="btn" id="pAct">🖨 Акт</button>`:""}</div>
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-top:6px">У вікні друку виберіть «Зберегти як PDF», щоб надіслати файл замовнику.</div>
@@ -986,7 +1002,7 @@ function invoiceHTML(d){
   <tr><td class="lbl"><u>Платник</u></td><td>той самий</td></tr><tr><td class="lbl"><u>Замовлення</u></td><td>Без замовлення</td></tr></table>
   <h3>Рахунок-фактура № ${esc(d.invNo)}<br>від ${dLong(d.date)}</h3>
   <table class="items"><tr><th>№</th><th>Назва</th><th>Од.</th><th>Кількість</th><th>Ціна без ПДВ</th><th>Сума без ПДВ</th></tr>
-  ${(d.items||[]).map((i,k)=>`<tr><td class="r">${k+1}</td><td>${esc(i.name)}</td><td>${esc(i.unit)}</td><td class="r">${(+i.qty).toFixed(3)}</td><td class="r">${n2(i.price)}</td><td class="r">${n2(i.qty*i.price)}</td></tr>`).join("")}
+  ${docItems(d,"inv").map((i,k)=>`<tr><td class="r">${k+1}</td><td>${esc(i.name)}</td><td>${esc(i.unit)}</td><td class="r">${(+i.qty).toFixed(3)}</td><td class="r">${n2(i.price)}</td><td class="r">${n2(i.qty*i.price)}</td></tr>`).join("")}
   <tr class="tot"><td colspan="5" class="r b">Знижка:</td><td class="r b box">0.00</td></tr>
   <tr class="tot"><td colspan="5" class="r b">Всього:</td><td class="r b box">${n2(tot)}</td></tr></table>
   <p>Всього на суму:<br><b>${uaWords(tot)}</b><br>Без ПДВ</p>
@@ -999,7 +1015,7 @@ function actHTML(d){
   <td>ЗАТВЕРДЖУЮ<br><br>${esc(c.signerTitle||"")}<br>${esc(c.name)}<br><br><span class="line"></span><br>${esc(c.signerName||"")}</td></tr></table>
   <h3>АКТ № ${esc(d.actNo)}<br>здачі-прийняття робіт (надання послуг)</h3>
   <p>Ми, представники Замовника ${esc(c.name)} ____________________, з одного боку, та представник Виконавця ${esc(f.name)}, з іншого боку, склали цей акт про те, що Виконавцем були проведені такі роботи (надані такі послуги) по рахунку № ${esc(d.invNo)} від ${dShort(d.date)}:</p>
-  <table class="acti">${(d.items||[]).map(i=>`<tr><td>- ${esc(i.name)}</td><td class="sm">- ${+i.qty} ${esc(i.unit==="посл."?"послуга":i.unit)}</td><td class="r">${nApo(i.qty*i.price)} грн</td></tr>`).join("")}</table>
+  <table class="acti">${docItems(d,"act").map(i=>`<tr><td>- ${esc(i.name)}</td><td class="sm">- ${+i.qty} ${esc(i.unit==="посл."?"послуга":i.unit)}</td><td class="r">${nApo(i.qty*i.price)} грн</td></tr>`).join("")}</table>
   <p>Загальна вартість робіт (послуг) ${nApo(tot)} грн (${w}).<br>Сторони претензій одна до одної не мають.</p>
   <p style="margin-top:28px">Місце складання: ${esc(f.place||"")}</p>
   <table class="two"><tr><td>Від Виконавця*:<br><br><span class="line"></span><br><small>* Відповідальний за здійснення господарської операції і правильність її оформлення</small><br><br>${dLong(d.date)}<br>${fopReq(f)}</td>
