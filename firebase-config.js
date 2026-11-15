@@ -12,5 +12,5 @@ export const ALLOWED = [];
 // Ключ сайту reCAPTCHA v3 для App Check (публічний; потрібен для розпізнавання фото)
 export const RECAPTCHA_KEY = "6Lf3kSAuAAAAALkdn1RBve1QGP_UzjlrytNO2TGt";
 
-// Ці пошти працюють у демо-режимі: можуть редагувати, але нічого не записується в базу
-export const DEMO_EMAILS = ["esmik7686@gmail.com"];
+// Демо-режим (редагують окрему копію, реальна база не змінюється): SHA-256 від пошти, щоб не світити адреси
+export const DEMO_HASHES = ["01bd3fa559b4d99a71a0764eedc1ba2ae577872036f5bfa273cf2d32012deb4a", "199b089475c345507291025c762dcc424e20a2ab14fa71cf721df9a14ce15c09"];

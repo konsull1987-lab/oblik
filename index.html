@@ -492,7 +492,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v26</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v27</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1695,7 +1695,8 @@ init();
 </script>
 <script type="module">
 import * as CFG from "./firebase-config.js";
-const {firebaseConfig, ALLOWED}=CFG; const DEMO_EMAILS=(CFG.DEMO_EMAILS||[]).map(x=>x.toLowerCase()); let DEMO=false;
+const {firebaseConfig, ALLOWED}=CFG; const DEMO_EMAILS=(CFG.DEMO_EMAILS||[]).map(x=>x.toLowerCase()), DEMO_HASHES=CFG.DEMO_HASHES||[]; let DEMO=false;
+const sha=async t=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)))].map(b=>b.toString(16).padStart(2,"0")).join("");
 import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc, getDocs} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
@@ -1767,12 +1768,14 @@ lo2.onclick=()=>window.__fbSignOut();
 getRedirectResult(auth).catch(()=>{});
 
 let started=false;
-onAuthStateChanged(auth,u=>{
+onAuthStateChanged(auth,async u=>{
   if(!u){ L.style.display="flex"; return; }
   const email=(u.email||"").toLowerCase();
   if(ALLOWED.length&&!ALLOWED.includes(email)){ L.style.display="flex"; msg.innerHTML="Пошта <b>"+email+"</b> не має доступу.<br>Попросіть Андрія додати її."; document.getElementById("loginBtn").style.display="none"; lo2.style.display=""; return; }
-  L.style.display="none"; window.__fbEmail=email; DEMO=DEMO_EMAILS.includes(email)||new URLSearchParams(location.search).has("demo"); window.__demo=DEMO;
+  L.style.display="none"; window.__fbEmail=email;
   if(started) return; started=true;
+  try{ DEMO=DEMO_EMAILS.includes(email)||DEMO_HASHES.includes(await sha(email))||new URLSearchParams(location.search).has("demo") }catch(_){ DEMO=new URLSearchParams(location.search).has("demo") }
+  window.__demo=DEMO;
   const name=u.displayName||email;
   const user={ id:async()=>u.uid, me:async()=>({name}), can:async()=>true };
   (DEMO?demoPrepare():Promise.resolve()).then(()=>window.__fbResolve([db,user]));
