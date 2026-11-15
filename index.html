@@ -207,8 +207,25 @@ const S = {
 const DUO_OWNERS=["andriy","serhiy"];
 const isDuo=()=>S.base==="duo"&&S.duoOk;
 function applyBase(){ const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.sites=S.B[k].sites; }
-const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del")?"duo_"+c:c;
-const routed=db=>({collection:p=>db.collection(R(p)),doc:p=>{const i=p.indexOf("/");return db.doc(R(p.slice(0,i))+p.slice(i))}});
+const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log")?"duo_"+c:c;
+// ---- Журнал змін: кожне додавання / зміна / видалення зберігається повністю (як було → як стало) ----
+const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
+const MOVE_KEYS=new Set(["holder","site","qty","updatedAt"]);
+const localOf=(c,id)=>{ const m=S[c]; const v=m&&m.get?m.get(id):null; if(!v) return null; const {id:_,...r}=v; return JSON.parse(JSON.stringify(r)) };
+async function logChange(db,c,id,op,before,after){
+  if(c==="tools"&&op==="edit"&&after&&before&&Object.keys(after).every(k=>MOVE_KEYS.has(k)||JSON.stringify(after[k])===JSON.stringify(before[k]))) return; // переміщення — у своїй історії
+  let byName=""; try{byName=(await S.user?.me?.())?.name||""}catch(_){}
+  try{ await db.collection(R("log")).add({at:Date.now(),by:S.uid||"",byName,op,col:c,id,before:before||null,after:after||null}) }catch(e){ console.warn("log",e) }
+}
+const routed=db=>({
+  collection:p=>{ const c=db.collection(R(p)); if(!LOGGED.includes(p)) return c;
+    return {...c,add:async d=>{ const r=await c.add(d); await logChange(db,p,r.id,"add",null,JSON.parse(JSON.stringify(d))); return r },
+      doc:id=>{ const d=c.doc(id); return wrapLogged(db,p,d) }} },
+  doc:path=>{const i=path.indexOf("/"), c=path.slice(0,i), id=path.slice(i+1); const d=db.doc(R(c)+path.slice(i)); return LOGGED.includes(c)?wrapLogged(db,c,d,id):d}});
+const wrapLogged=(db,c,d,id0)=>{ const id=()=>id0||d.id; return {...d,
+  set:async v=>{ const b=localOf(c,id()); await d.set(v); await logChange(db,c,id(),b?"edit":"add",b,JSON.parse(JSON.stringify(v))) },
+  update:async v=>{ const b=localOf(c,id()); await d.update(v); await logChange(db,c,id(),"edit",b,{...(b||{}),...JSON.parse(JSON.stringify(v))}) },
+  delete:async()=>{ const b=localOf(c,id()); await d.delete(); await logChange(db,c,id(),"del",b,null) } } };
 function setBase(b){ S.base=b; try{localStorage.setItem("oblikBase",b)}catch(_){}; applyBase(); Object.assign(S,{mSite:"",mOwner:"",mKind:"",mMonth:"",mType:"",sq:""});
   if(isDuo()&&S.tab==="tools") S.tab="money"; if(isDuo()&&S.mtab==="docs") S.mtab="journal"; render(); }
 function baseSwitch(){ if(!S.duoOk) return ""; return `<div class="seg" style="margin-bottom:8px">${[["trio","👥 На трьох"],["duo","🤝 Общак на двох"]].map(([k,l])=>`<button type="button" data-base="${k}" class="${(isDuo()?"duo":"trio")===k?"on":""}">${l}</button>`).join("")}</div>`; }
@@ -278,7 +295,7 @@ function render(){
   if(S.err) ban.push(S.err==="permission-denied"?"Ця пошта не має доступу до бази. Попросіть Андрія додати вас.":"Помилка доступу до бази ("+esc(S.err)+").");
   if(window.__demo) ban.push('🧪 Демо-режим: це окрема копія даних для тесту — усе, що ви тут змінюєте, зберігається лише в ній і не зачіпає реальну базу. <a href="#" id="demoReset" style="color:inherit;text-decoration:underline;white-space:nowrap">Скинути демо</a>');
   else if(!S.canWrite) ban.push("Режим перегляду: зміни можуть вносити лише власники.");
-  if(S.canWrite&&!window.__demo&&S.backupLoaded&&Date.now()-(S.backupAt||0)>BACKUP_DAYS*864e5&&S.tools.size+S.fin.size>0) ban.push(`☁️ ${S.backupAt?"Минув тиждень з останньої резервної копії":"Резервної копії на Google Диску ще немає"}. <a href="#" id="bkNow" style="color:inherit;text-decoration:underline;white-space:nowrap">Зберегти зараз</a> <span id="bkMsg"></span>`);
+  if(S.canWrite&&!window.__demo&&S.backupLoaded&&Date.now()-(S.backupAt||0)>BACKUP_DAYS*864e5&&S.tools.size+S.fin.size>0) ban.push(`☁️ ${S.backupAt?"Сьогодні ще не зберігали копію на Google Диск":"Резервної копії на Google Диску ще немає"}. <a href="#" id="bkNow" style="color:inherit;text-decoration:underline;white-space:nowrap">Зберегти зараз</a> <span id="bkMsg"></span>`);
   $("#banner").innerHTML=ban.map(b=>`<div class="banner">${b}</div>`).join("");
   $("#fab").style.display=(S.canWrite&&!S.select&&S.tab!=="history")?"":"none";
   ({tools:renderTools,sites:renderSites,people:renderPeople,history:renderHistory,money:renderMoney})[S.tab]();
@@ -421,8 +438,9 @@ function finLine(f){
     <span class="amt ${k}" style="white-space:nowrap">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
 }
 function renderHistory(){
-  S.htab=isDuo()?"money":(S.htab||"money");
-  $("#headTools").innerHTML=baseSwitch()+`<div class="tabs2">${[["money","💰 Гроші"],...(isDuo()?[]:[["tools","🧰 Інструмент"]])].map(([k,l])=>`<button data-hist="${k}" class="${S.htab===k?"on":""}">${l}</button>`).join("")}</div>`;
+  S.htab=isDuo()&&S.htab==="tools"?"money":(S.htab||"money");
+  $("#headTools").innerHTML=baseSwitch()+`<div class="tabs2">${[["money","💰 Гроші"],...(isDuo()?[]:[["tools","🧰 Інструмент"]]),["log","📝 Зміни"]].map(([k,l])=>`<button data-hist="${k}" class="${S.htab===k?"on":""}">${l}</button>`).join("")}</div>`;
+  if(S.htab==="log") return renderLog();
   if(S.htab==="tools"){
     if(!S.moves.length){ $("#view").innerHTML=`<div class="empty">Переміщень ще не було.</div>`; return; }
     $("#view").innerHTML=`<div class="card" style="display:block;cursor:default">${S.moves.map(moveLine).join("")}</div>`; return;
@@ -430,6 +448,37 @@ function renderHistory(){
   const l=[...S.fin.values()].sort((a,b)=>((b.createdAt>1e12?b.createdAt:0)-(a.createdAt>1e12?a.createdAt:0))||(b.date||"").localeCompare(a.date||"")).slice(0,300);
   if(!l.length){ $("#view").innerHTML=`<div class="empty">Грошових записів ще немає.</div>`; return; }
   $("#view").innerHTML=`<div class="sum" style="color:var(--muted)">Останні внесені записи — спершу найновіші</div><div class="card" style="display:block;cursor:default">${l.map(finLine).join("")}</div>`;
+}
+
+
+// ---------- Перегляд журналу змін ----------
+const COL_NAME={fin:"Гроші",tools:"Інструмент",sites:"Об'єкт",people:"Людина",docs:"Рахунок/акт",contracts:"Договір",fops:"ФОП",clients:"Замовник"};
+const FIELD_NAME={amount:"сума",date:"дата",type:"тип",owner:"хто",site:"об'єкт",kind:"вид",worker:"виконавець",note:"коментар",name:"назва",qty:"кількість",holder:"у кого",status:"стан",cat:"категорія",brand:"марка",model:"модель",inv:"інв. №",serial:"серійний №",contract:"сума договору",customer:"замовник",split:"поділено",active:"активний",phone:"телефон",role:"роль",total:"сума"};
+const SKIP_F=new Set(["updatedAt","createdAt","by","byName","pair","key","raw","order","items","view","short","orig"]);
+function fmtVal(k,v){ if(v==null||v==="") return "—"; if(k==="amount"||k==="contract"||k==="total") return money(v); if(k==="owner"||k==="worker"||k==="holder") return person(v)?.name||v; if(k==="site") return site(v)?.name||v;
+  if(k==="type") return {in:"прихід",out:"витрата",accrual:"нарахування"}[v]||v; if(typeof v==="boolean") return v?"так":"ні"; return String(v) }
+function logTitle(e){ const x=e.after||e.before||{}; if(e.col==="fin") return `${fmtVal("type",x.type)} ${money(x.amount)}${x.site?" · "+(site(x.site)?.name||""):""}`; return x.name||x.invNo||x.no||e.id }
+function renderLog(){
+  const col=R("log");
+  if(S.logCol!==col){ S.logCol=col; S.log=null; S.logUnsub?.(); S.logUnsub=S.db?.collection(col).orderBy("at","desc").limit(300).onSnapshot(sn=>{S.log=sn.docs.map(d=>({lid:d.id,...d.data()})); if(S.tab==="history"&&S.htab==="log") renderLog()},()=>{S.log=[];renderLog()}) }
+  if(!S.log){ $("#view").innerHTML=`<div class="empty">Завантаження…</div>`; return }
+  if(!S.log.length){ $("#view").innerHTML=`<div class="empty">Змін ще не було. Тут з'являтиметься кожне додавання, зміна й видалення — хто, коли, як було й як стало.</div>`; return }
+  const OP={add:["➕","додав"],edit:["✏️","змінив"],del:["🗑","видалив"],restore:["↩️","повернув"]};
+  $("#view").innerHTML=`<div class="sum" style="color:var(--muted)">Останні 300 змін — спершу найновіші</div><div class="card" style="display:block;cursor:default">`+S.log.map(e=>{
+    const [ic,verb]=OP[e.op]||["•",e.op];
+    let diff="";
+    if(e.op==="edit"&&e.before&&e.after){ const ks=[...new Set([...Object.keys(e.before),...Object.keys(e.after)])].filter(k=>!SKIP_F.has(k)&&JSON.stringify(e.before[k]??"")!==JSON.stringify(e.after[k]??""));
+      diff=ks.map(k=>`<div class="m">${esc(FIELD_NAME[k]||k)}: <s style="color:var(--muted)">${esc(fmtVal(k,e.before[k]))}</s> → <b>${esc(fmtVal(k,e.after[k]))}</b></div>`).join("") }
+    const canBack=S.canWrite&&(e.op==="del"||e.op==="edit")&&e.before;
+    return `<div class="hist"><div class="when">${fmtDate(e.at)}${e.byName?" · "+esc(e.byName):""}</div>
+      <div>${ic} <b>${esc(verb)}</b> · ${esc(COL_NAME[e.col]||e.col)}: ${esc(logTitle(e))}</div>${diff}
+      ${canBack?`<button class="btn ghost sm" data-undo="${e.lid}" style="margin-top:4px">↩️ ${e.op==="del"?"Повернути запис":"Повернути як було"}</button>`:""}</div>` }).join("")+`</div>`;
+}
+async function undoLog(lid){
+  const e=(S.log||[]).find(x=>x.lid===lid); if(!e||!e.before) return;
+  if(!confirm(e.op==="del"?"Повернути видалений запис?":"Повернути запис до попереднього стану?")) return;
+  const ok=await write(async db=>{ await db.doc(e.col+"/"+e.id).set(e.before) });
+  if(ok) toast("Повернуто");
 }
 
 function renderBulk(){
@@ -509,7 +558,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v36</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v37</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1524,7 +1573,7 @@ function returnAllForm(kind,id){
 }
 
 // ---------- Резервна копія на Google Диск ----------
-const BACKUP_DAYS=7;
+const BACKUP_DAYS=1;
 async function driveBackup(silent){
   if(!window.__fbDump||!window.__driveToken){toast("Недоступно");return false}
   const bar=$("#bkMsg"); const say=t=>{ if(bar) bar.textContent=t };
@@ -1781,6 +1830,7 @@ $("#headTools").addEventListener("click",e=>{
 $("#view").addEventListener("change",e=>{ if(e.target.id==="sYear"){S.sYear=e.target.value;render()} });
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
 $("#view").addEventListener("click",e=>{
+  const u=e.target.closest("[data-undo]"); if(u){ undoLog(u.dataset.undo); return }
   if(e.target.id==="archT"){S.showArch=!S.showArch;renderSites();return}
   const hf=e.target.closest(".hist[data-fin]"); if(hf){ if(S.canWrite) finForm(S.fin.get(hf.dataset.fin)); return }
   const c=e.target.closest(".card"); if(!c)return;
