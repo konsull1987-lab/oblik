@@ -492,7 +492,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v27</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v28</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1532,45 +1532,58 @@ async function driveBackup(silent){
 
 // ---------- Імпорт таблиці «общак» (на двох) ----------
 function duoParse(XLSX,wb,cutoff){
+  // Рахуємо так само, як формули таблиці: SUMIFS порівнює текст без урахування регістру, але з пробілами; сумує лише числові клітинки.
   const sh=n=>wb.Sheets[wb.SheetNames.find(x=>x.trim().toLowerCase()===n)];
   const J=sh("журнал"), O=sh("отчет")||sh("отчёт"); if(!J) throw new Error("У файлі немає аркуша «журнал»");
   const rows=XLSX.utils.sheet_to_json(J,{header:1,raw:true,defval:""});
-  const num=x=>{ if(typeof x==="number") return x; const n=parseFloat(String(x).replace(/\s/g,"").replace(",",".")); return isFinite(n)?n:0 };
+  const num=x=>typeof x==="number"?x:NaN;
   const date=x=>{ if(typeof x==="number"){const d=XLSX.SSF.parse_date_code(x); return d?`${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`:""}
     const m=String(x).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})/); if(!m) return ""; let y=m[3]; if(y.length===2) y="20"+y; y=y.padStart(4,"0"); return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}` };
-  const own=x=>{const t=String(x).trim().toLowerCase(); return /^андр/.test(t)?"andriy":/^серг/.test(t)?"serhiy":""};
+  const low=x=>String(x??"").toLowerCase();
+  const own=x=>{const t=low(x); return t==="андрей"?"andriy":t==="сергей"?"serhiy":""};
   const KIND={"з\\п":"Зарплата","з/п":"Зарплата","зп":"Зарплата","материалы":"Матеріали","матеріали":"Матеріали","доставка":"Доставка","инструменты":"Інструменти","інструменти":"Інструменти","инструмент":"Інструменти"};
-  const split={}, names=[]; let expA=null, expS=null;
-  if(O){ const r=XLSX.utils.sheet_to_json(O,{header:1,raw:true,defval:""}); expA=num(r[1]?.[1]); expS=num(r[1]?.[2]);
-    for(const x of r.slice(1)){ const n=String(x[4]||"").trim(); if(n){ names.push(n); if(String(x[8]).trim()==="1") split[n]=true } } }
-  const ent=[]; let skipped=0;
-  rows.slice(1).forEach((r,i)=>{ const row=i+2, amt=num(r[5]), t=String(r[2]).trim().toLowerCase(), o=own(r[4]);
-    if(!amt||!o||!/^(приход|расход|прихід|витрата)/.test(t)){ if(String(r[5]).trim()||String(r[2]).trim()) skipped++; return }
+  // об'єкти з аркуша «отчет»
+  const rep={}, order=[]; let expA=null, expS=null; const dupl=[];
+  if(O){ const r=XLSX.utils.sheet_to_json(O,{header:1,raw:true,defval:""}); expA=num(r[1]?.[1]); expS=num(r[1]?.[2]); if(isNaN(expA)) expA=null; if(isNaN(expS)) expS=null;
+    for(const x of r.slice(1)){ const raw=String(x[4]??""); if(!raw.trim()) continue; const k=low(raw);
+      if(rep[k]){ rep[k].mult+=String(x[8]).trim()==="1"?1:0; dupl.push(raw.trim()); continue }
+      rep[k]={name:raw.trim(),split:String(x[8]).trim()==="1",mult:String(x[8]).trim()==="1"?1:0,expH:typeof x[7]==="number"?x[7]:null}; order.push(k) } }
+  const ent=[]; const ign={type:0,amount:0}; let noOwner=0;
+  rows.slice(1).forEach((r,i)=>{ const row=i+2, t=low(r[2]), a=num(r[5]);
+    if(t!=="приход"&&t!=="расход"){ if(String(r[5]).trim()!==""||String(r[2]).trim()!=="") ign.type++; return }
+    if(isNaN(a)){ if(String(r[5]).trim()!=="") ign.amount++; return }
+    if(!a) return;
+    const o=own(r[4]); if(!o) noOwner++;
     const g=String(r[6]||"").trim(), k=KIND[g.toLowerCase()];
-    const note=[String(r[3]||"").trim()&&"🔧 "+String(r[3]).trim(), !k&&g&&g.toLowerCase()!=="расход"?g:"", String(r[7]||"").trim()].filter(Boolean).join(" · ");
-    ent.push({row,date:date(r[0]),site:String(r[1]||"").trim(),type:/^(приход|прихід)/.test(t)?"in":"out",owner:o,amount:Math.round(amt*100)/100,kind:k||"",note}); });
-  // взаємозаліки: сусідні рядки без об'єкта, однакова дата й сума, протилежні типи
-  for(let i=0;i<ent.length-1;i++){ const a=ent[i],b=ent[i+1]; if(!a.site&&!b.site&&!a.pair&&a.date===b.date&&a.amount===b.amount&&a.type!==b.type&&a.owner!==b.owner){ a.pair=b.pair="d"+a.row; a.kind=b.kind="Взаємозалік"; i++ } }
-  // перевірка за формулою таблиці
-  const bal={andriy:0,serhiy:0}, st={}; for(const e of ent){ bal[e.owner]+=(e.type==="in"?1:-1)*e.amount; if(e.site) st[e.site]=(st[e.site]||0)+(e.type==="in"?1:-1)*e.amount }
-  let sh2=0; for(const n in st) if(split[n]) sh2+=st[n]; for(const k in bal) bal[k]-=sh2/2;
-  // згортання старих записів у залишки
+    const note=[String(r[3]||"").trim()&&"🔧 "+String(r[3]).trim(), !k&&g&&g.toLowerCase()!=="расход"?g:"", String(r[7]||"").trim(), !o&&String(r[4]).trim()?"платник: "+String(r[4]).trim():""].filter(Boolean).join(" · ");
+    const sk=String(r[1]??"").trim()?low(r[1]):"";
+    if(sk&&!rep[sk]){ rep[sk]={name:String(r[1]).trim(),split:false,mult:0,expH:null,extra:true}; order.push(sk) }
+    ent.push({row,date:date(r[0]),site:sk,type:t==="приход"?"in":"out",owner:o,amount:Math.round(a*100)/100,kind:k||"",note}); });
+  for(let i=0;i<ent.length-1;i++){ const a=ent[i],b=ent[i+1]; if(!a.site&&!b.site&&!a.pair&&a.date===b.date&&a.amount===b.amount&&a.type!==b.type&&a.owner&&b.owner&&a.owner!==b.owner){ a.pair=b.pair="d"+a.row; a.kind=b.kind="Взаємозалік"; i++ } }
+  // перевірка
+  const bal={andriy:0,serhiy:0}, st={}; for(const e of ent){ if(e.owner) bal[e.owner]+=(e.type==="in"?1:-1)*e.amount; if(e.site) st[e.site]=(st[e.site]||0)+(e.type==="in"?1:-1)*e.amount }
+  let shared=0, sharedApp=0; for(const k in rep){ shared+=(st[k]||0)*rep[k].mult; if(rep[k].split) sharedApp+=(st[k]||0) }
+  const balSheet={andriy:bal.andriy-shared/2,serhiy:bal.serhiy-shared/2}, balApp={andriy:bal.andriy-sharedApp/2,serhiy:bal.serhiy-sharedApp/2};
+  const diffs=order.filter(k=>rep[k].expH!=null&&Math.abs((st[k]||0)-rep[k].expH)>=0.5).map(k=>({name:rep[k].name,app:st[k]||0,sheet:rep[k].expH}));
   let out=ent, folded=0;
   if(cutoff){ const old=ent.filter(e=>e.date&&e.date<cutoff&&!e.pair), keep=ent.filter(e=>!(e.date&&e.date<cutoff&&!e.pair)); const agg={};
     for(const e of old){ const k=e.site+"|"+e.owner+"|"+e.type; (agg[k]=agg[k]||{...e,amount:0,n:0,kind:"",note:""}).amount+=e.amount; agg[k].n++ }
     const prev=new Date(cutoff); prev.setDate(prev.getDate()-1); const pd=prev.toISOString().slice(0,10);
     out=[...Object.values(agg).map((a,i)=>({...a,row:"z"+i,date:pd,amount:Math.round(a.amount*100)/100,note:`залишок: ${a.n} зап. до ${fmtDay(cutoff)}`})),...keep]; folded=old.length; }
-  const siteNames=[...new Set([...names,...ent.map(e=>e.site).filter(Boolean)])];
-  return {ent:out,all:ent.length,folded,skipped,bal,expA,expS,split,siteNames};
+  return {ent:out,all:ent.length,folded,ign,noOwner,bal:balApp,balSheet,expA,expS,rep,order,diffs,dupl};
 }
 async function duoImportPreview(file){
   openSheet(`<h2>📥 Імпорт общаку</h2><p id="duoMsg">Читаю файл…</p>`);
   try{ const XLSX=await loadXLSX(); const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
     const draw=cut=>{ const r=duoParse(XLSX,wb,cut); const ok=(a,b)=>b==null||Math.abs(a-b)<1;
       openSheet(`<h2>📥 Імпорт общаку</h2>
-        <div class="sum">Записів у журналі: <b>${r.all}</b>${r.skipped?` · пропущено порожніх/нечитаних: ${r.skipped}`:""} · об'єктів: <b>${r.siteNames.length}</b></div>
+        <div class="sum">Записів у журналі: <b>${r.all}</b> · об'єктів: <b>${r.order.length}</b></div>
+        ${r.ign.type||r.ign.amount?`<div class="m" style="color:var(--muted);font-size:12.5px">Не враховано (таблиця їх теж не рахує): ${r.ign.type?r.ign.type+" рядк. з типом не «приход/расход»":""}${r.ign.type&&r.ign.amount?", ":""}${r.ign.amount?r.ign.amount+" рядк. із сумою текстом":""}</div>`:""}
+        ${r.noOwner?`<div class="m" style="color:var(--muted);font-size:12.5px">${r.noOwner} рядк. без платника «Андрей/Сергей» — враховано в об'єктах, як у таблиці</div>`:""}
         <div class="sum">Общак за імпортом: Андрій <b>${money(r.bal.andriy)}</b> · Сергій <b>${money(r.bal.serhiy)}</b></div>
-        ${r.expA!=null?`<div class="sum">У таблиці (аркуш «отчет»): Андрій <b>${money(r.expA)}</b> · Сергій <b>${money(r.expS)}</b> ${ok(r.bal.andriy,r.expA)&&ok(r.bal.serhiy,r.expS)?"✅ збігається":"⚠️ не збігається — перевірте"}</div>`:""}
+        ${r.expA!=null?`<div class="sum">У таблиці (аркуш «отчет»): Андрій <b>${money(r.expA)}</b> · Сергій <b>${money(r.expS)}</b> ${ok(r.bal.andriy,r.expA)&&ok(r.bal.serhiy,r.expS)?"✅ збігається":"⚠️ не збігається"}</div>`:""}
+        ${r.dupl.length?`<div class="banner">У «отчет» об'єкт записано двічі (таблиця рахує його прибуток двічі): ${esc(r.dupl.join(", "))}</div>`:""}
+        ${r.diffs.length?`<div class="banner">Розходиться з «отчет» по об'єктах:<br>${r.diffs.slice(0,8).map(d=>`${esc(d.name)}: тут ${money(d.app)}, у таблиці ${money(d.sheet)}`).join("<br>")}</div>`:""}
         <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" id="duoFold" style="width:22px;height:22px" ${cut?"checked":""}> Згорнути записи до 2026 року в залишки по об'єктах</label>
         <div class="m" style="color:var(--muted);font-size:12.5px">${cut?`${r.folded} старих записів → ${r.ent.length-(r.all-r.folded)} рядків залишку. Баланси й суми по об'єктах не зміняться, застосунок працюватиме швидше.`:"Усі записи імпортуються окремо."} Буде записано: <b>${r.ent.length}</b>.</div></div>
         <div class="actions"><button class="btn ghost" data-close>Скасувати</button><button class="btn" id="duoGo">Імпортувати</button></div>`);
@@ -1581,12 +1594,13 @@ async function duoImportPreview(file){
 }
 async function duoImportRun(r){
   openSheet(`<h2>Імпорт…</h2><p id="impProg">Підготовка</p>`); const prog=t=>{const el=$("#impProg"); if(el) el.textContent=t};
-  const byName=new Map([...S.B.duo.sites.values()].map(x=>[String(x.name).trim().toLowerCase(),x.id]));
+  const byName=new Map(); for(const x of S.B.duo.sites.values()){ if(x.key) byName.set(x.key,x.id); if(!byName.has(String(x.name).trim().toLowerCase())) byName.set(String(x.name).trim().toLowerCase(),x.id) }
   const lastUse={}; for(const e of r.ent) if(e.site&&(!lastUse[e.site]||e.date>lastUse[e.site])) lastUse[e.site]=e.date;
   const recent=new Date(); recent.setDate(recent.getDate()-120); const rIso=recent.toISOString().slice(0,10);
-  const sites=[]; let k=0; const sid={};
-  r.siteNames.forEach((n,i)=>{ const ex=byName.get(n.toLowerCase()); const id=ex||("ds"+Date.now().toString(36)+(k++)); sid[n]=id;
-    const old=S.B.duo.sites.get(id)||{}; sites.push({...old,id,name:n,type:"site",split:!!r.split[n],active:(lastUse[n]||"")>=rIso,order:i+1}); });
+  const sites=[]; let k=0; const sid={}; const used=new Set();
+  r.order.forEach((key,i)=>{ const x=r.rep[key]; let ex=byName.get(key)||byName.get(x.name.toLowerCase()); if(ex&&used.has(ex)) ex=null;
+    const id=ex||("ds"+Date.now().toString(36)+(k++)); used.add(id); sid[key]=id;
+    const old=S.B.duo.sites.get(id)||{}; sites.push({...old,id,name:x.name,key,type:"site",split:x.split,active:(lastUse[key]||"")>=rIso,order:i+1}); });
   const fin=r.ent.map(e=>{ const d={id:"d"+String(e.row).padStart(5,"0"),date:e.date,type:e.type,owner:e.owner,amount:e.amount,site:e.site?sid[e.site]:"",kind:e.kind,worker:"",note:e.note,createdAt:typeof e.row==="number"?e.row:0}; if(e.pair) d.pair=e.pair; return d });
   const keep=new Set(fin.map(f=>f.id)); const del=[...S.B.duo.fin.values()].filter(f=>(+f.createdAt||0)<1e12&&!keep.has(f.id)).map(f=>["duo_fin",f.id]);
   try{ prog("Видалення застарілих: "+del.length); await window.__fbDelete(del);
