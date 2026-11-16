@@ -559,7 +559,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v54</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v55</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -944,6 +944,7 @@ function workReport(workerId){
   const workers=[...S.people.values()].filter(p=>p.role==="worker").sort((a,b)=>(b.crew?1:0)-(a.crew?1:0)||byName(a,b));
   const n2=v=>Math.round((+v||0)*100)/100;
   const calc=r=>{ const e=r.est>=0?st.est[r.est]:null; const k=1-st.pct/100;
+    if(!(+r.qty>0)) r.qty=1; // разова послуга (вікно, люк…) — кількість 1, рахуємо просто за ціною
     r.estRate=e?n2(e.price*k):0;
     if(!r.manual) r.rate=r.price>0?r.price:(r.estRate||0);
     r.pay=n2((+r.qty||0)*(+r.rate||0));
@@ -986,7 +987,7 @@ function workReport(workerId){
     if(!window.__fbAI){toast("Розпізнавання недоступне");return}
     const b=$("#wrGo"); b.disabled=true; const t0=Date.now(); const tick=setInterval(()=>{const el=$("#wrGo");if(el)el.textContent=`⏳ Розбираю… ${Math.round((Date.now()-t0)/1000)} с`},1000);
     const prompt=`Це звіт виконавця будівельних робіт про виконані обсяги (текст повідомлення, таблиця або фото). Випиши КОЖНУ роботу окремим рядком.
-Для кожної: name — назва роботи; qty — обсяг числом; unit — одиниця (м², м.п., шт…); price — ціна за одиницю, ЯКЩО її вказав виконавець, інакше 0; sum — сума рядка, ЯКЩО її вказав виконавець, інакше 0.
+Для кожної: name — назва роботи; qty — обсяг числом (якщо обсягу немає, бо це разова послуга, наприклад «встановлення вікна» — 1); unit — одиниця (м², м.п., шт…); price — ціна за одиницю, ЯКЩО її вказав виконавець, інакше 0; sum — сума рядка, ЯКЩО її вказав виконавець, інакше 0.
 Числа переписуй ТОЧНО як у виконавця, навіть якщо вони неправильні — нічого не перераховуй і не виправляй. "1,5" = 1.5, "2 500" = 2500.
 total — загальна сума, якщо виконавець її написав, інакше 0.
 ${st.est.length?`Ось кошторис об'єкта (номер. назва | од. | ціна):\n${estList()}\nДля кожної роботи вкажи est — номер рядка кошторису, який означає ту саму роботу (з урахуванням одиниць), або -1, якщо такої немає.`:`Кошторису немає — est завжди -1.`}
@@ -994,7 +995,7 @@ ${st.est.length?`Ось кошторис об'єкта (номер. назва |
     try{ const txt=await window.__fbAI([...(st.text.trim()?[{text:"Повідомлення виконавця:\n"+st.text}]:[]),...st.fileParts],prompt);
       clearInterval(tick); const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
       st.their=+j.total||0;
-      st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),qty:+x.qty||0,unit:String(x.unit||""),price:+x.price||0,sum:+x.sum||0,est:Number.isInteger(+x.est)&&+x.est>=0&&+x.est<st.est.length?+x.est:-1}));
+      st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),qty:+x.qty||0,unit:String(x.unit||(+x.qty>0?"":"посл.")),price:+x.price||0,sum:+x.sum||0,est:Number.isInteger(+x.est)&&+x.est>=0&&+x.est<st.est.length?+x.est:-1}));
       st.rows.forEach(calc); if(!st.rows.length) toast("Робіт не знайдено"); draw();
     }catch(e){ clearInterval(tick); b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося розібрати: "+String(e?.message||e).slice(0,60)) }
   }
