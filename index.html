@@ -559,7 +559,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v50</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v51</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1079,10 +1079,18 @@ function settleBlock(){
   const bases=[["trio","👥 На трьох",balancesFor(S.B.trio.fin,S.B.trio.sites,all).b]];
   if(S.duoOk&&S.duoLoaded) bases.push(["duo","🤝 Общак на двох",balancesFor(S.B.duo.fin,S.B.duo.sites,duoO).b]);
   return `<div class="card" style="display:block;cursor:default;margin-bottom:10px"><div class="t" style="font-weight:700;margin-bottom:4px">⚖️ Щоб вийти в нулі</div>
-    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Хто кому має передати гроші, щоб у кожного спільних грошей на руках стало 0 (з урахуванням поділених об'єктів).</div>
-    ${bases.map(([k,label,b])=>{ const l=settle(b); return `${bases.length>1?`<div class="m" style="font-weight:600;margin-top:6px">${label}</div>`:""}
-      ${l.length?l.map(x=>`<div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span style="flex:1">${esc(person(x.from)?.name||x.from)} → ${esc(dat(x.to))}</span><b>${money(x.amount)}</b>${S.canWrite?`<button class="btn ghost sm" data-settle="${k}|${x.from}|${x.to}|${x.amount}">⇄ Записати</button>`:""}</div>`).join(""):`<div class="m" style="margin-top:4px">✅ Усі в нулях</div>`}
-      ${Object.values(b).reduce((a,v)=>a+v,0)>0.5?`<div class="m" style="color:var(--muted);font-size:12px;margin-top:2px">Ще не поділено прибутку: ${money(Object.values(b).reduce((a,v)=>a+v,0))} (неподілені об'єкти) — він лишається в того, хто отримав.</div>`:""}` }).join("")}</div>`;
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Хто кому має передати гроші, щоб у кожного спільних грошей на руках стало 0 (весь прибуток ділиться порівну, в тому числі незакритих об'єктів).</div>
+    ${bases.map(([k,label,b])=>{ const ids=Object.keys(b), tot=ids.reduce((a,id)=>a+b[id],0);
+      const full={}; for(const id of ids) full[id]=b[id]-tot/(ids.length||1);
+      const line=x=>`<div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span style="flex:1">${esc(person(x.from)?.name||x.from)} → ${esc(dat(x.to))}</span><b>${money(x.amount)}</b>${S.canWrite?`<button class="btn ghost sm" data-settle="${k}|${x.from}|${x.to}|${x.amount}">⇄ Записати</button>`:""}</div>`;
+      const lf=settle(full), lc=settle(b);
+      return `${bases.length>1?`<div class="m" style="font-weight:600;margin-top:8px">${label}</div>`:""}
+      <div class="m" style="color:var(--muted);font-size:12.5px;margin-top:2px">На руках спільних: ${ids.map(id=>`${esc(person(id)?.name||id)} <b style="color:${b[id]<0?"var(--bad,#e57373)":"inherit"}">${money(Math.round(b[id]*100)/100)}</b>`).join(" · ")}</div>
+      ${lf.length?lf.map(line).join(""):`<div class="m" style="margin-top:4px">✅ Усі в нулях</div>`}
+      ${tot>0.5?`<div class="m" style="color:var(--muted);font-size:12px;margin-top:2px">Тут уже поділено і прибуток незакритих об'єктів (${money(Math.round(tot*100)/100)}).</div>
+        <details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">Варіант: ділити тільки закриті об'єкти</summary>
+        ${lc.length?lc.map(line).join(""):`<div class="m">✅ Усі в нулях</div>`}
+        <div class="m" style="color:var(--muted);font-size:12px">Неподілений прибуток лишається на руках у тих, хто його тримає.</div></details>`:""}` }).join("")}</div>`;
 }
 function renderMoneyStats(){
   const all=[...S.people.values()].filter(p=>p.role==="owner").sort(byName);
