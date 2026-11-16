@@ -558,7 +558,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v42</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v43</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1929,10 +1929,14 @@ const wrapC=c=>({...wrapQ(c),path:c.path,add:async d=>wrapD(await addDoc(c,d)),d
 const db={collection:p=>wrapC(collection(fs,px(p))),doc:p=>wrapD(doc(fs,pxPath(p)))};
 const DEMO_COLS=["tools","people","sites","fin","fops","clients","docs","contracts","moves"];
 const batchOps=async(ops)=>{ for(let i=0;i<ops.length;i+=400){ const b=writeBatch(fs); ops.slice(i,i+400).forEach(f=>f(b)); await b.commit(); } };
-async function demoWipe(){ for(const c of [...DEMO_COLS,"files","meta"]){ const sn=await getDocs(collection(fs,"demo_"+c)); await batchOps(sn.docs.map(d=>b=>b.delete(d.ref))); } }
+const DEMO_DUO=["duo_fin","duo_sites"]; // копіюються лише тим, кому правила дозволяють читати общак на двох
+async function demoWipe(){ for(const c of [...DEMO_COLS,"files","meta",...DEMO_DUO,"duo_meta"]){ try{ const sn=await getDocs(collection(fs,"demo_"+c)); await batchOps(sn.docs.map(d=>b=>b.delete(d.ref))); }catch(_){} } }
+async function demoSeedDuo(){ try{ for(const c of DEMO_DUO){ const sn=await getDocs(collection(fs,c)); await batchOps(sn.docs.map(d=>b=>b.set(doc(fs,"demo_"+c,d.id),d.data()))); }
+  await setDoc(doc(fs,"demo_duo_meta","seed"),{at:Date.now()}); await setDoc(doc(fs,"demo_duo_meta","info"),{at:Date.now()}); }catch(_){ /* немає доступу до общаку — нічого не копіюємо */ } }
 async function demoSeed(){ for(const c of DEMO_COLS){ const sn=await getDocs(collection(fs,c)); await batchOps(sn.docs.map(d=>b=>b.set(doc(fs,"demo_"+c,d.id),d.data()))); }
-  await setDoc(doc(fs,"demo_meta","seed"),{at:Date.now()}); }
-async function demoPrepare(){ try{ const m=await getDoc(doc(fs,"demo_meta","seed")); if(!m.exists()) await demoSeed(); }catch(e){ console.warn("demo seed",e) } }
+  await setDoc(doc(fs,"demo_meta","seed"),{at:Date.now()}); await demoSeedDuo(); }
+async function demoPrepare(){ try{ const m=await getDoc(doc(fs,"demo_meta","seed")); if(!m.exists()) await demoSeed(); }catch(e){ console.warn("demo seed",e) }
+  try{ const d=await getDoc(doc(fs,"demo_duo_meta","seed")); if(!d.exists()) await demoSeedDuo(); }catch(_){} }
 window.__demoReset=async()=>{ await demoWipe(); await demoSeed(); };
 document.addEventListener("click",async e=>{ if(e.target.id!=="demoReset") return; e.preventDefault();
   if(!confirm("Видалити всі ваші демо-записи й завантажити свіжу копію реальних даних?")) return;
