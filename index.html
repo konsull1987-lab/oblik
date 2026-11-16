@@ -559,7 +559,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v58</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v59</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -1011,7 +1011,7 @@ total — загальна сума, якщо виконавець її напи
   function drawRows(){
     const on=st.rows.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+r.pay,0)), theirSum=n2(on.reduce((a,r)=>a+(r.sum||n2(r.qty*r.price)),0));
     const errs=on.filter(r=>r.err).length, need=on.filter(r=>r.need).length;
-    const estOpt=r=>`<select data-i="${st.rows.indexOf(r)}" data-k="est" style="font-size:12.5px"><option value="-1">— немає в кошторисі/прайсі</option>${st.est.map((e,i)=>`<option value="${i}" ${r.est===i?"selected":""}>${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}</option>`).join("")}</select>`;
+    const estOpt=r=>{ const e=r.est>=0?st.est[r.est]:null; return `<button type="button" class="btn ghost sm" data-pick="${st.rows.indexOf(r)}" style="width:100%;text-align:left;font-size:12.5px">🔍 ${e?`${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}`:"Вибрати роботу з кошторису/прайсу…"}</button>` };
     $("#wrRes").innerHTML=`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
@@ -1034,6 +1034,8 @@ total — загальна сума, якщо виконавець її напи
       else if(k==="rate"){ const v=parseFloat(String(e.target.value).replace(",","."))||0; r.rate=v; r.manual=v>0 }
       else if(k==="est"){ r.est=+e.target.value; r.manual=false; if(r.est>=0) learnAlias(r.orig||r.name,st.est[r.est].name) }
       calc(r); drawRows()};
+    $("#wrRes").onclick=e=>{ const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
+      pickWork(st.est.map(x=>({...x,tag:x.src==="кошторис"?"📋":""})),st.rows[i].est,v=>$("#wrRes").onchange({target:{dataset:{i,k:"est"},value:String(v)}}),"— немає в кошторисі/прайсі") };
     $("#wrSave")?.addEventListener("click",save);
   }
   async function save(){
@@ -1535,7 +1537,7 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on!==false?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         ${r.orig&&r.orig!==r.name?`<div class="m" style="font-size:12px;color:var(--muted)">у замовника: ${esc(r.orig)}</div>`:""}
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><input data-i="${i}" data-k="unit" value="${esc(r.unit)}" style="flex:0 0 56px;text-align:center"><span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
-        <select data-i="${i}" data-k="p" style="margin-top:6px;font-size:12.5px"><option value="-1">— немає в прайсі (ціна вручну)</option>${items.map((x,k)=>`<option value="${k}" ${r.p===k?"selected":""}>${esc(x.cat)}: ${esc(x.name)} · ${money(x.price)}/${esc(x.unit)}</option>`).join("")}</select></div>`).join("")}
+        <button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`).join("")}
       <button class="btn ghost sm" id="kpAdd" style="margin-bottom:8px">+ Додати рядок</button>
       <div class="sum">Разом: <b>${money(t)}</b>${+st.disc?` · знижка ${st.disc}%: −${money(d)} · <b>до сплати ${money(n2(t-d))}</b>`:""}</div>
       ${miss?`<div class="banner">Без ціни: ${miss} поз. — впишіть ціну або виберіть роботу з прайсу.</div>`:""}
@@ -1546,6 +1548,8 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       else if(k==="qty"||k==="price") r[k]=parseFloat(String(e.target.value).replace(",","."))||0;
       else if(k==="p"){ r.p=+e.target.value; const it=items[r.p]; if(it&&r.orig) learnAlias(r.orig,it.name); if(it){ r.name=it.name; r.unit=it.unit; r.price=it.price; r.cat=it.cat } }
       drawRows()};
+    $("#kpRes").onclick=e=>{ const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
+      pickWork(items,st.rows[i].p,v=>$("#kpRes").onchange({target:{dataset:{i,k:"p"},value:String(v)}})) };
     $("#kpAdd").onclick=()=>{st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"});drawRows()};
     $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"КП "+st.no);
     $("#kpSave").onclick=async()=>{ const data={no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
@@ -1628,6 +1632,27 @@ function smetaHTML(s,st){ const n2=v=>Math.round((+v||0)*100)/100, rows=st.rows.
   <tr class="tot"><td colspan="5" class="r b">Всього до сплати:</td><td class="r b box">${tot.toFixed(2)}</td></tr></table>
   <p>Всього на суму: <b>${uaWords(tot)}</b>.</p>
   <table class="two" style="margin-top:28px"><tr><td>Виконавець:<br><br><span class="line"></span></td><td>Замовник:<br><br><span class="line"></span></td></tr></table></div>`;
+}
+
+// ---- вибір роботи з пошуком (замість довгого списку) ----
+function pickWork(list,cur,cb,noneLabel){ // list: [{name,unit,price,cat,alt,tag}]
+  const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100";
+  ov.innerHTML=`<div class="sheet" style="max-height:88vh;display:flex;flex-direction:column"><h2 style="margin-bottom:8px">Виберіть роботу</h2>
+    <input id="pwQ" type="search" placeholder="Пошук: напр. армування, плитка, ГКЛ…" autocomplete="off" style="margin-bottom:8px">
+    <div id="pwL" style="overflow:auto;flex:1;min-height:200px"></div>
+    <div class="actions"><button class="btn ghost" id="pwNone">${noneLabel||"— немає (ціна вручну)"}</button><button class="btn ghost" id="pwX">Скасувати</button></div></div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove();
+  const idx=list.map((x,i)=>({i,x,h:normW([x.name,x.alt,x.cat].filter(Boolean).join(" "))}));
+  const draw=()=>{ const q=normW($("#pwQ").value), words=q.split(" ").filter(Boolean);
+    // кожне слово має збігтися з початком якогось слова назви (арм → армування) — так знаходяться й скорочення
+    const hit=h=>words.every(w=>h.includes(w)||h.split(" ").some(t=>t.startsWith(w.slice(0,Math.min(w.length,Math.max(3,w.length-4))))));
+    const l=idx.filter(o=>!words.length||hit(o.h)).slice(0,120);
+    $("#pwL").innerHTML=l.length?l.map(o=>`<div data-pw="${o.i}" style="padding:10px 4px;border-bottom:1px solid var(--line,#2a2f38);cursor:pointer;${o.i===cur?"background:rgba(45,212,191,.12)":""}">
+      <div>${o.x.tag?o.x.tag+" ":""}${esc(o.x.name)}</div><div class="m" style="font-size:12px;color:var(--muted)">${o.x.cat?esc(o.x.cat)+" · ":""}${money(o.x.price)}/${esc(o.x.unit||"")}${o.x.alt?" · "+esc(o.x.alt):""}</div></div>`).join(""):`<div class="empty">Нічого не знайдено</div>`; };
+  $("#pwQ").oninput=draw; draw(); setTimeout(()=>$("#pwQ")?.focus(),50);
+  $("#pwL").onclick=e=>{ const d=e.target.closest("[data-pw]"); if(d){ close(); cb(+d.dataset.pw) } };
+  $("#pwNone").onclick=()=>{ close(); cb(-1) }; $("#pwX").onclick=close; ov.onclick=e=>{ if(e.target===ov) close() };
 }
 function printDoc(html,title){
   let p=$("#printArea"); if(!p){p=document.createElement("div");p.id="printArea";document.body.appendChild(p)}
