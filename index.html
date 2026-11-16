@@ -1443,6 +1443,9 @@ function priceList(){ if(!S.price?.items) return PRICE_SEED;
 // ---- навчання відповідностей: «як пишуть хлопці/замовник» → наша робота ----
 const normW=t=>String(t||"").toLowerCase().replace(/ё/g,"е").replace(/[’'`"«»().,;:!?\-–—/\\]+/g," ").replace(/\s+/g," ").trim();
 function aliasOf(name){ return (S.aliases||{})[normW(name)]||"" }
+// пошук: кожне слово запиту має збігтися з початком якогось слова (окно → окна, арміров → армування)
+function wordHit(text,q){ const h=normW(text), ws=normW(q).split(" ").filter(Boolean), ts=h.split(" ");
+  return ws.every(w=>h.includes(w)||ts.some(t=>t.startsWith(w.slice(0,Math.min(w.length,Math.max(3,w.length-2)))))) }
 let aliasTimer=null;
 function learnAlias(from,to){ const k=normW(from); if(!k||!to||normW(to)===k) return; S.aliases={...(S.aliases||{}),[k]:to};
   clearTimeout(aliasTimer); aliasTimer=setTimeout(()=>{ if(S.canWrite) write(db=>db.doc("meta/aliases").set({map:S.aliases,updatedAt:Date.now()})).catch(()=>{}) },800) }
@@ -1459,7 +1462,7 @@ function renderMoneyPrice(){
   let h=`<div class="actions" style="margin:0 0 8px">${S.canWrite?`<button class="btn" onclick="kpFlow()">📄 Комерційна пропозиція</button>`:""}<button class="btn ghost" onclick="kpList()">Збережені КП</button></div>
     <input id="priceQ" type="search" placeholder="Пошук роботи…" value="${esc(S.priceQ||"")}" style="margin-bottom:6px">
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">${items.length} робіт · ${S.price?"змінено "+fmtDate(S.price.updatedAt):"стартовий прайс"}. Натисніть на роботу, щоб змінити ціну.</div>`;
-  for(const c of cats){ const l=items.map((it,i)=>({...it,i})).filter(it=>it.cat===c&&(!q||normW(it.name+" "+(it.alt||"")).includes(normW(q)))); if(!l.length&&!(S.canWrite&&!q&&PRICE_CATS.includes(c)&&false)) continue;
+  for(const c of cats){ const l=items.map((it,i)=>({...it,i})).filter(it=>it.cat===c&&(!q||wordHit(it.name+" "+(it.alt||""),q))); if(!l.length&&!(S.canWrite&&!q&&PRICE_CATS.includes(c)&&false)) continue;
     const open=q||S.priceOpen===c;
     h+=`<div class="card" style="display:block;cursor:pointer;margin-bottom:6px" data-pcat="${esc(c)}"><div style="display:flex"><b style="flex:1">${open?"▾":"▸"} ${esc(c)}</b><span class="count">${l.length}</span></div>
       ${open?`<div style="margin-top:6px">${l.map(it=>`<div data-pi="${it.i}" style="display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--line,#2a2f38)"><span style="flex:1">${esc(it.name)}${it.src&&it.src!=="Медіон"?` <span style="color:var(--muted);font-size:11px">${esc(it.src)}</span>`:""}</span><b style="white-space:nowrap">${money(it.price)}<span style="color:var(--muted);font-weight:400">/${esc(it.unit)}</span></b></div>`).join("")}
