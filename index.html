@@ -559,7 +559,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v56</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v57</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -739,6 +739,7 @@ function siteForm(s){
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
   openSheet(`<h2>${isNew?"Новий склад / об'єкт":esc(s.name)}</h2>
     ${!isNew?(()=>{const t=siteTotals()[s.id];return t||s.contract?`<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}<button class="btn ghost" id="showSiteFin" style="width:100%;margin-bottom:8px">Показати гроші по об'єкту</button>`:""})()+`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showSite">Інструмент тут (${cnt})</button>${cnt?`<button class="btn ghost" id="hoS">🧰 Список / повернути</button>`:""}</div>`:""}
+    ${[...S.fin.values()].some(f=>f.type==="accrual"&&f.site===s.id&&f.report)?`<button class="btn ghost" id="smOpen" style="width:100%;margin-bottom:8px">📋 Смета виконаних робіт для замовника</button>`:""}
     <form id="siteForm">
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
       <div class="field"><label>Назва *</label><input name="name" required value="${esc(s.name)}" placeholder="напр. Склад на Зіньківській / ЖК Сонячний"></div>
@@ -753,6 +754,7 @@ function siteForm(s){
   $("#segT").onclick=e=>{const b=e.target.closest("button");if(!b)return;type=b.dataset.v;[...$("#segT").children].forEach(x=>x.classList.toggle("on",x===b))};
   $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
   $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
+  $("#smOpen")?.addEventListener("click",()=>smetaFlow(s.id));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),note:f.note.trim(),type,active:!!f.active,split:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
@@ -948,7 +950,7 @@ function workReport(workerId){
   const n2=v=>Math.round((+v||0)*100)/100;
   const calc=r=>{ const e=r.est>=0?st.est[r.est]:null; const k=1-st.pct/100;
     if(!(+r.qty>0)) r.qty=1; // разова послуга (вікно, люк…) — кількість 1, рахуємо просто за ціною
-    r.estRate=e?n2(e.price*k):0;
+    r.estRate=e?Math.ceil(e.price*k/10-1e-9)*10:0; // виконавцю — вгору до десятків
     if(!r.manual) r.rate=r.price>0?r.price:(r.estRate||0);
     r.pay=n2((+r.qty||0)*(+r.rate||0));
     r.err=r.price>0&&r.sum>0&&Math.abs(r.qty*r.price-r.sum)>0.5?`у них ${money(r.sum)}, а ${r.qty}×${money(r.price)} = ${money(n2(r.qty*r.price))}`:"";
@@ -1555,6 +1557,64 @@ function kpHTML(st){
   <p>Загальна вартість робіт: <b>${uaWords(pay)}</b>.</p>
   ${st.note?`<p>${esc(st.note)}</p>`:""}<p>Пропозиція дійсна до ${dLong(till)}</p>
   <p class="sign" style="margin-top:28px">${esc(f.name||"")} <span class="line"></span></p></div>`;
+}
+// ---------- 📋 Смета виконаних робіт по об'єкту (зі звітів робіт виконавців + націнка) ----------
+const up10=v=>Math.ceil((+v||0)/10-1e-9)*10;
+function smetaFlow(siteId){
+  const s=site(siteId)||{}; const n2=v=>Math.round((+v||0)*100)/100;
+  const recs=()=>[...S.fin.values()].filter(f=>f.type==="accrual"&&f.site===siteId&&f.report&&Array.isArray(f.report.items));
+  const all=recs(); const dates=all.map(f=>f.date).filter(Boolean).sort();
+  const mkGet=()=>{ try{ const v=parseFloat(localStorage.getItem("smMk")); return isFinite(v)?v:40 }catch(_){ return 40 } };
+  const dayAfter=d=>new Date(new Date(d).getTime()+864e5).toISOString().slice(0,10);
+  let st={from:s.billedTo?dayAfter(s.billedTo):(dates[0]||todayISO()),to:todayISO(),mk:mkGet(),usePrice:false,no:String(new Date().getFullYear()).slice(2)+"-"+String(Date.now()).slice(-4),rows:null};
+  const build=()=>{ const m=new Map();
+    for(const f of recs()) if(f.date>=st.from&&f.date<=st.to) for(const it of f.report.items){
+      const rate=+it.rate||0, qty=+it.qty||0; if(!(rate>0&&qty>0)) continue;
+      const price=st.usePrice&&+it.est>0?+it.est:up10(rate*(1+st.mk/100));
+      const k=String(it.name).trim().toLowerCase()+"|"+(it.unit||"")+"|"+price;
+      const r=m.get(k)||{on:true,name:String(it.name).trim(),unit:it.unit||"",qty:0,price,cost:0}; r.qty=n2(r.qty+qty); r.cost=n2(r.cost+(+it.pay||rate*qty)); m.set(k,r) }
+    st.rows=[...m.values()].sort((a,b)=>a.name.localeCompare(b.name,"uk")) };
+  const draw=()=>{ if(!st.rows) build();
+    const on=st.rows.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+n2(r.qty*r.price),0)), cost=n2(on.reduce((a,r)=>a+r.cost,0));
+    openSheet(`<h2>📋 Смета виконаних робіт</h2><div class="m" style="margin:-6px 0 8px">${esc(s.name||"")}${s.customer?" · "+esc(s.customer):""}</div>
+      <div class="row"><div class="field"><label>З</label><input type="date" id="smF" value="${st.from}"></div><div class="field"><label>По</label><input type="date" id="smT" value="${st.to}"></div></div>
+      <div class="row"><div class="field"><label>Націнка, %</label><input id="smMk" inputmode="decimal" value="${st.mk}"></div><div class="field"><label>№</label><input id="smNo" value="${esc(st.no)}"></div></div>
+      <label class="m" style="display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:13.5px"><input type="checkbox" id="smUP" ${st.usePrice?"checked":""} style="width:20px;height:20px"> Де робота є в прайсі/кошторисі — брати ціну звідти, а не ставку + націнку</label>
+      ${s.billedTo?`<div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Попередня смета виставлена по ${fmtDay(s.billedTo)}</div>`:""}
+      ${st.rows.length?`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
+      ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
+        <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
+        <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(r.unit)} ×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price}" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
+        <div class="m" style="font-size:12px;color:var(--muted)">виконавцям: ${money(r.cost)}</div></div>`).join("")}
+      <div class="sum">Замовнику: <b>${money(tot)}</b> · виконавцям ${money(cost)} · різниця <b class="in">${money(n2(tot-cost))}</b></div>
+      <div class="actions"><button class="btn ghost" id="smXls">⬇️ Excel</button><button class="btn" id="smPrint">🖨️ Друк / PDF</button></div>
+      ${S.canWrite?`<button class="btn ghost" id="smMark" style="width:100%;margin-top:6px">✅ Позначити як виставлене (по ${fmtDay(st.to)})</button>`:""}`
+      :`<div class="empty">За цей період немає робіт зі «Звіту робіт» по цьому об'єкту. Смета збирається з нарахувань, зроблених через «📋 Звіт робіт».</div>`}
+      <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+    const re=()=>{st.rows=null;draw()};
+    $("#smF").onchange=e=>{st.from=e.target.value;re()}; $("#smT").onchange=e=>{st.to=e.target.value;re()};
+    $("#smMk").onchange=e=>{const v=parseFloat(String(e.target.value).replace(",","."));if(isFinite(v)&&v>=0){st.mk=v;try{localStorage.setItem("smMk",String(v))}catch(_){}}re()};
+    $("#smUP").onchange=e=>{st.usePrice=e.target.checked;re()}; $("#smNo").onchange=e=>st.no=e.target.value;
+    document.querySelectorAll("#modal [data-i]").forEach(el=>el.onchange=e=>{const r=st.rows[e.target.dataset.i],k=e.target.dataset.k;
+      if(k==="on") r.on=e.target.checked; else if(k==="name") r.name=e.target.value; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()});
+    $("#smPrint")?.addEventListener("click",()=>printDoc(smetaHTML(s,st),"Смета "+st.no));
+    $("#smXls")?.addEventListener("click",async()=>{ try{ const X=await loadXLSX(); const rows=st.rows.filter(r=>r.on);
+      const aoa=[["Смета виконаних робіт № "+st.no],["Об'єкт: "+(s.name||"")+(s.customer?" · Замовник: "+s.customer:"")],["Період: "+fmtDay(st.from)+" – "+fmtDay(st.to)],[],["№","Найменування робіт","Од.","К-сть","Ціна, грн","Сума, грн"],
+        ...rows.map((r,i)=>[i+1,r.name,r.unit,r.qty,r.price,n2(r.qty*r.price)]),[],["","Всього","","","",n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0))]];
+      const ws=X.utils.aoa_to_sheet(aoa); ws["!cols"]=[{wch:4},{wch:48},{wch:7},{wch:9},{wch:11},{wch:13}]; const wb=X.utils.book_new(); X.utils.book_append_sheet(wb,ws,"Смета");
+      X.writeFile(wb,`Смета ${(s.name||"").replace(/[\\/:*?"<>|]/g,"")} ${st.no}.xlsx`) }catch(e){ toast("Не вдалося: "+String(e?.message||e).slice(0,60)) } });
+    $("#smMark")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("sites/"+siteId).update({billedTo:st.to}))){ s.billedTo=st.to; toast("Позначено: наступна смета почнеться з "+fmtDay(dayAfter(st.to))); draw() } });
+  };
+  draw();
+}
+function smetaHTML(s,st){ const n2=v=>Math.round((+v||0)*100)/100, rows=st.rows.filter(r=>r.on&&r.name), tot=n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0));
+  return `<div class="doc"><h3>КОШТОРИС ВИКОНАНИХ РОБІТ № ${esc(st.no)}<br>за період з ${dLong(st.from)} по ${dLong(st.to)}</h3>
+  <p><b>Об'єкт:</b> ${esc(s.name||"")}${s.note?", "+esc(s.note):""}</p>${s.customer?`<p><b>Замовник:</b> ${esc(s.customer)}</p>`:""}
+  <table class="items"><tr><th>№</th><th>Найменування робіт</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr>
+  ${rows.map((r,i)=>`<tr><td class="r">${i+1}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="r">${+r.qty}</td><td class="r">${n2(r.price).toFixed(2)}</td><td class="r">${n2(r.qty*r.price).toFixed(2)}</td></tr>`).join("")}
+  <tr class="tot"><td colspan="5" class="r b">Всього до сплати:</td><td class="r b box">${tot.toFixed(2)}</td></tr></table>
+  <p>Всього на суму: <b>${uaWords(tot)}</b>.</p>
+  <table class="two" style="margin-top:28px"><tr><td>Виконавець:<br><br><span class="line"></span></td><td>Замовник:<br><br><span class="line"></span></td></tr></table></div>`;
 }
 function printDoc(html,title){
   let p=$("#printArea"); if(!p){p=document.createElement("div");p.id="printArea";document.body.appendChild(p)}
