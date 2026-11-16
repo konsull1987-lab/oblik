@@ -13,4 +13,4 @@ export const ALLOWED = [];
 export const RECAPTCHA_KEY = "6Lf3kSAuAAAAALkdn1RBve1QGP_UzjlrytNO2TGt";
 
 // Демо-режим (редагують окрему копію, реальна база не змінюється): SHA-256 від пошти, щоб не світити адреси
-export const DEMO_HASHES = ["199b089475c345507291025c762dcc424e20a2ab14fa71cf721df9a14ce15c09"];
+export const DEMO_HASHES = [];

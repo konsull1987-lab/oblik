@@ -7,7 +7,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Облік інструменту</title>
+<title>Облік</title>
 <style>
 :root{
   --bg:#f4f5f7; --card:#fff; --text:#16181d; --muted:#6b7280; --line:#e5e7eb;
@@ -139,7 +139,7 @@ body.duo .card{border-left:3px solid color-mix(in srgb,var(--accent) 45%,transpa
 </head>
 <body>
 <header>
-  <h1>🧰 Облік інструменту <span class="sub" id="who"></span><button id="menuBtn" class="btn ghost sm" style="padding:4px 10px">⋯</button></h1>
+  <h1>🧰 Облік <span class="sub" id="who"></span><button id="menuBtn" class="btn ghost sm" style="padding:4px 10px">⋯</button></h1>
   <div id="banner"></div>
   <div id="headTools"></div>
 </header>
@@ -155,7 +155,7 @@ body.duo .card{border-left:3px solid color-mix(in srgb,var(--accent) 45%,transpa
 </nav>
 <div id="modal"></div>
 <div id="login" style="display:none;position:fixed;inset:0;z-index:50;background:var(--bg);align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px;text-align:center">
-  <div style="font-size:54px">🧰</div><h2 style="margin:0">Облік інструменту</h2>
+  <div style="font-size:54px">🧰</div><h2 style="margin:0">Облік</h2>
   <div id="loginMsg" style="color:var(--muted);max-width:320px">Увійдіть своїм Google-акаунтом</div>
   <button class="btn" id="loginBtn" style="min-width:220px">Увійти через Google</button>
   <div style="color:var(--muted);font-size:12.5px;max-width:320px">Якщо посилання відкрилось у Telegram, Viber чи іншому месенджері — натисніть ⋯ і виберіть «Відкрити в Safari / Chrome», там вхід через Google працює.</div>
@@ -551,7 +551,7 @@ function toolScore(rec,t){
 }
 function notifyDone(text){
   if(!document.hidden) return;
-  try{ if(window.Notification&&Notification.permission==="granted") navigator.serviceWorker?.ready.then(r=>r.showNotification("Облік інструменту",{body:text,icon:"icon-192.png",tag:"pf"})).catch(()=>{}) }catch(_){}
+  try{ if(window.Notification&&Notification.permission==="granted") navigator.serviceWorker?.ready.then(r=>r.showNotification("Облік",{body:text,icon:"icon-192.png",tag:"pf"})).catch(()=>{}) }catch(_){}
 }
 const pfNewOn=()=>{ try{ return localStorage.getItem("pfNew")!=="0" }catch(_){ return true } };
 function photoFlow(){
@@ -559,7 +559,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v49</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v50</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
