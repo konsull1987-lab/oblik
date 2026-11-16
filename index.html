@@ -415,7 +415,7 @@ function renderPeople(){
   let h="";
   for(const [role,label,cls] of [["owner","Власники","own"],["worker","Виконавці","wrk"]]){
     const l=all.filter(p=>p.role===role); if(!l.length)continue;
-    h+=`<div class="section-t">${label}</div><div class="list">`+l.map(p=>`<div class="card" data-person="${p.id}"><div class="stripe ${cls}"></div><div class="main"><div class="t">${esc(p.name)}</div>${p.phone?`<div class="m">${esc(p.phone)}</div>`:""}</div>${p.phone?`<a class="btn ghost sm" href="${telHref(p.phone)}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none" title="Подзвонити">📞</a>`:""}<span class="count">${cnt[p.id]||0} од.</span></div>`).join("")+`</div>`;
+    h+=`<div class="section-t">${label}</div><div class="list">`+l.map(p=>`<div class="card" data-person="${p.id}"><div class="stripe ${cls}"></div><div class="main"><div class="t">${esc(p.name)}</div>${p.phone||p.since?`<div class="m">${[p.phone?esc(p.phone):"",p.since?"з "+fmtDay(p.since):""].filter(Boolean).join(" · ")}</div>`:""}</div>${p.phone?`<a class="btn ghost sm" href="${telHref(p.phone)}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none" title="Подзвонити">📞</a>`:""}<span class="count">${cnt[p.id]||0} од.</span></div>`).join("")+`</div>`;
   }
   $("#view").innerHTML=h;
 }
@@ -558,7 +558,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v47</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v48</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -760,6 +760,11 @@ function siteForm(s){
 
 function telHref(ph){ let d=String(ph||"").replace(/[^\d+]/g,""); if(/^0\d{9}$/.test(d)) d="+38"+d; else if(/^380\d{9}$/.test(d)) d="+"+d; return "tel:"+d }
 const telNum=ph=>telHref(ph).slice(4);
+// перша дата появи людини в обліку (для тих, у кого дата ще не вписана)
+function firstSeen(id){ let m="";
+  for(const f of [...S.B.trio.fin.values(),...(S.duoOk?S.B.duo.fin.values():[])]) if(f.date&&(f.worker===id||f.owner===id||f.from===id||f.to===id)&&(!m||f.date<m)) m=f.date;
+  for(const x of S.moves) if((x.to===id||x.from===id||x.holder===id)&&x.at){ const d=new Date(x.at).toISOString().slice(0,10); if(!m||d<m) m=d }
+  return m }
 function personForm(p){
   const isNew=!p; p=p||{role:"worker"};
   const cnt=[...S.tools.values()].filter(t=>t.holder===p.id).length;
@@ -771,7 +776,8 @@ function personForm(p){
     <form id="pForm">
       <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
       <div class="field"><label>Ім'я *</label><input name="name" required value="${esc(p.name)}"></div>
-      <div class="field"><label>Телефон</label><input name="phone" type="tel" value="${esc(p.phone)}"></div>
+      <div class="row"><div class="field"><label>Телефон</label><input name="phone" type="tel" value="${esc(p.phone)}"></div>
+        <div class="field"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div></div>
       ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delP">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
     </form>`);
   let role=p.role;
@@ -780,7 +786,7 @@ function personForm(p){
   $("#hoP")?.addEventListener("click",()=>handoverSheet("person",p.id));
   $("#showP")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",person:p.id,site:"",cat:"",holderType:"all",q:""});render()});
   $("#pForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role};
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role,since:f.since||""};
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("people").add(data):db.doc("people/"+p.id).update(data))){closeSheet();toast("Збережено")}
   });
