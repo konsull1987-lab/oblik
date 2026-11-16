@@ -553,12 +553,13 @@ function notifyDone(text){
   if(!document.hidden) return;
   try{ if(window.Notification&&Notification.permission==="granted") navigator.serviceWorker?.ready.then(r=>r.showNotification("Облік інструменту",{body:text,icon:"icon-192.png",tag:"pf"})).catch(()=>{}) }catch(_){}
 }
+const pfNewOn=()=>{ try{ return localStorage.getItem("pfNew")!=="0" }catch(_){ return true } };
 function photoFlow(){
   let mode="add", imgs=[], rows=[];
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v48</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v49</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -598,25 +599,27 @@ function photoFlow(){
   }
   function matchRows(fromSite){
     const pool=[...S.tools.values()].filter(t=>!fromSite||t.site===fromSite);
-    for(const r of rows){ const best=pool.map(t=>[toolScore(r,t),t]).filter(x=>x[0]>=2).sort((a,b)=>b[0]-a[0]); r.cands=best.slice(0,8).map(x=>x[1].id); r.match=r.cands[0]||""; if(r.match) r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match))); }
+    for(const r of rows){ const best=pool.map(t=>[toolScore(r,t),t]).filter(x=>x[0]>=2).sort((a,b)=>b[0]-a[0]); r.cands=best.slice(0,8).map(x=>x[1].id); r.match=r.cands[0]||(pfNewOn()?"__new":""); if(r.match&&r.match!=="__new") r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match))); }
   }
   function drawRows(){
     const confTag=c=>c==="high"?"":`<span class="tag ${c==="low"?"bad":"rep"}">${c==="low"?"перевірте":"можливо"}</span>`;
     const tOpt=(id,sel)=>{const t=S.tools.get(id);return `<option value="${id}" ${sel===id?"selected":""}>${esc(t.name)}${t.inv?" #"+esc(t.inv):""} · ${qtyOf(t)} шт · ${esc(site(t.site)?.name||person(t.holder)?.name||"")}</option>`};
     const sum=rows.filter(r=>r.on).reduce((a,r)=>a+(+r.qty||0),0);
     $("#pfRes").innerHTML=`<div class="section-t" style="display:flex">Розпізнано<span class="count">${rows.filter(r=>r.on).length} поз. · ${sum} шт</span></div>
-      ${mode==="move"?`<div class="field"><label>Звідки (щоб точніше знайти)</label><select id="pfFrom">${siteOptions(S.pfFrom||"","— будь-де")}</select></div>`:""}
+      ${mode==="move"?`<div class="field"><label>Звідки (щоб точніше знайти)</label><select id="pfFrom">${siteOptions(S.pfFrom||"","— будь-де")}</select></div>
+        <label class="m" style="display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:13.5px"><input type="checkbox" id="pfNew" ${pfNewOn()?"checked":""} style="width:20px;height:20px"> ➕ Чого немає в базі — зареєструвати як новий і одразу перемістити</label>`:""}
       ${rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
         <div class="row" style="align-items:center"><input type="checkbox" class="cb" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"><input data-i="${i}" data-k="qty" inputmode="numeric" value="${r.qty}" style="flex:0 0 64px;text-align:center"></div>
         <div class="row" style="margin-top:6px"><select data-i="${i}" data-k="cat">${catOptions(r.cat,false)}</select><input data-i="${i}" data-k="brand" value="${esc(r.brand)}" placeholder="марка" style="flex:.7"></div>
-        ${mode==="move"?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="">— не знайдено в базі (пропустити)</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select></div>`:""}
+        ${mode==="move"?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="__new" ${r.match==="__new"?"selected":""}>➕ Новий — додати в базу і перемістити</option><option value="" ${r.match===""?"selected":""}>— пропустити</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select></div>`:""}
         <div class="m" style="margin-top:4px">${confTag(r.conf)} ${esc(r.note)}</div></div>`).join("")}
       ${mode==="add"?`<div class="row"><div class="field"><label>У кого</label><select id="pfHolder">${personOptions(owners()[0]?.id||"","— не вказано")}</select></div><div class="field"><label>Де</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`
         :`<div class="row"><div class="field"><label>Кому *</label><select id="pfHolder">${personOptions("","— виберіть")}</select></div><div class="field"><label>Куди</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`}
       <button class="btn" id="pfSave" style="width:100%">${mode==="add"?"💾 Додати в облік":"🔄 Перемістити"}</button>`;
     $("#pfRes").oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;const r=rows[i];
       if(k==="on"){r.on=e.target.checked;drawRows();return} if(k==="qty") r.qty=Math.max(1,parseInt(e.target.value)||1); else r[k]=e.target.value;};
-    $("#pfRes").onchange=e=>{if(e.target.id==="pfFrom"){S.pfFrom=e.target.value;matchRows(S.pfFrom);drawRows()} else if(e.target.dataset.k==="match"){const r=rows[e.target.dataset.i];r.match=e.target.value;if(r.match)r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match)));drawRows()}};
+    $("#pfRes").onchange=e=>{if(e.target.id==="pfNew"){ try{localStorage.setItem("pfNew",e.target.checked?"1":"0")}catch(_){}; for(const r of rows){ if(e.target.checked&&!r.match) r.match="__new"; else if(!e.target.checked&&r.match==="__new") r.match="" } drawRows(); return }
+      if(e.target.id==="pfFrom"){S.pfFrom=e.target.value;matchRows(S.pfFrom);drawRows()} else if(e.target.dataset.k==="match"){const r=rows[e.target.dataset.i];r.match=e.target.value;if(r.match&&r.match!=="__new")r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match)));drawRows()}};
     $("#pfSave").onclick=save;
   }
   async function save(){
@@ -624,7 +627,7 @@ function photoFlow(){
     if(mode==="move"&&!holder){toast("Виберіть, кому передати");return}
     const btn=$("#pfSave"); btn.disabled=true; btn.textContent="Зачекайте…";
     let byName=""; try{byName=(await S.user?.me?.())?.name||""}catch(_){}
-    let n=0, skip=0;
+    let n=0, skip=0, nNew=0, invK=0; const invBase=+nextInv();
     const ok=await write(async db=>{
       for(const r of sel){
         if(mode==="add"){
@@ -634,12 +637,18 @@ function photoFlow(){
           else { if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент") t.inv=nextInv(); t.createdAt=t.updatedAt=Date.now(); await db.collection("tools").add(t); }
           n+=r.qty;
         } else {
+          if(r.match==="__new"){ // реєструємо там, звідки забрали, і одразу переміщуємо — в історії буде видно звідки/куди
+            const from=S.pfFrom||"", now=Date.now();
+            const nt={name:r.name.trim(),cat:r.cat,brand:r.brand.trim(),model:r.model||"",qty:r.qty,holder:"",site:from,status:"ok",note:r.note||"",inv:"",serial:"",createdAt:now,updatedAt:now};
+            if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент"){ nt.inv=String(Math.max(+nextInv(),invBase+invK)).padStart(4,"0"); invK++ }
+            const ref=await db.collection("tools").add(nt);
+            await moveTool(db,{id:ref.id,...nt},r.qty,holder,siteId,"з фото · новий у базі",byName); n+=r.qty; nNew++; continue }
           const t=r.match&&S.tools.get(r.match); if(!t){skip++;continue}
           await moveTool(db,t,r.qty,holder,siteId,"з фото",byName); n+=Math.min(r.qty,qtyOf(t));
         }
       }
     });
-    if(ok){try{localStorage.removeItem("pfDraft")}catch(_){};closeSheet();toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
+    if(ok){try{localStorage.removeItem("pfDraft")}catch(_){};closeSheet();toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${nNew?`, нових у базі: ${nNew} поз.`:""}${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
   }
   draw();
 }
