@@ -207,7 +207,7 @@ const S = {
 const DUO_OWNERS=["andriy","serhiy"];
 const isDuo=()=>S.base==="duo"&&S.duoOk;
 function applyBase(){ const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.sites=S.B[k].sites; }
-const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log")?"duo_"+c:c;
+const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files")?"duo_"+c:c;
 // ---- Журнал змін: кожне додавання / зміна / видалення зберігається повністю (як було → як стало) ----
 const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
 const MOVE_KEYS=new Set(["holder","site","qty","updatedAt"]);
@@ -433,7 +433,7 @@ function finLine(f){
   const what=f.kind==="Взаємозалік"?(f.type==="in"?"Взаємозалік: отримав":"Взаємозалік: віддав"):f.type==="in"?"Прихід":f.type==="accrual"?"Нарахування":"Витрата"+(f.kind?" · "+f.kind:"");
   return `<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1;min-width:0">
     <div class="when">${f.createdAt>1e12?fmtDate(f.createdAt):fmtDay(f.date)}${f.byName?` · вніс: ${esc(f.byName)}`:""}${f.createdAt>1e12&&f.date&&f.date!==new Date(f.createdAt).toISOString().slice(0,10)?` · дата операції ${fmtDay(f.date)}`:""}</div>
-    <div><b>${what}</b>${o?" · "+esc(o.name):""}${w?" · 🔧 "+esc(w.name):""}</div>
+    <div><b>${what}</b>${o?" · "+esc(o.name):""}${w?" · 🔧 "+esc(w.name):""}${f.receipt?" · 🧾":""}</div>
     <div class="m" style="color:var(--muted)">${f.site?esc(site(f.site)?.name||"—"):"без об'єкта"}${f.note?" · "+esc(f.note):""}</div></div>
     <span class="amt ${k}" style="white-space:nowrap">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
 }
@@ -558,7 +558,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v43</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v44</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -927,6 +927,11 @@ function finForm(f,preset){
   openSheet(`<h2>${isNew?"Новий запис":"Редагувати запис"}</h2>
     <form id="finForm">
       <div class="field"><div class="seg" id="segM"><button type="button" data-v="in">➕ Прихід</button><button type="button" data-v="out">➖ Витрата</button><button type="button" data-v="xfer">⇄ Залік</button><button type="button" data-v="accrual">🔧 Нарахув.</button></div></div>
+      <div data-m="out"><div class="field" id="rcBox">
+        ${f.receipt?`<button type="button" class="btn ghost sm" id="rcOpen">🧾 Переглянути чек</button> <button type="button" class="btn ghost sm" id="rcDel" title="Прибрати чек">✕</button>`:""}
+        <div class="row" style="margin-top:${f.receipt?"6px":"0"}"><label class="btn ghost sm" style="flex:1;text-align:center">📷 ${f.receipt?"Інший чек":"Сфотографувати чек"}<input type="file" id="rcCam" accept="image/*" capture="environment" style="display:none"></label>
+        <label class="btn ghost sm" style="flex:1;text-align:center">🖼️ Чек з галереї<input type="file" id="rcGal" accept="image/*" style="display:none"></label></div>
+        <div id="rcInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div></div>
       <div class="row"><div class="field"><label>Дата</label><input type="date" name="date" value="${esc(f.date||todayISO())}"></div>
         <div class="field"><label>Сума, ₴ * <span id="amtSum" style="color:var(--accent);font-weight:600"></span></label><input name="amount" inputmode="text" autocomplete="off" required value="${f.amount??""}" placeholder="напр. 15000+17356"></div></div>
       <div data-m="in"><div class="field" style="margin-top:-4px"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px"><input type="checkbox" id="taxOn" style="width:22px;height:22px">Відняти податок ЄП <input id="taxRate" inputmode="decimal" style="width:64px;padding:6px 8px" value="">%</label><div id="taxInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div>
@@ -943,6 +948,25 @@ function finForm(f,preset){
   const setMode=m=>{mode=m;[...$("#segM").children].forEach(x=>x.classList.toggle("on",x.dataset.v===m));document.querySelectorAll("#finForm [data-m]").forEach(el=>el.style.display=el.dataset.m.split(" ").includes(m)?"":"none");$("#ownLbl").textContent=m==="in"?"Хто отримав":"Хто заплатив";$("#wLbl").textContent=m==="accrual"?"Кому нараховано *":"Виконавець"};
   setMode(mode);
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
+  // ---- чек: фото → сума/дата/магазин автоматично; фото зберігається й відкривається з запису ----
+  let rcImg=null, rcDrop=false;
+  const rcPick=async file=>{ if(!file) return; const info=$("#rcInfo");
+    try{ rcImg=await shrinkImage(file,1600) }catch(_){ info.textContent="Не вдалося відкрити фото"; return }
+    rcDrop=false; info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">⏳ Читаю чек…`;
+    if(!window.__fbAI){ info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">Фото збережеться разом із записом`; return }
+    try{ const txt=await window.__fbAI([rcImg],`Це фото касового чека або накладної з України. Знайди ПІДСУМКОВУ суму до сплати (рядок «СУМА», «ДО СПЛАТИ», «РАЗОМ»), дату покупки і назву магазину/продавця.
+Визнач вид витрати: одне з "Матеріали","Інструменти","Доставка","Інше". Коротко (до 60 символів) опиши, що куплено.
+Відповідь — лише JSON {"total":число,"date":"YYYY-MM-DD" або "","vendor":"","kind":"","items":""}. Якщо щось не видно — порожній рядок, total 0.`);
+      const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim()), F=n=>$("#finForm [name="+n+"]");
+      const got=[]; if(+j.total>0&&F("amount")){ F("amount").value=String(Math.round(j.total*100)/100); F("amount").dispatchEvent(new Event("input")); got.push("сума "+money(j.total)) }
+      if(/^\d{4}-\d{2}-\d{2}$/.test(j.date||"")&&F("date")){ F("date").value=j.date; got.push("дата") }
+      if(KINDS.includes(j.kind)&&F("kind")&&!f.id){ F("kind").value=j.kind; got.push(j.kind.toLowerCase()) }
+      const nt=[j.vendor,j.items].filter(Boolean).join(": "); if(nt&&F("note")&&!F("note").value.trim()){ F("note").value=nt.slice(0,120); got.push("коментар") }
+      info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">${got.length?"✅ Заповнено: "+esc(got.join(", "))+". Перевірте суму.":"Суму не розпізнано — впишіть вручну. Фото збережеться."}`;
+    }catch(e){ info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">Не вдалося прочитати чек — впишіть суму вручну. Фото збережеться.` } };
+  $("#rcCam").onchange=e=>{rcPick(e.target.files[0]);e.target.value=""}; $("#rcGal").onchange=e=>{rcPick(e.target.files[0]);e.target.value=""};
+  $("#rcOpen")?.addEventListener("click",()=>viewFile(f.receipt));
+  $("#rcDel")?.addEventListener("click",()=>{ rcDrop=true; $("#rcOpen")?.remove(); $("#rcDel")?.remove(); $("#rcInfo").textContent="Чек буде прибрано після збереження" });
   const taxDoc=!isNew&&f.type==="in"?S.fin.get(f.id+"_tax"):null, td=TAX_DEF();
   $("#taxOn").checked=isNew?td.on:!!taxDoc; $("#taxRate").value=taxDoc?.taxRate||td.rate||8;
   const updAmt=()=>{ const raw=$("#finForm [name=amount]").value, a=sumExpr(raw); $("#amtSum").textContent=/[+-].*\d/.test(raw.replace(/^\s*[+-]/,""))&&a>0?"= "+money(a):"";
@@ -983,6 +1007,11 @@ function finForm(f,preset){
       });
     } else {
       const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"?(v.worker||""):"",createdAt:f.createdAt||now};
+      if(mode==="out"){ if(f.receipt&&!rcDrop&&!rcImg) data.receipt=f.receipt;
+        if(rcImg){ try{ const bin=atob(rcImg.b64), arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+          const sv=await saveFile(new File([arr],`чек ${v.date||todayISO()} ${money(amount).replace(/\s/g,"")}.jpg`,{type:"image/jpeg"})); data.receipt=sv.id;
+          if(f.receipt) deleteFile(f.receipt).catch(()=>{}) }catch(e){ toast("Чек не збережено: "+String(e?.message||e).slice(0,60)) } }
+        else if(rcDrop&&f.receipt){ deleteFile(f.receipt).catch(()=>{}) } }
       const taxOn=mode==="in"&&$("#taxOn").checked, rate=parseFloat(String($("#taxRate").value).replace(",","."))||0;
       if(mode==="in"){ try{ localStorage.setItem("oblikTax",JSON.stringify({on:taxOn,rate:rate||8})) }catch(_){} }
       ok=await write(async db=>{
@@ -1004,7 +1033,7 @@ function finForm(f,preset){
     openSheet(`<h2>Видалити запис?</h2><p>${esc(fmtDay(f.date))} · ${money(f.amount)}${pair?" (обидві частини взаємозаліку)":""}</p><div class="actions"><button class="btn ghost" data-close>Ні</button><button class="btn danger" id="yesDelF">Видалити</button></div>`);
     $("#yesDelF").onclick=async()=>{ if(await write(async db=>{await db.doc("fin/"+f.id).delete(); if(pair) await db.doc("fin/"+pair.id).delete();
       const tx=S.fin.get(f.id+"_tax"); if(tx){ await db.doc("fin/"+tx.id).delete(); await db.doc("del/"+tx.id).set({at:Date.now(),fromSheet:false,amount:tx.amount,date:tx.date||""}) }
-      const now=Date.now(); for(const x of [f,pair].filter(Boolean)) await db.doc("del/"+x.id).set({at:now,fromSheet:(+x.createdAt||0)<1e12,amount:x.amount,date:x.date||""}); })){closeSheet();toast("Видалено")} };
+      const now=Date.now(); for(const x of [f,pair].filter(Boolean)) await db.doc("del/"+x.id).set({at:now,fromSheet:(+x.createdAt||0)<1e12,amount:x.amount,date:x.date||""}); })){ if(f.receipt) deleteFile(f.receipt).catch(()=>{}); closeSheet();toast("Видалено")} };
   });
 }
 
@@ -1324,15 +1353,25 @@ async function saveFile(file){
   await write(async db=>{ for(let i=0;i<n;i++) await db.doc("files/"+id+"_"+i).set({d:b64.slice(i*CHUNK,(i+1)*CHUNK)}); await db.doc("files/"+id).set({name:file.name,type:file.type||"application/octet-stream",size:file.size,chunks:n}); });
   return {id,name:file.name};
 }
+async function fileBlob(id){ const F=R("files"); const m=await S.db.doc(F+"/"+id).get(); if(!m.exists) return null; const meta=m.data(); let b64="";
+  for(let i=0;i<meta.chunks;i++){const c=await S.db.doc(F+"/"+id+"_"+i).get(); b64+=c.data().d}
+  const bin=atob(b64),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i); return {meta,blob:new Blob([arr],{type:meta.type})} }
+async function viewFile(id){
+  toast("Відкриваю чек…");
+  try{ const r=await fileBlob(id); if(!r){toast("Файл не знайдено");return} const url=URL.createObjectURL(r.blob);
+    const ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px";
+    ov.innerHTML=`<img src="${url}" style="max-width:100%;max-height:82vh;object-fit:contain;border-radius:6px"><div style="display:flex;gap:10px;margin-top:12px"><a class="btn" href="${url}" download="${esc(r.meta.name)}">⬇️ Завантажити</a><button class="btn ghost" style="color:#fff">Закрити</button></div>`;
+    ov.querySelector("button").onclick=()=>{ov.remove();URL.revokeObjectURL(url)}; ov.onclick=e=>{if(e.target===ov){ov.remove();URL.revokeObjectURL(url)}}; document.body.appendChild(ov);
+  }catch(e){ toast("Не вдалося відкрити: "+String(e?.message||e).slice(0,80)) } }
 async function openFile(id){
   toast("Завантажую файл…");
-  try{ const m=await S.db.doc("files/"+id).get(); if(!m.exists){toast("Файл не знайдено");return} const meta=m.data(); let b64="";
-    for(let i=0;i<meta.chunks;i++){const c=await S.db.doc("files/"+id+"_"+i).get(); b64+=c.data().d}
+  try{ const F=R("files"); const m=await S.db.doc(F+"/"+id).get(); if(!m.exists){toast("Файл не знайдено");return} const meta=m.data(); let b64="";
+    for(let i=0;i<meta.chunks;i++){const c=await S.db.doc(F+"/"+id+"_"+i).get(); b64+=c.data().d}
     const bin=atob(b64),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([arr],{type:meta.type}));a.download=meta.name;document.body.appendChild(a);a.click();a.remove();
   }catch(e){toast("Не вдалося відкрити файл")}
 }
-async function deleteFile(id){ const m=await S.db.doc("files/"+id).get(); const n=m.exists?m.data().chunks:0; await window.__fbDelete([["files",id],...Array.from({length:n},(_,i)=>["files",id+"_"+i])]); }
+async function deleteFile(id){ const F=R("files"); const m=await S.db.doc(F+"/"+id).get(); const n=m.exists?m.data().chunks:0; await window.__fbDelete([[F,id],...Array.from({length:n},(_,i)=>[F,id+"_"+i])]); }
 
 // ---------- Договір підряду ----------
 const dWord=iso=>{if(!iso)return"";const[y,m,d]=iso.split("-");return `${+d} ${UA_MON[+m-1].toLowerCase()} ${y} року`};
@@ -1963,7 +2002,7 @@ window.__fbAI=async(imgs,prompt,onTry)=>{
   throw new Error(errs.join(" | "));
 };
 window.__fbDump=async()=>{ const out={exportedAt:new Date().toISOString(),exportedAtMs:Date.now()};
-  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","duo_fin","duo_sites"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
+  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","duo_fin","duo_sites","duo_files"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
   return out; };
 let drvTok=null, drvExp=0;
 window.__driveToken=async()=>{ if(drvTok&&Date.now()<drvExp) return drvTok;
