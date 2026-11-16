@@ -559,7 +559,7 @@ function photoFlow(){
   try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v55</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v56</small></h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
@@ -940,7 +940,10 @@ function siteEstimate(siteId){ const out=[];
   return out }
 function workReport(workerId){
   const pctGet=()=>{ try{ const v=parseFloat(localStorage.getItem("wrPct")); return isFinite(v)?v:40 }catch(_){ return 40 } };
-  let st={worker:workerId||"",site:"",date:todayISO(),pct:pctGet(),text:"",file:null,fileParts:[],rows:[],their:0,est:[]};
+  // ціни для робіт без ціни: спершу кошторис об'єкта, потім загальний прайс фірми
+  const estFor=site=>{ const a=siteEstimate(site).map(e=>({...e,src:"кошторис"})); return [...a,...priceList().filter(p=>+p.price>0).map(p=>({name:p.name,unit:p.unit,price:+p.price,src:"прайс",cat:p.cat}))] };
+  let st={worker:workerId||"",site:"",date:todayISO(),pct:pctGet(),text:"",file:null,fileParts:[],rows:[],their:0,est:estFor("")};
+  if(!S.priceLoaded){ S.priceLoading=false; loadPrice(); const t0=Date.now(); const iv=setInterval(()=>{ if(S.priceLoaded||Date.now()-t0>8000){ clearInterval(iv); st.est=estFor(st.site); if(!st.rows.length&&$("#wrEst")) draw() } },300) }
   const workers=[...S.people.values()].filter(p=>p.role==="worker").sort((a,b)=>(b.crew?1:0)-(a.crew?1:0)||byName(a,b));
   const n2=v=>Math.round((+v||0)*100)/100;
   const calc=r=>{ const e=r.est>=0?st.est[r.est]:null; const k=1-st.pct/100;
@@ -949,7 +952,7 @@ function workReport(workerId){
     if(!r.manual) r.rate=r.price>0?r.price:(r.estRate||0);
     r.pay=n2((+r.qty||0)*(+r.rate||0));
     r.err=r.price>0&&r.sum>0&&Math.abs(r.qty*r.price-r.sum)>0.5?`у них ${money(r.sum)}, а ${r.qty}×${money(r.price)} = ${money(n2(r.qty*r.price))}`:"";
-    r.warn=r.price>0&&e&&r.price>r.estRate+0.01?`ціна вища за кошторис −${st.pct}% (${money(r.estRate)})`:"";
+    r.warn=r.price>0&&e&&r.price>r.estRate+0.01?`ціна вища за ${e.src==="кошторис"?"кошторис":"прайс"} −${st.pct}% (${money(r.estRate)})`:"";
     r.need=!(+r.rate>0) };
   const draw=()=>{
     openSheet(`<h2>📋 Звіт робіт</h2>
@@ -957,7 +960,7 @@ function workReport(workerId){
         <div class="field"><label>Об'єкт</label><select id="wrS">${siteOptions(st.site,"— виберіть")}</select></div></div>
       <div class="row"><div class="field"><label>Дата</label><input type="date" id="wrD" value="${st.date}"></div>
         <div class="field"><label>Мінус від кошторису, %</label><input id="wrP" inputmode="decimal" value="${st.pct}"></div></div>
-      <div class="m" id="wrEst" style="color:var(--muted);font-size:12.5px;margin:-4px 0 8px">${st.site?(st.est.length?`Кошторис об'єкта (позицій: ${st.est.length}) — роботи без ціни порахую за ним мінус ${st.pct}%.`:"До цього об'єкта немає кошторису (договір чи рахунок з позиціями) — ціни впишіть самі."):"Виберіть об'єкт, щоб підтягнути кошторис."}</div>
+      <div class="m" id="wrEst" style="color:var(--muted);font-size:12.5px;margin:-4px 0 8px">${(()=>{const k=st.est.filter(e=>e.src==="кошторис").length;return `Роботи без ціни рахую: ${k?`за кошторисом об'єкта (позицій: ${k}), а чого там немає — `:""}за прайсом фірми, мінус ${st.pct}% (виконавцю ${100-st.pct}%).`})()}</div>
       <div class="field"><label>Що прислали (текст повідомлення)</label><textarea id="wrT" rows="4" placeholder="Вставте сюди текст з Viber/Telegram…">${esc(st.text)}</textarea></div>
       <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="wrF" accept=".xlsx,.xls,.csv,.pdf,.txt,image/*" style="display:none"></label>
         <label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="wrC" accept="image/*" capture="environment" style="display:none"></label></div>
@@ -966,7 +969,7 @@ function workReport(workerId){
       <div id="wrRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     $("#wrW").onchange=e=>st.worker=e.target.value;
-    $("#wrS").onchange=e=>{st.site=e.target.value;st.est=siteEstimate(st.site);if(st.rows.length){rematch()}else draw()};
+    $("#wrS").onchange=e=>{st.site=e.target.value;st.est=estFor(st.site);if(st.rows.length){rematch()}else draw()};
     $("#wrD").onchange=e=>st.date=e.target.value;
     $("#wrP").onchange=e=>{const v=parseFloat(String(e.target.value).replace(",","."));if(isFinite(v)&&v>=0&&v<100){st.pct=v;try{localStorage.setItem("wrPct",String(v))}catch(_){}}st.rows.forEach(calc);draw()};
     $("#wrT").oninput=e=>st.text=e.target.value;
@@ -981,7 +984,7 @@ function workReport(workerId){
     $("#wrGo").onclick=go;
     if(st.rows.length) drawRows();
   };
-  const estList=()=>st.est.map((e,i)=>`${i}. ${e.name} | ${e.unit} | ${e.price}`).join("\n");
+  const estList=()=>st.est.map((e,i)=>`${i}. ${e.src} | ${e.name} | ${e.unit} | ${e.price}`).join("\n");
   async function go(){
     if(!st.text.trim()&&!st.fileParts.length){toast("Вставте текст або додайте файл");return}
     if(!window.__fbAI){toast("Розпізнавання недоступне");return}
@@ -990,7 +993,7 @@ function workReport(workerId){
 Для кожної: name — назва роботи; qty — обсяг числом (якщо обсягу немає, бо це разова послуга, наприклад «встановлення вікна» — 1); unit — одиниця (м², м.п., шт…); price — ціна за одиницю, ЯКЩО її вказав виконавець, інакше 0; sum — сума рядка, ЯКЩО її вказав виконавець, інакше 0.
 Числа переписуй ТОЧНО як у виконавця, навіть якщо вони неправильні — нічого не перераховуй і не виправляй. "1,5" = 1.5, "2 500" = 2500.
 total — загальна сума, якщо виконавець її написав, інакше 0.
-${st.est.length?`Ось кошторис об'єкта (номер. назва | од. | ціна):\n${estList()}\nДля кожної роботи вкажи est — номер рядка кошторису, який означає ту саму роботу (з урахуванням одиниць), або -1, якщо такої немає.`:`Кошторису немає — est завжди -1.`}
+Ось наші розцінки (номер. джерело | назва | од. | ціна); «кошторис» — кошторис цього об'єкта, «прайс» — загальний прайс фірми:\n${estList()}\nДля кожної роботи вкажи est — номер рядка, який означає ТУ САМУ роботу з сумісною одиницею (якщо є і в кошторисі, і в прайсі — бери кошторис), або -1, якщо такої немає. Схожу, але іншу роботу не підставляй.
 Відповідь — лише JSON {"items":[{"name":"","qty":0,"unit":"","price":0,"sum":0,"est":-1}],"total":0}.`;
     try{ const txt=await window.__fbAI([...(st.text.trim()?[{text:"Повідомлення виконавця:\n"+st.text}]:[]),...st.fileParts],prompt);
       clearInterval(tick); const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
@@ -999,17 +1002,17 @@ ${st.est.length?`Ось кошторис об'єкта (номер. назва |
       st.rows.forEach(calc); if(!st.rows.length) toast("Робіт не знайдено"); draw();
     }catch(e){ clearInterval(tick); b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося розібрати: "+String(e?.message||e).slice(0,60)) }
   }
-  function rematch(){ draw(); if(st.est.length) toast("Кошторис змінився — натисніть «Розібрати» ще раз, щоб зіставити роботи") }
+  function rematch(){ draw(); if(st.est.some(e=>e.src==="кошторис")) toast("Кошторис змінився — натисніть «Розібрати» ще раз, щоб зіставити роботи") }
   function drawRows(){
     const on=st.rows.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+r.pay,0)), theirSum=n2(on.reduce((a,r)=>a+(r.sum||n2(r.qty*r.price)),0));
     const errs=on.filter(r=>r.err).length, need=on.filter(r=>r.need).length;
-    const estOpt=r=>`<select data-i="${st.rows.indexOf(r)}" data-k="est" style="font-size:12.5px"><option value="-1">— не з кошторису</option>${st.est.map((e,i)=>`<option value="${i}" ${r.est===i?"selected":""}>${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}</option>`).join("")}</select>`;
+    const estOpt=r=>`<select data-i="${st.rows.indexOf(r)}" data-k="est" style="font-size:12.5px"><option value="-1">— немає в кошторисі/прайсі</option>${st.est.map((e,i)=>`<option value="${i}" ${r.est===i?"selected":""}>${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}</option>`).join("")}</select>`;
     $("#wrRes").innerHTML=`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span style="flex:0 0 auto">${esc(r.unit)} ×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
         ${st.est.length?`<div style="margin-top:6px">${estOpt(r)}</div>`:""}
-        <div class="m" style="font-size:12.5px;margin-top:4px">${[r.price>0?`ціна виконавця ${money(r.price)}`:r.estRate&&!r.manual?`за кошторисом ${money(st.est[r.est].price)} −${st.pct}% = ${money(r.estRate)}`:"",r.manual?"ціна вручну":""].filter(Boolean).join(" · ")}
+        <div class="m" style="font-size:12.5px;margin-top:4px">${[r.price>0?`ціна виконавця ${money(r.price)}`:r.estRate&&!r.manual?`за ${st.est[r.est].src==="кошторис"?"кошторисом":"прайсом"} ${money(st.est[r.est].price)} −${st.pct}% = ${money(r.estRate)}`:"",r.manual?"ціна вручну":""].filter(Boolean).join(" · ")}
           ${r.err?`<div style="color:var(--bad,#e57373)">❗ Помилка в сумі: ${r.err}</div>`:""}${r.warn?`<div style="color:#e0a040">⚠️ ${r.warn}</div>`:""}${r.need?`<div style="color:var(--bad,#e57373)">Вкажіть ціну</div>`:""}</div></div>`).join("")}
       <div class="sum">До нарахування: <b>${money(tot)}</b></div>
       ${st.their?`<div class="m" style="${Math.abs(st.their-tot)>0.5?"color:var(--bad,#e57373)":""}">Виконавець написав разом: <b>${money(st.their)}</b>${Math.abs(st.their-tot)>0.5?` — різниця ${money(n2(st.their-tot))}`:" ✅ збігається"}${on.every(r=>r.price>0||r.sum>0)&&Math.abs(st.their-theirSum)>0.5?` · сума його ж рядків ${money(theirSum)}`:""}</div>`:""}
