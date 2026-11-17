@@ -851,13 +851,19 @@ function personForm(p){
         <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${[...S.people.values()].filter(x=>x.role==="worker"&&!x.crew&&x.id!==p.id).sort(byName).map(x=>`<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" class="crewM" value="${x.id}" ${(p.members||[]).includes(x.id)?"checked":""} style="width:18px;height:18px">${esc(x.name)}</label>`).join("")||`<span class="m">Спочатку додайте виконавців окремо</span>`}</div>
         <div class="m" style="color:var(--muted);font-size:12px;margin-top:4px">Нарахування й виплати йдуть на бригаду загальною сумою; як ділити між собою — вирішують самі.</div></div>
       ${!isNew&&!p.crew&&p.role==="worker"?(()=>{const cs=[...S.people.values()].filter(c=>c.crew&&(c.members||[]).includes(p.id));return cs.length?`<div class="m" style="margin:-4px 0 10px">👥 У бригаді: ${cs.map(c=>esc(c.name)).join(", ")}</div>`:""})():""}
-      <div class="row"><div class="field"><label>Телефон</label><input name="phone" type="tel" value="${esc(p.phone)}"></div>
+      <div class="row"><div class="field"><label>Телефон</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div></div>
         <div class="field"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div></div>
       ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delP">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
     </form>`);
   let role=p.role;
   $("#segR").onclick=e=>{const b=e.target.closest("button");if(!b)return;role=b.dataset.v;[...$("#segR").children].forEach(x=>x.classList.toggle("on",x===b));
     $("#crewTgl").style.display=role==="worker"?"flex":"none"; if(role!=="worker"){$("#isCrew").checked=false;$("#crewBox").style.display="none"}};
+  $("#pickContact")?.addEventListener("click",async()=>{ try{
+      const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
+      const tels=(c.tel||[]).filter(Boolean); let tel=tels[0]||"";
+      if(tels.length>1){ const i=prompt("Кілька номерів:\n"+tels.map((t,k)=>`${k+1}. ${t}`).join("\n")+"\nВведіть номер варіанта","1"); tel=tels[(parseInt(i)||1)-1]||tels[0] }
+      const F=n=>$("#pForm [name="+n+"]"); if(tel) F("phone").value=tel; const nm=(c.name||[])[0]; if(nm&&!F("name").value.trim()) F("name").value=nm;
+    }catch(e){ if(e?.name!=="AbortError"&&e?.name!=="InvalidStateError") toast("Не вдалося відкрити контакти") } });
   $("#isCrew").onchange=e=>{const c=e.target.checked;$("#crewBox").style.display=c?"block":"none";$("#nmLbl").textContent=c?"Назва бригади *":"Ім'я *";$("#pForm [name=name]").placeholder=c?"напр. Бригада Юри":""};
   $("#showW")?.addEventListener("click",()=>workerSheet(p.id));
   $("#hoP")?.addEventListener("click",()=>handoverSheet("person",p.id));
