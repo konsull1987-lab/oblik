@@ -1603,6 +1603,7 @@ function finForm(f,preset){
         <label class="btn ghost sm" style="flex:1;text-align:center">🖼️ Чек з галереї<input type="file" id="rcGal" accept="image/*" style="display:none"></label></div>
         <div id="rcInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div></div>
       <div class="row"><div class="field"><label>Дата</label><input type="date" name="date" value="${esc(f.date||todayISO())}"></div>
+ ${f.type==="accrual"&&Array.isArray(f.report?.items)&&f.report.items.length?`<div data-m="accrual"><div class="field"><label>📋 Позиції звіту — змініть обсяг чи ставку, сума перерахується</label><div id="repEd"></div></div></div>`:""}
         <div class="field"><label>Сума, ₴ * <span id="amtSum" style="color:var(--accent);font-weight:600"></span></label><input name="amount" inputmode="text" autocomplete="off" required value="${f.amount??""}" placeholder="напр. 15000+17356"></div></div>
       <div data-m="in"><div class="field" style="margin-top:-4px"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px"><input type="checkbox" id="taxOn" style="width:22px;height:22px">Відняти податок ЄП <input id="taxRate" inputmode="decimal" style="width:64px;padding:6px 8px" value="">%</label><div id="taxInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div>
         <div class="field" id="closeBox" style="display:none;margin-top:-4px"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px"><input type="checkbox" id="closeSite" style="width:22px;height:22px">Останній платіж — закрити об'єкт і поділити прибуток</label><div id="closeInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div></div>
@@ -1618,6 +1619,17 @@ function finForm(f,preset){
   const setMode=m=>{mode=m;[...$("#segM").children].forEach(x=>x.classList.toggle("on",x.dataset.v===m));document.querySelectorAll("#finForm [data-m]").forEach(el=>el.style.display=el.dataset.m.split(" ").includes(m)?"":"none");$("#ownLbl").textContent=m==="in"?"Хто отримав":"Хто заплатив";$("#wLbl").textContent=m==="accrual"?"Кому нараховано *":"Виконавець"};
   setMode(mode);
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
+  // ✏️ редагування позицій нарахування зі звіту робіт
+  let repItems=Array.isArray(f.report?.items)?f.report.items.map(x=>({...x})):null;
+  const repDraw=(init)=>{ const box=$("#repEd"); if(!box||!repItems) return; const num=v=>parseFloat(String(v).replace(",","."))||0;
+    box.innerHTML=repItems.map((it,i)=>`<div style="border-top:1px solid var(--line,#2a2f38);padding:6px 0"><div style="display:flex;gap:6px"><input data-ri="${i}" data-rk="name" value="${esc(it.name)}" style="flex:1;min-width:0"><button type="button" class="btn ghost sm" data-rdel="${i}">✕</button></div>
+      <div class="row" style="align-items:center;gap:6px;margin-top:4px"><input data-ri="${i}" data-rk="qty" inputmode="decimal" value="${it.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(it.unit||"")} ×</span><input data-ri="${i}" data-rk="rate" inputmode="decimal" value="${it.rate??""}" style="flex:0 0 80px;text-align:center"><b style="flex:1;text-align:right">${money(Math.round(num(it.qty)*num(it.rate)))}</b></div></div>`).join("")
+      +`<button type="button" class="btn ghost sm" id="repAdd" style="width:100%;margin-top:4px">+ Рядок</button>`;
+    const tot=repItems.reduce((a,it)=>a+Math.round(num(it.qty)*num(it.rate)),0); const am=$("#finForm [name=amount]"); if(!init&&am&&tot>0){ am.value=String(tot); am.dispatchEvent(new Event("input",{bubbles:true})) } };
+  if(repItems){ $("#repEd")?.addEventListener("change",e=>{ const t=e.target; if(t.dataset.ri==null) return; const it=repItems[+t.dataset.ri], k=t.dataset.rk;
+      it[k]=k==="name"?t.value:parseFloat(String(t.value).replace(",","."))||0; if(k!=="name") it.pay=Math.round((+it.qty||0)*(+it.rate||0)); repDraw() });
+    $("#repEd")?.addEventListener("click",e=>{ const d=e.target.closest("[data-rdel]"); if(d){ repItems.splice(+d.dataset.rdel,1); repDraw(); return } if(e.target.id==="repAdd"){ repItems.push({name:"",qty:1,unit:"м²",rate:0,pay:0}); repDraw() } });
+    repDraw(true) }
   // 💵 підсоба: розрахунок одразу — це завжди виплата з видом «Підсоба», без нарахування
   const helpSync=()=>{ const ws=$("#finForm [name=worker]"), ks=$("#finForm [name=kind]"); if(!ws||!ks) return; const hp=person(ws.value)?.helper;
     if(hp&&mode==="accrual"){ setMode("out"); toast("💵 Підсоба — одразу виплата, без нарахування") }
@@ -1677,6 +1689,7 @@ function finForm(f,preset){
     } else if(mode==="accrual"){
       if(!v.worker){toast("Виберіть виконавця");btn.disabled=false;return}
       const data={...base,type:"accrual",owner:"",site:v.site||"",kind:"",worker:v.worker,createdAt:f.createdAt||now};
+      if(f.report) data.report={...f.report,items:repItems?repItems.filter(it=>it.name):f.report.items}; if(f.receipt) data.receipt=f.receipt;
       ok=await write(async db=>{
         if(isNew) await db.collection("fin").add(data);
         else { await db.doc("fin/"+f.id).set(data); if(pair) await db.doc("fin/"+pair.id).delete(); }
