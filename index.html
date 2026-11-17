@@ -2623,16 +2623,18 @@ function renderToday(){
     if(f.type==="accrual") debt[f.worker]+= +f.amount||0; else if(f.type==="out") debt[f.worker]-= +f.amount||0 }
   const dl=Object.entries(debt).filter(([id,v])=>v>0.5&&person(id)).sort((a,b)=>b[1]-a[1]), dsum=dl.reduce((a,[,v])=>a+v,0);
   const buy=buyGroups(), nBuy=buy.reduce((a,g)=>a+g.l.length,0);
-  // не довезли: інструмент, що є десь в базі, але ще не на об'єкті
+  // усе, що просили на об'єкти і що ще не на місці: інструмент і матеріали
   const deliver=[]; for(const st of [...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false&&(x.needs||[]).length)){
-    const l=(st.needs||[]).filter(n=>n.kind!=="material"&&!n.done&&haveOnSite(n,st.id)<(+n.qty||1)).map(n=>({n,w:whereIs({...n,need:1},st.id)})).filter(x=>x.w.length);
+    const l=(st.needs||[]).filter(n=>!n.done&&haveOnSite(n,st.id)<(+n.qty||1)).map(n=>{ const mat=n.kind==="material", have=haveOnSite(n,st.id), rest=Math.round(((+n.qty||1)-have)*100)/100;
+      const w=mat?[]:whereIs({...n,need:1},st.id); const how=n.ordered?"🛒 замовлено":mat?"купити":w.length?"взяти: "+w[0].lbl+(w.length>1?" та ін.":""):"купити";
+      return {n,mat,rest,how} });
     if(l.length) deliver.push({st,l}) }
   let h=`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
     ${dl.length?`<div class="list">${dl.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div></div><span class="amt out">${money(n2(v))}</span></div>`).join("")}</div>`:`<div class="empty" style="padding:10px">Боргів немає ✅</div>`}
+    <div class="section-t" style="display:flex;margin-top:12px">📝 Потрібно на об'єкти<span class="count">${deliver.reduce((a,d)=>a+d.l.length,0)?deliver.reduce((a,d)=>a+d.l.length,0)+" поз.":""}</span></div>
+    ${deliver.length?deliver.map(d=>`<div class="card" data-tneeds="${d.st.id}" style="display:block;cursor:pointer;margin-bottom:6px"><b>🏗️ ${esc(d.st.name)}</b> <span class="m">(${d.l.length})</span>${d.l.slice(0,8).map(x=>`<div class="m" style="font-size:13px;margin-top:2px">${x.mat?"🧱":"🧰"} ${esc(x.n.name)} — <b>${x.rest} ${esc(x.mat?(x.n.unit||"шт"):"шт")}</b> <span style="color:var(--muted)">· ${esc(x.how)}</span></div>`).join("")}${d.l.length>8?`<div class="m">… ще ${d.l.length-8}</div>`:""}</div>`).join(""):`<div class="empty" style="padding:10px">Усе привезено ✅</div>`}
     <div class="section-t" style="display:flex;margin-top:12px">🛒 Що купити<span class="count">${nBuy?nBuy+" поз.":""}</span></div>
-    ${nBuy?`<div class="card" id="tBuy" style="display:block;cursor:pointer">${buy.map(g=>`<div style="margin-bottom:4px"><b>📍 ${esc(g.site.name)}</b>: <span class="m">${g.l.slice(0,4).map(x=>esc(x.n.name)+(x.n.ordered?" 🛒":"")).join(", ")}${g.l.length>4?` +${g.l.length-4}`:""}</span></div>`).join("")}<div class="m" style="color:var(--accent,#2dd4bf);margin-top:4px">Відкрити список для менеджера →</div></div>`:`<div class="empty" style="padding:10px">Нічого купувати не треба ✅</div>`}
-    <div class="section-t" style="display:flex;margin-top:12px">🚚 Не довезли на об'єкти<span class="count">${deliver.reduce((a,d)=>a+d.l.length,0)||""}</span></div>
-    ${deliver.length?deliver.map(d=>`<div class="card" data-tneeds="${d.st.id}" style="display:block;cursor:pointer;margin-bottom:6px"><b>🏗️ ${esc(d.st.name)}</b>${d.l.slice(0,5).map(x=>`<div class="m" style="font-size:13px">• ${esc(x.n.name)} ×${+x.n.qty||1} — <span style="color:var(--muted)">${esc(x.w[0].lbl)}${x.w.length>1?" та ін.":""}</span></div>`).join("")}${d.l.length>5?`<div class="m">… ще ${d.l.length-5}</div>`:""}</div>`).join(""):`<div class="empty" style="padding:10px">Усе довезено ✅</div>`}`;
+    ${nBuy?`<div class="card" id="tBuy" style="display:block;cursor:pointer">${buy.map(g=>`<div style="margin-bottom:4px"><b>📍 ${esc(g.site.name)}</b>: <span class="m">${g.l.slice(0,4).map(x=>esc(x.n.name)+(x.n.ordered?" 🛒":"")).join(", ")}${g.l.length>4?` +${g.l.length-4}`:""}</span></div>`).join("")}<div class="m" style="color:var(--accent,#2dd4bf);margin-top:4px">Відкрити список для менеджера →</div></div>`:`<div class="empty" style="padding:10px">Нічого купувати не треба ✅</div>`}`;
   $("#view").innerHTML=h;
   $("#tBuy")?.addEventListener("click",()=>buyList());
   $("#view").querySelectorAll("[data-tneeds]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); S.siteTab="needs"; siteForm(S.sites.get(c.dataset.tneeds)) });
