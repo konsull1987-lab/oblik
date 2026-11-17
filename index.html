@@ -555,8 +555,43 @@ function notifyDone(text){
 }
 const pfBuyWh=()=>{ try{ const v=localStorage.getItem("pfBuyWh"); if(v&&S.sites.get(v)) return v }catch(_){} const w=[...S.sites.values()].find(x=>x.type==="warehouse"&&/андр/i.test(x.name))||[...S.sites.values()].find(x=>x.type==="warehouse"); return w?.id||"" };
 const pfNewOn=()=>{ try{ return localStorage.getItem("pfNew")!=="0" }catch(_){ return true } };
+// ---------- 🧰 Де є інструмент + список потрібного на об'єкт ----------
+function whereIs(rec,exceptSite){ // схожий інструмент по всіх складах/об'єктах/людях
+  const m=new Map();
+  for(const t of S.tools.values()){ if(exceptSite&&t.site===exceptSite) continue; if(t.status&&t.status!=="ok") continue;
+    if(toolScore({name:rec.name,cat:rec.cat||"",brand:rec.brand||""},t)<(rec.cat?3:2)) continue;
+    const k=t.site?"s:"+t.site:"p:"+(t.holder||""); const lbl=t.site?((site(t.site)?.type==="warehouse"?"🏬 ":"🏗️ ")+(site(t.site)?.name||"?")):("👤 "+(person(t.holder)?.name||"без місця"));
+    const o=m.get(k)||{lbl,qty:0,names:new Set()}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); m.set(k,o) }
+  return [...m.values()].sort((a,b)=>b.qty-a.qty) }
+function whereHTML(l){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:2px 0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
+function haveOnSite(n,siteId){ let q=0; for(const t of S.tools.values()) if(t.site===siteId&&toolScore({name:n.name,cat:n.cat||""},t)>=2) q+=qtyOf(t); return q }
+function needsHTML(s){
+  const l=s.needs||[]; const miss=l.filter(n=>haveOnSite(n,s.id)<(+n.qty||1));
+  return `<div class="section-t" style="display:flex;margin-top:4px">🧰 Потрібен інструмент<span class="count">${l.length?`бракує ${miss.length} з ${l.length}`:""}</span></div>
+    ${l.map((n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1);
+      return `<div class="card" style="display:block;cursor:default;margin-bottom:6px;${ok?"opacity:.6":""}">
+        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1">${ok?"✅":"⬜"} ${esc(n.name)} <b>×${+n.qty||1}</b></span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
+        ${ok?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs(n,s.id))}</details>`}</div>` }).join("")}
+    ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="nAdd" style="flex:1">+ Додати потрібне</button>${miss.length?`<button class="btn sm" id="nBring" style="flex:1">🚚 Завезти потрібне</button>`:""}</div>`:""}` }
+function bindNeeds(s){
+  const box=$("#needsBox"); if(!box) return; const re=()=>{ box.innerHTML=needsHTML(s); bindNeeds(s) };
+  const save=async l=>{ if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
+  box.querySelectorAll("[data-ndel]").forEach(b=>b.onclick=()=>save((s.needs||[]).filter((_,i)=>i!==+b.dataset.ndel)));
+  $("#nAdd")?.addEventListener("click",()=>{
+    box.insertAdjacentHTML("beforeend",`<div id="nForm"><textarea id="nTxt" rows="4" placeholder="Кожен інструмент з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
+      <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="nCancel" style="flex:1">Скасувати</button><button class="btn sm" id="nOk" style="flex:1">Додати</button></div></div>`);
+    $("#nAdd").style.display="none"; $("#nTxt").focus();
+    $("#nCancel").onclick=re;
+    $("#nOk").onclick=()=>{ const add=$("#nTxt").value.split(/\n|;/).map(x=>x.trim()).filter(Boolean).map(line=>{
+        const m=line.match(/^(.*?)[\s,—–-]*(?:[xх×]\s*)?(\d+)\s*(?:шт\.?|штук[и]?|pcs)?\s*$/i);
+        return m&&m[1].trim()?{name:m[1].trim(),qty:+m[2]}:{name:line,qty:1} });
+      if(add.length) save([...(s.needs||[]),...add]); else re() };
+  });
+  $("#nBring")?.addEventListener("click",()=>{ const l=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1));
+    photoFlow({mode:"move",text:true,to:s.id,listText:l.map(n=>`${n.name} ${Math.max(1,(+n.qty||1)-haveOnSite(n,s.id))} шт`).join("\n")}) });
+}
 function photoFlow(opts){
-  opts=opts||{}; let mode=opts.mode||"add", imgs=[], rows=[], listText="", toSite=opts.to||"";
+  opts=opts||{}; let mode=opts.mode||"add", imgs=[], rows=[], listText=opts.listText||"", toSite=opts.to||"";
   if(!opts.mode) try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
@@ -626,7 +661,8 @@ function photoFlow(opts){
         <div class="row" style="margin-top:6px"><select data-i="${i}" data-k="cat">${catOptions(r.cat,false)}</select><input data-i="${i}" data-k="brand" value="${esc(r.brand)}" placeholder="марка" style="flex:.7"></div>
         ${mode==="move"?`<label class="m" style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:13.5px"><input type="checkbox" data-i="${i}" data-k="buy" ${r.buy?"checked":""} style="width:20px;height:20px"> 🛒 Куплено зараз (новий з магазину)</label>`:""}
         ${mode==="move"&&!r.buy?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="__new" ${r.match==="__new"?"selected":""}>➕ Новий — додати в базу і перемістити</option><option value="" ${r.match===""?"selected":""}>— пропустити</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select></div>`:""}
-        <div class="m" style="margin-top:4px">${confTag(r.conf)} ${esc(r.note)}</div></div>`).join("")}
+        <div class="m" style="margin-top:4px">${confTag(r.conf)} ${esc(r.note)}</div>
+        ${mode==="move"?(()=>{const wl=whereIs(r,toSite);return `<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де є: ${wl.length?wl.map(o=>o.lbl.replace(/^\S+ /,"")+" "+o.qty).slice(0,3).join(", ")+(wl.length>3?"…":""):"ніде"}</summary>${whereHTML(wl)}</details>`})():""}</div>`).join("")}
       ${mode==="add"?`<div class="row"><div class="field"><label>У кого</label><select id="pfHolder">${personOptions(owners()[0]?.id||"","— не вказано")}</select></div><div class="field"><label>Де</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`
         :`${rows.some(r=>r.on&&r.buy)?`<div class="field"><label>🛒 Куплене спершу оприбуткувати на склад</label><select id="pfBuyWh">${[...S.sites.values()].filter(x=>x.type==="warehouse").map(w=>`<option value="${w.id}" ${pfBuyWh()===w.id?"selected":""}>🏬 ${esc(w.name)}</option>`).join("")||`<option value="">— складів немає</option>`}</select></div>`:""}
           <div class="row"><div class="field"><label>Кому</label><select id="pfHolder">${personOptions(S.pfHolder||"","— не вказано")}</select></div><div class="field"><label>Куди *</label><select id="pfSite">${siteOptions(toSite,"— не вказано")}</select></div></div>`}
@@ -758,6 +794,7 @@ function siteForm(s){
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
   openSheet(`<h2>${isNew?"Новий склад / об'єкт":esc(s.name)}</h2>
     ${!isNew?(()=>{const t=siteTotals()[s.id];return t||s.contract?`<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}<button class="btn ghost" id="showSiteFin" style="width:100%;margin-bottom:8px">Показати гроші по об'єкту</button>`:""})()+`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showSite">Інструмент тут (${cnt})</button>${cnt?`<button class="btn ghost" id="hoS">🧰 Список / повернути</button>`:""}${S.canWrite?`<button class="btn ghost" id="toolListS">📋 Завезти списком</button>`:""}</div>`:""}
+    ${!isNew&&s.type!=="warehouse"?`<div id="needsBox">${needsHTML(s)}</div>`:""}
     ${[...S.fin.values()].some(f=>f.type==="accrual"&&f.site===s.id&&f.report)?`<button class="btn ghost" id="smOpen" style="width:100%;margin-bottom:8px">📋 Смета виконаних робіт для замовника</button>`:""}
     <form id="siteForm">
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
@@ -773,6 +810,7 @@ function siteForm(s){
   $("#segT").onclick=e=>{const b=e.target.closest("button");if(!b)return;type=b.dataset.v;[...$("#segT").children].forEach(x=>x.classList.toggle("on",x===b))};
   $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
   $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
+  if(!isNew) bindNeeds(s);
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
   $("#smOpen")?.addEventListener("click",()=>smetaFlow(s.id));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
