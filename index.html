@@ -2010,7 +2010,8 @@ function renderMoneyMat(){
   const cats=[...new Set(l.map(x=>x.cat))]; const run=S.mpRun;
   let h=priceModeSeg()+`<input id="matQ" type="search" placeholder="Пошук матеріалу: клей, профіль, кабель…" value="${esc(S.matQ||"")}" style="margin-bottom:6px">
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">${l.length} матеріалів · 🌐 з інтернету: ${web} · ✏️ вручну: ${man} · решта ≈ орієнтовні (${MAT_BASE_DATE}). Натисніть на матеріал, щоб змінити ціну.</div>
-    ${run?`<div class="banner" id="mpProg" style="margin-bottom:8px">⏳ Оновлюю ціни: ${run.done} з ${run.total}… <button class="btn ghost sm" id="mpStop">Зупинити</button></div>`:""}
+    ${run?`<div class="banner" id="mpProg" style="margin-bottom:8px">⏳ Оновлюю ціни: ${run.done} з ${run.total}… Екран не згасне, поки йде оновлення; якщо згорнути застосунок — пауза, продовжиться, коли повернетесь. <button class="btn ghost sm" id="mpStop">Зупинити</button></div>`:""}
+    ${S.canWrite&&!run&&(()=>{ try{ return JSON.parse(localStorage.getItem("mpResume")||"[]").length }catch(_){ return 0 } })()?`<button class="btn" id="mpRes" style="width:100%;margin-bottom:6px">▶️ Продовжити незавершене оновлення цін</button>`:""}
     ${S.canWrite&&!run?`<div class="actions" style="margin:0 0 8px"><button class="btn" id="mpAll">🔄 Оновити всі ціни з інтернету</button><button class="btn ghost" id="mpAdd">➕ Матеріал</button></div>`:""}`;
   for(const c of cats){ const g=l.filter(x=>x.cat===c&&(!q||wordHit(x.name+" "+(x.alt||"")+" "+x.cat,q))); if(!g.length) continue; const open=q||S.matOpen===c;
     h+=`<div class="card" style="display:block;cursor:pointer;margin-bottom:6px" data-mpc="${esc(c)}"><div style="display:flex"><b style="flex:1">${open?"▾":"▸"} ${esc(c)}</b><span class="count">${g.length}</span></div>
@@ -2022,6 +2023,7 @@ function bindMatView(){
   const qi=$("#matQ"); if(qi) qi.oninput=()=>{ S.matQ=qi.value; const p=qi.selectionStart; renderMoneyMat(); const n=$("#matQ"); n.focus(); try{n.setSelectionRange(p,p)}catch(_){} };
   $("#view").onclick=e=>{ const pm=e.target.closest("[data-pm]"); if(pm){ S.priceMode=pm.dataset.pm; renderMoneyPrice(); return }
     if(e.target.closest("#mpStop")){ if(S.mpRun) S.mpRun.stop=true; return }
+    if(e.target.closest("#mpRes")){ let n=[]; try{ n=JSON.parse(localStorage.getItem("mpResume")||"[]") }catch(_){} const set=new Set(n.map(normName)); updateMatPrices(matCat().filter(x=>set.has(normName(x.name)))); return }
     if(e.target.closest("#mpAll")){ const l=matCat(); if(confirm(`Оновити ціни всіх ${l.length} матеріалів з інтернету?\nЦе займе приблизно ${Math.ceil(l.length/15*0.5)} хв. Можна зупинити будь-коли — знайдені ціни збережуться.`)) updateMatPrices(l); return }
     if(e.target.closest("#mpAdd")){ mcItemForm(-1,S.matOpen||MAT_CATS[0],renderMoneyMat); return }
     const cu=e.target.closest("[data-mpcu]"); if(cu){ e.stopPropagation(); updateMatPrices(matCat().filter(x=>x.cat===cu.dataset.mpcu)); return }
@@ -2035,11 +2037,19 @@ async function updateMatPrices(list){
   const todo=list.filter(x=>{ const p=(S.matprices||{})[normName(x.name)]; return !p||(p.src!=="вручну"&&now-(p.at||0)>3*864e5) });
   if(!todo.length){ toast("Усі ціни цього списку свіжі (оновлені за останні 3 дні) або вписані вручну"); return }
   S.mpRun={done:0,total:todo.length,stop:false,found:0}; const rr=()=>{ if(S.tab==="money"&&S.mtab==="price"&&S.priceMode==="mat") renderMoneyMat() }; rr();
+  // не даємо екрану згаснути, поки оновлюються ціни
+  let wl=null; const lock=async()=>{ try{ if(navigator.wakeLock&&!wl&&document.visibilityState==="visible"){ wl=await navigator.wakeLock.request("screen"); wl.addEventListener?.("release",()=>{ wl=null }) } }catch(_){} };
+  const onVis=()=>{ if(document.visibilityState==="visible") lock() }; document.addEventListener("visibilitychange",onVis); await lock();
+  try{ localStorage.setItem("mpResume",JSON.stringify(todo.map(x=>x.name))) }catch(_){}
   let errs=0;
   for(let k=0;k<todo.length&&!S.mpRun.stop;k+=15){ const b=todo.slice(k,k+15);
-    try{ const r=await epicentrPrices(b.map(x=>({name:x.name,unit:x.unit}))); S.mpRun.found+=r.n; errs=0 }catch(e){ if(++errs>=3){ toast("Пошук цін зупинено: "+String(e?.message||e).slice(0,60)); break } }
+    while(document.visibilityState==="hidden"&&!S.mpRun.stop) await new Promise(r=>setTimeout(r,1500)); // у фоні чекаємо, а не втрачаємо запити
+    try{ const r=await epicentrPrices(b.map(x=>({name:x.name,unit:x.unit}))); S.mpRun.found+=r.n; errs=0 }
+    catch(e){ if(document.visibilityState==="hidden"){ k-=15; continue } if(++errs>=3){ toast("Пошук цін зупинено: "+String(e?.message||e).slice(0,60)); break } }
     S.mpRun.done=Math.min(todo.length,k+15); rr() }
-  const f=S.mpRun.found, d=S.mpRun.done; S.mpRun=null; rr(); toast(`Оновлено цін: ${f} з ${d}`);
+  const f=S.mpRun.found, d=S.mpRun.done, fin=d>=todo.length; S.mpRun=null; document.removeEventListener("visibilitychange",onVis); try{ wl&&wl.release() }catch(_){}
+  try{ if(fin) localStorage.removeItem("mpResume") }catch(_){}
+  rr(); toast(`Оновлено цін: ${f} з ${d}${fin?"":" — решту можна дооновити кнопкою «Продовжити»"}`);
 }
 function priceItemForm(i,cat){
   const items=priceList().map(x=>({...x})), it=i>=0?items[i]:{cat,name:"",unit:"м²",price:0,src:"власна"};
