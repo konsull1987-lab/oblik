@@ -2067,7 +2067,7 @@ function priceItemForm(i,cat){
 }
 function kpList(){
   S.db.collection(R("offers")).get().then(sn=>{ const l=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-    openSheet(`<h2>Збережені КП</h2>${l.length?`<div class="list">${l.map(o=>`<div class="card" data-kp="${o.id}"><div class="main"><div class="t">№ ${esc(o.no||"")} · ${esc(o.client||"без замовника")}</div><div class="m">${fmtDay(o.date)}${o.object?" · "+esc(o.object):""} · ${o.site&&site(o.site)?.approved?.id===o.id?"✅ погоджено":o.site?"📁 в об'єкті":"попередня, без об'єкта"}</div></div><span class="amt">${money(o.total||0)}</span></div>`).join("")}</div>`:`<div class="empty">Ще немає збережених КП</div>`}
+    openSheet(`<h2>Збережені КП і смети</h2>${l.length?`<div class="list">${l.map(o=>`<div class="card" data-kp="${o.id}"><div class="main"><div class="t">${o.kind==="smeta"?"Смета":o.kind==="file"?"📎 "+esc(o.sub||"Документ"):"КП"} № ${esc(o.no||"")} · ${esc(o.client||site(o.site)?.customer||(o.site?"замовник не вказаний":"без замовника"))}</div><div class="m">${fmtDay(o.date)}${site(o.site)?" · 🏗️ "+esc(site(o.site).name):o.object?" · "+esc(o.object):""} · ${o.site&&site(o.site)?.approved?.id===o.id?"✅ погоджено":o.site?"📁 в об'єкті":"попередня, без об'єкта"}</div></div><span class="amt">${money(o.total||0)}</span></div>`).join("")}</div>`:`<div class="empty">Ще немає збережених КП</div>`}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     document.querySelectorAll("[data-kp]").forEach(el=>el.onclick=()=>openOffer(l.find(o=>o.id===el.dataset.kp))) }).catch(e=>toast("Не вдалося завантажити: "+String(e?.message||e).slice(0,60)));
 }
