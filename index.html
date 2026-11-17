@@ -355,7 +355,7 @@ function renderTools(){
   if(document.activeElement?.id!=="q") $("#headTools").innerHTML=`
     <div class="stats">${st("all","",sq(all),"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}</div>
     <div class="search"><input id="q" type="search" placeholder="Пошук: назва, номер, людина, об'єкт…" value="${esc(S.q)}">
-      ${S.canWrite?`<button class="btn ghost sm" id="photoBtn" title="Розпізнати з фото">📷</button>`:""}<button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
+      ${S.canWrite?`<button class="btn ghost sm" id="photoBtn" title="Розпізнати з фото">📷</button><button class="btn ghost sm" id="listBtn" title="Список інструменту текстом">📋</button>`:""}<button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
     <div class="filters">
       <select id="fCat">${catOptions(S.cat,true)}</select>
       <select id="fSite">${siteOptions(S.site,"Усі місця")}</select>
@@ -553,41 +553,52 @@ function notifyDone(text){
   if(!document.hidden) return;
   try{ if(window.Notification&&Notification.permission==="granted") navigator.serviceWorker?.ready.then(r=>r.showNotification("Облік",{body:text,icon:"icon-192.png",tag:"pf"})).catch(()=>{}) }catch(_){}
 }
+const pfBuyWh=()=>{ try{ const v=localStorage.getItem("pfBuyWh"); if(v&&S.sites.get(v)) return v }catch(_){} const w=[...S.sites.values()].find(x=>x.type==="warehouse"&&/андр/i.test(x.name))||[...S.sites.values()].find(x=>x.type==="warehouse"); return w?.id||"" };
 const pfNewOn=()=>{ try{ return localStorage.getItem("pfNew")!=="0" }catch(_){ return true } };
-function photoFlow(){
-  let mode="add", imgs=[], rows=[];
-  try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
+function photoFlow(opts){
+  opts=opts||{}; let mode=opts.mode||"add", imgs=[], rows=[], listText="", toSite=opts.to||"";
+  if(!opts.mode) try{ const d=JSON.parse(localStorage.getItem("pfDraft")||"null"); if(d&&Date.now()-d.at<48*3600e3&&d.rows?.length){ mode=d.mode; rows=d.rows; imgs=(d.thumbs||[]).map(t=>({thumb:t,b64:"",mime:"image/jpeg",old:1})); } }catch(_){}
   const saveDraft=()=>{ try{ localStorage.setItem("pfDraft",JSON.stringify({at:Date.now(),mode,rows,thumbs:imgs.map(x=>x.thumb)})) }catch(_){ } };
   const draw=()=>{
-    openSheet(`<h2>📷 Інструмент з фото <small style="font-size:11px;color:var(--muted)">v60</small></h2>
+    openSheet(`<h2>📷 Інструмент з фото або списку</h2>
       <div class="field"><div class="seg" id="pfMode"><button type="button" data-v="add" class="${mode==="add"?"on":""}">➕ Інвентаризація</button><button type="button" data-v="move" class="${mode==="move"?"on":""}">🔄 Переміщення</button></div></div>
       <div class="m" style="color:var(--muted);font-size:13px;margin-bottom:8px">${mode==="add"?"Розкладіть інструмент рядами, щоб не перекривався, і сфотографуйте. Можна кілька фото.":"Сфотографуйте інструмент, який забираєте. Застосунок знайде його в базі й перемістить."}</div>
       <div class="row" style="margin-bottom:8px"><label class="btn" style="flex:1;text-align:center">📷 Камера<input type="file" class="pfFile" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" class="pfFile" accept="image/*" multiple style="display:none"></label></div>
       <div id="pfThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${imgs.map((x,i)=>`<div style="position:relative"><img src="${x.thumb}" style="width:72px;height:72px;object-fit:cover;border-radius:8px"><button type="button" data-rmimg="${i}" style="position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:22px;height:22px;background:var(--text);color:var(--bg)">✕</button></div>`).join("")}</div>
       ${imgs.length?`<button class="btn" id="pfGo" style="width:100%">🔍 Розпізнати (${imgs.length} фото)</button>`:""}
+      <details ${listText||opts.text?"open":""} style="margin:8px 0"><summary class="m" style="cursor:pointer;font-size:14px">📋 Або вставте список текстом (з Viber/Telegram)</summary>
+        <textarea id="pfTxt" rows="5" placeholder="Напр.:\nБолгарка Макіта 2шт\nперфоратор бош\nрівень 2м\nшуруповерт з 2 акумами" style="margin-top:6px">${esc(listText)}</textarea>
+        <button class="btn" id="pfGoTxt" style="width:100%;margin-top:6px">🔍 Розібрати список</button></details>
       ${rows.length&&imgs.some(x=>x.old)?`<div class="m" style="color:var(--muted);font-size:13px">Збережений результат попереднього розпізнавання. <a href="#" id="pfDrop">Почати заново</a></div>`:""}
       <div id="pfRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     $("#pfMode").onclick=e=>{const b=e.target.closest("button");if(!b)return;mode=b.dataset.v;rows=[];draw()};
     document.querySelectorAll(".pfFile").forEach(x=>x.onchange=async e=>{imgs=imgs.filter(x=>!x.old);for(const f of e.target.files){try{imgs.push(await shrinkImage(f))}catch(_){}}rows=[];draw()});
     $("#pfThumbs").onclick=e=>{const i=e.target.dataset.rmimg;if(i!=null){imgs.splice(+i,1);rows=[];draw()}};
-    $("#pfGo")?.addEventListener("click",recognize);
+    $("#pfGo")?.addEventListener("click",()=>recognize(false));
+    $("#pfTxt").oninput=e=>listText=e.target.value;
+    $("#pfGoTxt").onclick=()=>{ if(!listText.trim()){toast("Вставте список");return} recognize(true) };
     $("#pfDrop")?.addEventListener("click",e=>{e.preventDefault();try{localStorage.removeItem("pfDraft")}catch(_){};imgs=[];rows=[];draw()});
     if(rows.length) drawRows();
   };
-  async function recognize(){
+  async function recognize(useText){
     if(!window.__fbAI){toast("Розпізнавання недоступне");return}
-    if(imgs.some(x=>x.old)){toast("Додайте фото заново");return}
-    const b=$("#pfGo"); b.disabled=true; const t0=Date.now(); let tr="";
-    const tick=setInterval(()=>{const el=$("#pfGo"); if(el) el.textContent=`⏳ Розпізнаю… ${Math.round((Date.now()-t0)/1000)} с${tr}`},1000);
+    if(!useText&&imgs.some(x=>x.old)){toast("Додайте фото заново");return}
+    const b=useText?$("#pfGoTxt"):$("#pfGo"); b.disabled=true; const t0=Date.now(); let tr="";
+    const tick=setInterval(()=>{const el=useText?$("#pfGoTxt"):$("#pfGo"); if(el) el.textContent=`⏳ Розпізнаю… ${Math.round((Date.now()-t0)/1000)} с${tr}`},1000);
+    // для переміщення даємо ШІ перелік інструменту з бази, щоб він зіставив різні назви (болгарка = КШМ = УШМ)
+    const pool=mode==="move"?[...S.tools.values()].filter(t=>!S.pfFrom||t.site===S.pfFrom).slice(0,400):[];
+    let prompt=aiPrompt();
+    if(useText) prompt=prompt.replace(/На фото інструмент, розкладений для обліку\.[^\n]*/,"Нижче — текстовий список інструменту від працівника (з Viber/Telegram), написаний як завгодно: російською, суржиком, скорочено, з помилками. Кожен рядок може містити кілька позицій або кількість («2шт», «х3»). Нічого не вигадуй понад список.").replace(/лише якщо її видно на фото/,"лише якщо вказана").replace(/лише якщо видно напис/,"лише якщо вказана");
+    if(pool.length) prompt+=`\nТакож зістав кожну позицію з інструментом, що вже є в нашій базі (номер. назва · марка · де зараз). Назви можуть відрізнятися: болгарка = КШМ = УШМ = кутова шліфмашина, шуруповерт = дриль-шуруповерт = акумуляторна дриль, перфоратор = перф, лазерний рівень = нівелір = лазер. Додай поле m — номер з бази або -1, якщо такого немає:\n${pool.map((t,i)=>`${i}. ${t.name}${t.brand?" · "+t.brand:""}${t.model?" "+t.model:""} · ${qtyOf(t)} шт · ${site(t.site)?.name||person(t.holder)?.name||""}`).join("\n")}`;
     try{ if(window.Notification&&Notification.permission==="default") Notification.requestPermission().catch(()=>{}) }catch(_){}
     try{
-      const txt=await window.__fbAI(imgs,aiPrompt(),(n,all)=>{tr=n>1?` (спроба ${n}/${all})`:""});
+      const txt=await window.__fbAI(useText?[{text:"Список інструменту:\n"+listText}]:imgs,prompt,(n,all)=>{tr=n>1?` (спроба ${n}/${all})`:""});
       clearInterval(tick);
       const j=JSON.parse(txt.replace(/^```(json)?|```$/g,"").trim());
       const allCats=Object.values(CATS).flat();
-      rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),cat:allCats.includes(x.cat)?x.cat:"Інше",brand:String(x.brand||"").trim(),model:String(x.model||"").trim(),qty:Math.max(1,parseInt(x.qty)||1),conf:x.confidence||"medium",note:String(x.note||"").trim()}));
-      if(!rows.length){toast("На фото інструмент не знайдено");b.disabled=false;b.textContent="🔍 Розпізнати";return}
+      rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),cat:allCats.includes(x.cat)?x.cat:"Інше",brand:String(x.brand||"").trim(),model:String(x.model||"").trim(),qty:Math.max(1,parseInt(x.qty)||1),conf:x.confidence||"medium",note:String(x.note||"").trim(),aiM:Number.isInteger(+x.m)&&+x.m>=0&&+x.m<pool.length?pool[+x.m].id:""}));
+      if(!rows.length){toast("Інструмент не знайдено");b.disabled=false;b.textContent=useText?"🔍 Розібрати список":"🔍 Розпізнати";return}
       if(mode==="move") matchRows();
       saveDraft(); notifyDone(`Розпізнано ${rows.length} поз. — перевірте й збережіть`);
       if($("#pfRes")) drawRows();
@@ -599,7 +610,9 @@ function photoFlow(){
   }
   function matchRows(fromSite){
     const pool=[...S.tools.values()].filter(t=>!fromSite||t.site===fromSite);
-    for(const r of rows){ const best=pool.map(t=>[toolScore(r,t),t]).filter(x=>x[0]>=2).sort((a,b)=>b[0]-a[0]); r.cands=best.slice(0,8).map(x=>x[1].id); r.match=r.cands[0]||(pfNewOn()?"__new":""); if(r.match&&r.match!=="__new") r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match))); }
+    for(const r of rows){ const best=pool.map(t=>[toolScore(r,t),t]).filter(x=>x[0]>=2).sort((a,b)=>b[0]-a[0]); r.cands=best.slice(0,8).map(x=>x[1].id);
+      const ai=r.aiM&&S.tools.get(r.aiM)&&(!fromSite||S.tools.get(r.aiM).site===fromSite)?r.aiM:""; if(ai) r.cands=[ai,...r.cands.filter(id=>id!==ai)];
+      r.match=r.cands[0]||(pfNewOn()?"__new":""); if(r.match&&r.match!=="__new") r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match))); }
   }
   function drawRows(){
     const confTag=c=>c==="high"?"":`<span class="tag ${c==="low"?"bad":"rep"}">${c==="low"?"перевірте":"можливо"}</span>`;
@@ -611,23 +624,28 @@ function photoFlow(){
       ${rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
         <div class="row" style="align-items:center"><input type="checkbox" class="cb" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"><input data-i="${i}" data-k="qty" inputmode="numeric" value="${r.qty}" style="flex:0 0 64px;text-align:center"></div>
         <div class="row" style="margin-top:6px"><select data-i="${i}" data-k="cat">${catOptions(r.cat,false)}</select><input data-i="${i}" data-k="brand" value="${esc(r.brand)}" placeholder="марка" style="flex:.7"></div>
-        ${mode==="move"?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="__new" ${r.match==="__new"?"selected":""}>➕ Новий — додати в базу і перемістити</option><option value="" ${r.match===""?"selected":""}>— пропустити</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select></div>`:""}
+        ${mode==="move"?`<label class="m" style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:13.5px"><input type="checkbox" data-i="${i}" data-k="buy" ${r.buy?"checked":""} style="width:20px;height:20px"> 🛒 Куплено зараз (новий з магазину)</label>`:""}
+        ${mode==="move"&&!r.buy?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="__new" ${r.match==="__new"?"selected":""}>➕ Новий — додати в базу і перемістити</option><option value="" ${r.match===""?"selected":""}>— пропустити</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select></div>`:""}
         <div class="m" style="margin-top:4px">${confTag(r.conf)} ${esc(r.note)}</div></div>`).join("")}
       ${mode==="add"?`<div class="row"><div class="field"><label>У кого</label><select id="pfHolder">${personOptions(owners()[0]?.id||"","— не вказано")}</select></div><div class="field"><label>Де</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`
-        :`<div class="row"><div class="field"><label>Кому *</label><select id="pfHolder">${personOptions("","— виберіть")}</select></div><div class="field"><label>Куди</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`}
+        :`${rows.some(r=>r.on&&r.buy)?`<div class="field"><label>🛒 Куплене спершу оприбуткувати на склад</label><select id="pfBuyWh">${[...S.sites.values()].filter(x=>x.type==="warehouse").map(w=>`<option value="${w.id}" ${pfBuyWh()===w.id?"selected":""}>🏬 ${esc(w.name)}</option>`).join("")||`<option value="">— складів немає</option>`}</select></div>`:""}
+          <div class="row"><div class="field"><label>Кому</label><select id="pfHolder">${personOptions(S.pfHolder||"","— не вказано")}</select></div><div class="field"><label>Куди *</label><select id="pfSite">${siteOptions(toSite,"— не вказано")}</select></div></div>`}
       <button class="btn" id="pfSave" style="width:100%">${mode==="add"?"💾 Додати в облік":"🔄 Перемістити"}</button>`;
     $("#pfRes").oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;const r=rows[i];
-      if(k==="on"){r.on=e.target.checked;drawRows();return} if(k==="qty") r.qty=Math.max(1,parseInt(e.target.value)||1); else r[k]=e.target.value;};
+      if(k==="on"){r.on=e.target.checked;drawRows();return} if(k==="buy"){r.buy=e.target.checked;drawRows();return} if(k==="qty") r.qty=Math.max(1,parseInt(e.target.value)||1); else r[k]=e.target.value;};
     $("#pfRes").onchange=e=>{if(e.target.id==="pfNew"){ try{localStorage.setItem("pfNew",e.target.checked?"1":"0")}catch(_){}; for(const r of rows){ if(e.target.checked&&!r.match) r.match="__new"; else if(!e.target.checked&&r.match==="__new") r.match="" } drawRows(); return }
+      if(e.target.id==="pfSite"){toSite=e.target.value;return} if(e.target.id==="pfHolder"){S.pfHolder=e.target.value;return}
+      if(e.target.id==="pfBuyWh"){try{localStorage.setItem("pfBuyWh",e.target.value)}catch(_){};return}
       if(e.target.id==="pfFrom"){S.pfFrom=e.target.value;matchRows(S.pfFrom);drawRows()} else if(e.target.dataset.k==="match"){const r=rows[e.target.dataset.i];r.match=e.target.value;if(r.match&&r.match!=="__new")r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match)));drawRows()}};
     $("#pfSave").onclick=save;
   }
   async function save(){
     const holder=$("#pfHolder").value, siteId=$("#pfSite").value, sel=rows.filter(r=>r.on&&r.name.trim());
-    if(mode==="move"&&!holder){toast("Виберіть, кому передати");return}
+    if(mode==="move"&&!holder&&!siteId){toast("Виберіть, куди або кому перемістити");return}
+    const buyWh=$("#pfBuyWh")?.value||""; if(sel.some(r=>r.buy)&&!buyWh){toast("Створіть склад для оприбуткування куплених");return}
     const btn=$("#pfSave"); btn.disabled=true; btn.textContent="Зачекайте…";
     let byName=""; try{byName=(await S.user?.me?.())?.name||""}catch(_){}
-    let n=0, skip=0, nNew=0, invK=0; const invBase=+nextInv();
+    let n=0, skip=0, nNew=0, nBuy=0, invK=0; const invBase=+nextInv();
     const ok=await write(async db=>{
       for(const r of sel){
         if(mode==="add"){
@@ -637,18 +655,19 @@ function photoFlow(){
           else { if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент") t.inv=nextInv(); t.createdAt=t.updatedAt=Date.now(); await db.collection("tools").add(t); }
           n+=r.qty;
         } else {
-          if(r.match==="__new"){ // реєструємо там, звідки забрали, і одразу переміщуємо — в історії буде видно звідки/куди
-            const from=S.pfFrom||"", now=Date.now();
+          if(r.buy||r.match==="__new"){ // реєструємо там, звідки забрали (або на складі, якщо куплено), і одразу переміщуємо — в історії буде видно звідки/куди
+            const from=r.buy?buyWh:(S.pfFrom||""), now=Date.now();
             const nt={name:r.name.trim(),cat:r.cat,brand:r.brand.trim(),model:r.model||"",qty:r.qty,holder:"",site:from,status:"ok",note:r.note||"",inv:"",serial:"",createdAt:now,updatedAt:now};
             if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент"){ nt.inv=String(Math.max(+nextInv(),invBase+invK)).padStart(4,"0"); invK++ }
             const ref=await db.collection("tools").add(nt);
-            await moveTool(db,{id:ref.id,...nt},r.qty,holder,siteId,"з фото · новий у базі",byName); n+=r.qty; nNew++; continue }
+            if(r.buy) nt.note=[nt.note,"куплено "+fmtDay(todayISO())].filter(Boolean).join(" · ");
+            await moveTool(db,{id:ref.id,...nt},r.qty,holder,siteId,r.buy?"куплено · новий у базі":"новий у базі",byName); n+=r.qty; nNew++; if(r.buy) nBuy++; continue }
           const t=r.match&&S.tools.get(r.match); if(!t){skip++;continue}
           await moveTool(db,t,r.qty,holder,siteId,"з фото",byName); n+=Math.min(r.qty,qtyOf(t));
         }
       }
     });
-    if(ok){try{localStorage.removeItem("pfDraft")}catch(_){};closeSheet();toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${nNew?`, нових у базі: ${nNew} поз.`:""}${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
+    if(ok){try{localStorage.removeItem("pfDraft")}catch(_){};closeSheet();toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${nNew?`, нових у базі: ${nNew} поз.${nBuy?` (куплено: ${nBuy})`:""}`:""}${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
   }
   draw();
 }
@@ -738,7 +757,7 @@ function siteForm(s){
   const isNew=!s; s=s||{type:"site"};
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
   openSheet(`<h2>${isNew?"Новий склад / об'єкт":esc(s.name)}</h2>
-    ${!isNew?(()=>{const t=siteTotals()[s.id];return t||s.contract?`<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}<button class="btn ghost" id="showSiteFin" style="width:100%;margin-bottom:8px">Показати гроші по об'єкту</button>`:""})()+`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showSite">Інструмент тут (${cnt})</button>${cnt?`<button class="btn ghost" id="hoS">🧰 Список / повернути</button>`:""}</div>`:""}
+    ${!isNew?(()=>{const t=siteTotals()[s.id];return t||s.contract?`<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}<button class="btn ghost" id="showSiteFin" style="width:100%;margin-bottom:8px">Показати гроші по об'єкту</button>`:""})()+`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showSite">Інструмент тут (${cnt})</button>${cnt?`<button class="btn ghost" id="hoS">🧰 Список / повернути</button>`:""}${S.canWrite?`<button class="btn ghost" id="toolListS">📋 Завезти списком</button>`:""}</div>`:""}
     ${[...S.fin.values()].some(f=>f.type==="accrual"&&f.site===s.id&&f.report)?`<button class="btn ghost" id="smOpen" style="width:100%;margin-bottom:8px">📋 Смета виконаних робіт для замовника</button>`:""}
     <form id="siteForm">
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
@@ -754,6 +773,7 @@ function siteForm(s){
   $("#segT").onclick=e=>{const b=e.target.closest("button");if(!b)return;type=b.dataset.v;[...$("#segT").children].forEach(x=>x.classList.toggle("on",x===b))};
   $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
   $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
+  $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
   $("#smOpen")?.addEventListener("click",()=>smetaFlow(s.id));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
@@ -2309,6 +2329,7 @@ $("#headTools").addEventListener("click",e=>{
   const mt=e.target.closest("[data-mt]"); if(mt){S.mtab=mt.dataset.mt;render();return}
   const ow=e.target.closest("[data-own]"); if(ow){Object.assign(S,{mtab:"journal",mOwner:S.mOwner===ow.dataset.own?"":ow.dataset.own});render();return}
   if(e.target.id==="photoBtn"){photoFlow();return}
+  if(e.target.id==="listBtn"){photoFlow({mode:"move",text:true,to:S.site||""});return}
   if(e.target.id==="selBtn"){S.select=!S.select;S.selected.clear();render()}
 });
 $("#view").addEventListener("change",e=>{ if(e.target.id==="sYear"){S.sYear=e.target.value;render()} });
