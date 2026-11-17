@@ -574,7 +574,7 @@ function whereIs(rec,exceptSite){ // схожий інструмент по вс
 function whereHTML(l){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:2px 0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
 function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } if(n.kind==="material"){ n._here=[]; return 0 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
 // ШІ: розібрати список потрібного і зіставити з назвами інструменту, які є в базі
-async function aiNeeds(text){
+async function aiNeeds(text,imgs,existing){ imgs=imgs||[]; existing=existing||[];
   const uniq=new Map(); for(const t of S.tools.values()){ const k=normName(t.name); if(!uniq.has(k)) uniq.set(k,t.name) }
   const base=[...uniq.entries()].slice(0,700);
   const prompt=`Це список того, що потрібно привезти на будівельний об'єкт (написано як завгодно: російською, суржиком, з помилками, кілька речей в одному рядку).
@@ -586,10 +586,13 @@ ${toolCatList()}
 ${matCatList()}
 Перелік назв нашого інструменту (номер. назва):
 ${base.map(([k,n],i)=>`${i}. ${n}`).join("\n")}
-Відповідь — лише JSON {"items":[{"name":"","qty":1,"unit":"шт","kind":"tool","m":[]}]}.`;
-  const txt=await window.__fbAI([{text:"Список:\n"+text}],prompt);
+${existing.length?`\nНа цей об'єкт УЖЕ замовлено (номер. назва — кількість):\n${existing.map((n,i)=>`${i}. ${n.name} — ${+n.qty||1} ${n.unit||"шт"}`).join("\n")}\nЯкщо нова позиція — ТА САМА річ, що вже замовлена (інша назва, мова, уточнення — не важливо: «клей» і «клей для плитки 10 мішків» — одне й те саме), вкажи e — її номер; інакше e = -1.`:""}
+q — true, якщо кількість у списку ЯВНО вказана, false — якщо ти поставив 1 за замовчуванням.
+${imgs.length?"Частина списку — на фото/скріншотах: прочитай їх усі (рукописні списки, переписки, накладні) і об'єднай з текстом. Однакові позиції з різних фото чи тексту не дублюй — об'єднай в одну.":""}
+Відповідь — лише JSON {"items":[{"name":"","qty":1,"q":false,"unit":"шт","kind":"tool","m":[],"e":-1}]}.`;
+  const txt=await window.__fbAI([...(text?[{text:"Список:\n"+text}]:[]),...imgs],prompt);
   const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
-  return (j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty>0?+x.qty:1,kind:x.kind==="material"?"material":"tool",unit:x.kind==="material"?String(x.unit||"шт").trim():"шт",
+  return (j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty>0?+x.qty:1,qtySet:x.q===true||x.q==="true",e:Number.isInteger(+x.e)&&+x.e>=0&&+x.e<existing.length?+x.e:-1,kind:x.kind==="material"?"material":"tool",unit:x.kind==="material"?String(x.unit||"шт").trim():"шт",
     match:[...new Set((Array.isArray(x.m)?x.m:[]).map(i=>base[+i]?.[0]).filter(Boolean))]})) }
 function pickTool(list,n,cb){
   const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100";
@@ -610,7 +613,7 @@ function needsHTML(s){
   const row=(n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1), here=n._here||[], mat=isMat(n);
     return `<div class="card" style="display:block;cursor:default;margin-bottom:6px;${ok?"opacity:.6":""}">
       <div style="display:flex;gap:6px;align-items:center"><button type="button" data-ntog="${i}" style="background:none;border:0;padding:0 2px 0 0;font-size:22px;line-height:1;cursor:pointer" title="${ok?"Привезено":"Позначити як привезене"}">${ok?"✅":"⬜"}</button>
-        <span style="flex:1;min-width:0">${esc(n.name)}</span>
+        <span style="flex:1;min-width:0">${esc(n.name)}${(n.req||1)>1?` <span class="tag" title="Скільки разів просили">×${n.req} запити</span>`:""}</span>
         ${S.canWrite?`<input data-nq="${i}" inputmode="decimal" value="${+n.qty||1}" style="width:58px;text-align:center;padding:6px 4px">`:`<b>×${+n.qty||1}</b>`}
         ${mat?(S.canWrite?`<input data-nu="${i}" value="${esc(n.unit||"шт")}" list="nUnits" style="width:62px;text-align:center;padding:6px 4px">`:esc(n.unit||"шт")):`<span class="m" style="font-size:12px">шт</span>`}</div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
@@ -650,17 +653,33 @@ function bindNeeds(s){ loadToolCat(); loadMatCat();
       if(res==="done"){ x.done=true } else if(res==="undo"){ x.done=false; x.match=[] } else { x.done=false; x.match=[...new Set([...(Array.isArray(x.match)?x.match:[]),normName(res.name)])] }
       save(l) }) });
   $("#nAdd")?.addEventListener("click",()=>{
-    $("#nAdd").insertAdjacentHTML("afterend",`<div id="nForm" style="margin-bottom:10px"><textarea id="nTxt" rows="4" placeholder="Інструмент і матеріали — кожне з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
+    let nImgs=[];
+    $("#nAdd").insertAdjacentHTML("afterend",`<div id="nForm" style="margin-bottom:10px"><div class="row" style="margin-bottom:6px"><label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото списку<input type="file" id="nCam" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost sm" style="flex:1;text-align:center">🖼️ Скріни (кілька)<input type="file" id="nGal" accept="image/*" multiple style="display:none"></label></div><div id="nThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div><textarea id="nTxt" rows="4" placeholder="Інструмент і матеріали — кожне з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
       <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="nCancel" style="flex:1">Скасувати</button><button class="btn sm" id="nOk" style="flex:1">Додати</button></div></div>`);
     $("#nAdd").style.display="none"; $("#nTxt").focus();
+    const drawT=()=>{ $("#nThumbs").innerHTML=nImgs.map((x,i)=>`<div style="position:relative"><img src="${x.thumb}" style="width:64px;height:64px;object-fit:cover;border-radius:8px"><button type="button" data-nri="${i}" style="position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:22px;height:22px;background:#e11d48;color:#fff">×</button></div>`).join("") };
+    const addImgs=async fl=>{ for(const f of fl){ try{ nImgs.push(await shrinkImage(f,1600)) }catch(_){} } drawT() };
+    $("#nCam").onchange=e=>{addImgs(e.target.files);e.target.value=""}; $("#nGal").onchange=e=>{addImgs(e.target.files);e.target.value=""};
+    $("#nThumbs").onclick=e=>{ const i=e.target.dataset.nri; if(i!=null){ nImgs.splice(+i,1); drawT() } };
     $("#nCancel").onclick=re;
-    $("#nOk").onclick=async()=>{ const raw=$("#nTxt").value.trim(); if(!raw){re();return}
+    $("#nOk").onclick=async()=>{ const raw=$("#nTxt").value.trim(); if(!raw&&!nImgs.length){re();return}
       const simple=()=>raw.split(/\n|;/).map(x=>x.trim().replace(/^\d+[.)]\s*/,"")).filter(Boolean).map(line=>{
         const m=line.match(/^(.*?)[\s,—–-]*(?:[xх×]\s*)?(\d+)\s*(?:шт\.?|штук[и]?|pcs)?\s*$/i);
         return m&&m[1].trim()?{name:m[1].trim(),qty:+m[2]}:{name:line,qty:1} });
-      let add=null; if(window.__fbAI){ const b=$("#nOk"); b.disabled=true; b.textContent="⏳ Розбираю…"; try{ add=await aiNeeds(raw) }catch(e){ toast("ШІ не відповів — додаю як є") } }
-      if(!add||!add.length) add=simple();
-      if(add.length) save([...(s.needs||[]),...add]); else re() };
+      const old=(s.needs||[]).map(({_here,...x})=>({...x}));
+      let add=null; if(window.__fbAI){ const b=$("#nOk"); b.disabled=true; b.textContent="⏳ Розбираю…"; try{ add=await aiNeeds(raw,nImgs,old) }catch(e){ toast("ШІ не відповів — додаю як є") } }
+      if(!add||!add.length){ if(!raw){ toast("Не вдалося прочитати фото"); re(); return } add=simple() }
+      // об'єднуємо з уже замовленим: та сама річ — не дублюємо, а уточнюємо кількість
+      let merged=0; const l=old;
+      for(const a of add){ let i=a.e>=0?a.e:l.findIndex(x=>normName(x.name)===normName(a.name)); delete a.e;
+        if(i<0){ l.push({...a,req:1}); continue }
+        const x=l[i]; merged++; x.req=(x.req||1)+1;
+        if(a.qtySet){ x.qty=x.qtySet?Math.max(+x.qty||1,+a.qty):a.qty; x.qtySet=true; if(a.kind==="material"&&a.unit&&(!x.unit||x.unit==="шт")) x.unit=a.unit }
+        if(x.kind!=="material"&&a.kind==="material"){ x.kind="material"; x.unit=a.unit||x.unit }
+        if(a.match?.length) x.match=[...new Set([...(x.match||[]),...a.match])];
+        if(x.done&&a.qtySet&&+a.qty>(+x.qty||1)) x.done=false }
+      if(merged) toast(`Об'єднано з уже замовленим: ${merged} поз.`);
+      save(l) };
   });
   $("#nAI")?.addEventListener("click",async()=>{ const b=$("#nAI"); b.disabled=true; b.textContent="⏳ Перевіряю…";
     try{ const old=s.needs||[]; const r=await aiNeeds(old.map(n=>`${n.name} ${+n.qty||1} шт`).join("\n"));
