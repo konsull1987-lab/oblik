@@ -697,7 +697,7 @@ function needsHTML(s){
     ${tools.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`}
     <div class="section-t" style="display:flex;margin-top:8px">🧱 Матеріали<span class="count">${cnt(mats)}</span></div>
     ${mats.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`}
-    ${mats.length?`<div class="row" style="margin-bottom:8px">${S.canWrite?`<button class="btn ghost sm" id="nPrice" style="flex:1">💲 Ціни з Епіцентру</button>`:""}<button class="btn ghost sm" id="nMatDoc" style="flex:1">📄 Список матеріалів</button></div>`:""}
+    ${mats.length?`<button class="btn ghost sm" id="nMatDoc" style="width:100%;margin-bottom:8px">📄 Список матеріалів (замовнику / менеджеру, з цінами)</button>`:""}
     ${S.canWrite?`${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="width:100%;margin-bottom:8px">🔄 Перевірити наявність</button>`:""}
       ${missT.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібний інструмент</button>`:""}
       ${miss.length?`<button class="btn ghost sm" id="nBuy" style="width:100%;margin-bottom:8px">🛒 Список на закупівлю для менеджера</button>`:""}`:""}` }
@@ -758,9 +758,6 @@ function bindNeeds(s){ loadToolCat(); loadMatCat(); loadMatPrices(()=>{ if(!S._m
       save(l); toast("Перевірено") }catch(e){ toast("Не вдалося: "+String(e?.message||e).slice(0,60)); re() } });
   $("#nBuy")?.addEventListener("click",()=>buyList(s.id));
   $("#nMatDoc")?.addEventListener("click",()=>matListDoc(s));
-  $("#nPrice")?.addEventListener("click",async()=>{ const b=$("#nPrice"); b.disabled=true; const t0=Date.now(); const tk=setInterval(()=>{ const el=$("#nPrice"); if(el) el.textContent=`⏳ Шукаю ціни… ${Math.round((Date.now()-t0)/1000)} с` },1000);
-    try{ const items=(s.needs||[]).filter(n=>n.kind==="material").map(n=>({name:n.name,unit:n.unit||"шт"})); const r=await epicentrPrices(items); clearInterval(tk);
-      toast(r.n?`Ціни знайдено: ${r.n} з ${items.length}${r.web?"":" (орієнтовно, без пошуку)"}`:"Ціни не знайдено"); re() }catch(e){ clearInterval(tk); toast("Не вдалося: "+String(e?.message||e).slice(0,80)); re() } });
   $("#nBring")?.addEventListener("click",()=>{ const l=(s.needs||[]).filter(n=>n.kind!=="material"&&haveOnSite(n,s.id)<(+n.qty||1));
     photoFlow({mode:"move",text:true,to:s.id,listText:l.map(n=>`${n.name} ${Math.max(1,(+n.qty||1)-haveOnSite(n,s.id))} шт`).join("\n")}) });
 }
@@ -847,25 +844,7 @@ function matBase(name){ const l=matCat(); if(_mcSrc!==l){ _mcSrc=l; _mcIdx=new M
 function loadMatCat(cb){ if(S.matcatLoaded){ cb&&cb(); return } S.db.doc("meta/matcat").get().then(x=>{ if(x.exists) S.matcat=x.data(); S.matcatLoaded=true; cb&&cb() }).catch(()=>{ S.matcatLoaded=true; cb&&cb() }) }
 async function saveMatCat(items){ const data={items,updatedAt:Date.now(),seedVer:MATCAT_VER}; if(await write(db=>db.doc("meta/matcat").set(data))){ S.matcat=data; S.matcatMerged=null; return true } return false }
 const matCatList=()=>matCat().map(c=>`${c.name} | ${c.unit}${c.alt?` (так пишуть: ${c.alt})`:""}`).join("\n");
-function matCatSheet(){ if(!isDuo()){ closeSheet(); S.tab="money"; S.mtab="price"; S.priceMode="mat"; render(); return } matCatSheetOld() }
-function matCatSheetOld(){
-  loadMatCat(()=>{ let q="", open="";
-    const draw=()=>{ const l=matCat().map((c,i)=>({...c,i})); const groups={};
-      for(const c of l){ if(q&&!wordHit(c.name+" "+(c.alt||"")+" "+c.cat,q)) continue; (groups[c.cat]=groups[c.cat]||[]).push(c) }
-      openSheet(`<h2>🧱 Довідник матеріалів</h2>
-        <div class="seg" style="margin-bottom:8px"><button type="button" id="mcTools">🧰 Інструмент</button><button type="button" class="on">🧱 Матеріали</button></div>
-        <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Правильні назви будівельних матеріалів, одиниці й як їх пишуть. За ним ШІ розпізнає матеріали в списках потрібного й складає закупівлю.</div>
-        <input id="mcQ" type="search" placeholder="Пошук: клей, профіль, піна…" value="${esc(q)}" style="margin-bottom:8px">
-        ${Object.keys(groups).map(cat=>{ const g=groups[cat], op=q||open===cat;
-          return `<div class="card" style="display:block;cursor:pointer;margin-bottom:6px" data-mcc="${esc(cat)}"><div style="display:flex"><b style="flex:1">${op?"▾":"▸"} ${esc(cat)}</b><span class="count">${g.length}</span></div>
-            ${op?g.map(c=>`<div data-mci="${c.i}" style="padding:7px 0;border-top:1px solid var(--line,#2a2f38)"><div style="display:flex"><span style="flex:1">${esc(c.name)}</span><span class="m">${esc(c.unit)}</span></div>${c.alt?`<div class="m" style="font-size:11.5px;color:var(--muted)">${esc(c.alt)}</div>`:""}</div>`).join("")+(S.canWrite?`<button class="btn ghost sm" data-mcadd="${esc(cat)}" style="margin-top:6px">+ Додати матеріал</button>`:""):""}</div>` }).join("")||`<div class="empty">Нічого не знайдено</div>`}
-        <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
-      $("#mcTools").onclick=()=>toolCatSheet();
-      const qi=$("#mcQ"); qi.oninput=()=>{ q=qi.value; const p=qi.selectionStart; draw(); const n=$("#mcQ"); n.focus(); try{n.setSelectionRange(p,p)}catch(_){} };
-      $("#modal").onclick=e=>{ const it=e.target.closest("[data-mci]"); if(it&&S.canWrite){ e.stopPropagation(); mcItemForm(+it.dataset.mci,null,draw); return }
-        const ad=e.target.closest("[data-mcadd]"); if(ad){ e.stopPropagation(); mcItemForm(-1,ad.dataset.mcadd,draw); return }
-        const c=e.target.closest("[data-mcc]"); if(c&&!q){ open=open===c.dataset.mcc?"":c.dataset.mcc; draw() } };
-    }; draw() }) }
+function matCatSheet(){ closeSheet(); if(isDuo()) setBase("trio"); S.tab="money"; S.mtab="price"; S.priceMode="mat"; render() }
 function mcItemForm(i,cat,back){
   const items=matCat().map(x=>({...x})), it=i>=0?items[i]:{cat,name:"",unit:"шт",alt:""};
   const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100";
@@ -952,11 +931,14 @@ function matListDoc(s){
         ${st.prices?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="m" style="flex:1">Націнка на ціни, %</span><input id="mlK" inputmode="decimal" value="${st.mk}" style="width:70px;text-align:center"></div>`:""}
         <div class="card" style="display:block;cursor:default">${l.map(r=>`<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--line,#2a2f38);font-size:14px"><span style="flex:1">${esc(r.name)}</span><span>${r.qty} ${esc(r.unit)}</span>${st.prices?`<b style="min-width:80px;text-align:right">${r.price?money(r.sum):"—"}</b>`:""}</div>`).join("")}
           ${st.prices?`<div style="text-align:right;margin-top:6px">Разом: <b>${money(Math.round(tot))}</b></div>`:""}</div>
-        ${st.prices&&noP?`<div class="banner">Без ціни: ${noP} поз. — натисніть «💲 Ціни з Епіцентру» в «Потрібно» або впишіть ціну вручну.</div>`:""}
+        ${st.prices&&S.canWrite?`<button class="btn ghost sm" id="mlEpi" style="width:100%;margin-bottom:6px">💲 ${noP?`Знайти ціни Епіцентру (без ціни: ${noP})`:"Оновити ціни з Епіцентру"}</button>`:""}
         <div class="actions"><button class="btn ghost" id="mlCopy">📋 Копіювати</button><button class="btn ghost" id="mlShare">📤 Надіслати</button><button class="btn" id="mlPrint">🖨️ PDF</button></div>
         <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
       $("#mlTo").onclick=e=>{const b=e.target.closest("button");if(b){st.to=b.dataset.v; if(st.to==="mgr"){st.onlyMiss=true;st.mk=0} draw()}};
-      $("#mlP").onchange=e=>{st.prices=e.target.checked;draw()}; $("#mlM").onchange=e=>{st.onlyMiss=e.target.checked;draw()};
+      $("#mlP").onchange=e=>{st.prices=e.target.checked;draw()};
+      $("#mlEpi")?.addEventListener("click",async()=>{ const b=$("#mlEpi"); b.disabled=true; const t0=Date.now(), tk=setInterval(()=>{ const el=$("#mlEpi"); if(el) el.textContent=`⏳ Шукаю ціни… ${Math.round((Date.now()-t0)/1000)} с` },1000);
+        try{ const l=mats.map(x=>x.n), miss=l.filter(n=>{ const p=matPriceOf(n); return !p||p.base }); const items=(miss.length?miss:l).map(n=>({name:n.name,unit:n.unit||"шт"}));
+          const r=await epicentrPrices(items); clearInterval(tk); toast(r.n?`Ціни знайдено: ${r.n} з ${items.length}`:"Ціни не знайдено") }catch(e){ clearInterval(tk); toast("Не вдалося: "+String(e?.message||e).slice(0,80)) } draw() }); $("#mlM").onchange=e=>{st.onlyMiss=e.target.checked;draw()};
       $("#mlK")?.addEventListener("change",e=>{st.mk=parseFloat(String(e.target.value).replace(",","."))||0;draw()});
       $("#mlCopy").onclick=async()=>{ try{ await navigator.clipboard.writeText(txt()); toast("Скопійовано") }catch(_){ toast("Не вдалося скопіювати") } };
       $("#mlShare").onclick=async()=>{ const t=txt(); try{ if(navigator.share){ await navigator.share({text:t}); return } }catch(e){ if(e?.name==="AbortError") return } location.href="https://t.me/share/url?url=%20&text="+encodeURIComponent(t) };
@@ -1206,8 +1188,8 @@ function siteForm(s){
     ${!isNew?T("tools",`<div class="actions" style="margin:0 0 8px">${S.canWrite?`<button class="btn ghost sm" id="toolListS">📋 Завезти списком</button><button class="btn ghost sm" id="toolPhotoS">📷 З фото</button>`:""}${toolsHere.length?`<button class="btn ghost sm" id="hoS">🧰 Список / повернути</button>`:""}</div>
       ${toolsHere.length?`<div class="list">${toolsHere.map(t=>`<div class="hist" data-tool="${t.id}" style="display:flex;gap:8px;cursor:pointer"><span style="flex:1">${esc(t.name)}${t.brand?" · "+esc(t.brand):""}${t.inv?` <span class="m">#${esc(t.inv)}</span>`:""}</span><span class="m">${qtyOf(t)} шт${t.holder?" · "+esc(person(t.holder)?.name||""):""}</span></div>`).join("")}</div>`:`<div class="empty">Інструменту тут немає</div>`}`):""}
     ${!isNew&&isSite?T("needs",`<div id="needsBox">${needsHTML(s)}</div>`):""}
-    ${!isNew&&isSite?T("works",`<div id="apBox">${approvedHTML(s)}</div>${S.canWrite?`<button class="btn" id="sRep" style="width:100%;margin-bottom:6px">📋 Звіт робіт по цьому об'єкту</button>`:""}${reps.length?`<button class="btn ghost" id="smOpen" style="width:100%;margin-bottom:8px">📄 Смета виконаних робіт для замовника</button>`:""}
-      ${reps.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)} · ${esc(person(f.worker)?.name||"")}</div><div class="m" style="font-size:12px">${(f.report.items||[]).slice(0,3).map(i=>esc(i.name)).join(", ")}${(f.report.items||[]).length>3?"…":""}</div></div><b>${money(f.amount)}</b></div>`).join("")||`<div class="empty">Звітів робіт ще немає. Роботи зі звітів збираються в смету для замовника.</div>`}`):""}
+    ${!isNew&&isSite?T("works",`<div id="apBox">${approvedHTML(s)}</div>${S.canWrite?`<button class="btn" id="sRep" style="width:100%;margin-bottom:6px">📋 Звіт робіт по цьому об'єкту</button>`:""}
+      ${reps.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)} · ${esc(person(f.worker)?.name||"")}</div><div class="m" style="font-size:12px">${(f.report.items||[]).slice(0,3).map(i=>esc(i.name)).join(", ")}${(f.report.items||[]).length>3?"…":""}</div></div><b>${money(f.amount)}</b></div>`).join("")||`<div class="empty">Звітів робіт ще немає. Роботи зі звітів збираються в смету для замовника («📁 Документи» → «📋 Смета»).</div>`}`):""}
     ${!isNew&&isSite?T("docs",siteDocsHTML(s)):""}
     ${T("data",`    <form id="siteForm">
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
@@ -1237,7 +1219,6 @@ function siteForm(s){
   $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
   if(!isNew) bindNeeds(s);
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
-  $("#smOpen")?.addEventListener("click",()=>smetaFlow(s.id));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
@@ -1983,7 +1964,7 @@ function renderMoneyPrice(){
   if(!S.priceLoaded){ loadPrice(); $("#view").innerHTML=`<div class="empty">Завантажую прайс…</div>`; return }
   const items=priceList(), q=(S.priceQ||"").toLowerCase().trim();
   const cats=[...new Set([...PRICE_CATS,...items.map(i=>i.cat)])];
-  let h=priceModeSeg()+`<div class="actions" style="margin:0 0 8px">${S.canWrite?`<button class="btn" onclick="kpFlow()">📄 Комерційна пропозиція</button>`:""}<button class="btn ghost" onclick="kpList()">Збережені КП</button></div>
+  let h=priceModeSeg()+`
     <input id="priceQ" type="search" placeholder="Пошук роботи…" value="${esc(S.priceQ||"")}" style="margin-bottom:6px">
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">${items.length} робіт · ${S.price?"змінено "+fmtDate(S.price.updatedAt):"стартовий прайс"}. Натисніть на роботу, щоб змінити ціну.</div>`;
   for(const c of cats){ const l=items.map((it,i)=>({...it,i})).filter(it=>it.cat===c&&(!q||wordHit(it.name+" "+(it.alt||""),q))); if(!l.length&&!(S.canWrite&&!q&&PRICE_CATS.includes(c)&&false)) continue;
