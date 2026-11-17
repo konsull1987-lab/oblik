@@ -391,7 +391,7 @@ function renderSites(){
   if(!all.length){ $("#view").innerHTML=`<div class="empty">${sq?"Нічого не знайдено":"Додайте склади й об'єкти кнопкою «+»."}</div>`; return; }
   const tot=siteTotals();
   const card=s=>{ const t=tot[s.id], p=t?t.in-t.out:0, debt=(+s.contract||0)>0?(+s.contract)-(t?.in||0):0;
-    return `<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}${s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
+    return `<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
     ${t?`<div class="m">прихід <span class="in">${money(t.in)}</span> · витрати <span class="out">${money(t.out)}</span> · прибуток <b class="${p<0?"out":""}">${money(p)}</b></div>`:""}
     ${debt>0?`<div class="m">👤 ${esc(s.customer||"замовник")} винен <b class="in">${money(debt)}</b></div>`:""}
     ${s.note?`<div class="m">${esc(s.note)}</div>`:""}</div>${isDuo()?"":`<span class="count">${cnt[s.id]||0} од.</span>`}</div>` };
@@ -546,6 +546,8 @@ $("#modal").addEventListener("click",e=>{ if(e.target.classList.contains("overla
 
 // ---------- Кількість і переміщення частинами ----------
 const qtyOf=t=>Math.max(1,+t.qty||1);
+// «Шабашка» та подібні: постійний об'єкт для дрібних разових робіт — прибуток ділиться одразу, об'єкт не закривається
+const isPerm=st=>!!st&&(st.perm===true||(st.perm!==false&&/шабаш/i.test(st.name||"")));
 const normName=s=>String(s||"").toLowerCase().replace(/[«»"'’ʼ`.,()\-–—/]/g," ").replace(/\s+/g," ").trim();
 function lotKey(t){return [normName(t.name),t.cat||"",normName(t.brand),normName(t.model)].join("|")}
 const isLot=t=>!t.serial&&(qtyOf(t)>1||!t.inv);
@@ -1160,7 +1162,8 @@ function siteForm(s){
       ${s.type!=="warehouse"?`<div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я, телефон"></div>
         <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${s.contract||""}" placeholder="0"></div></div>`:""}
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="active" style="width:22px;height:22px" ${s.active!==false?"checked":""}> Активний (знятий — йде в архів)</label></div>
-      ${s.type!=="warehouse"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="split" style="width:22px;height:22px" ${s.split?"checked":""}> Прибуток поділено між власниками</label></div>`:""}
+      ${s.type!=="warehouse"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="perm" style="width:22px;height:22px" ${isPerm(s)?"checked":""}> ♾️ Постійний (як «Шабашка»): дрібні разові роботи, прибуток ділиться одразу, не закривається</label></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="split" style="width:22px;height:22px" ${s.split||isPerm(s)?"checked":""}> Прибуток поділено між власниками</label></div>`:""}
       ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delS">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
     </form>`)}
     ${!isNew&&tab!=="data"?`<div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`:""}`);
@@ -1181,7 +1184,7 @@ function siteForm(s){
   $("#smOpen")?.addEventListener("click",()=>smetaFlow(s.id));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),note:f.note.trim(),type,active:!!f.active,split:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено")}
   });
@@ -1578,7 +1581,7 @@ function finForm(f,preset){
   $("#taxOn").checked=isNew?td.on:!!taxDoc; $("#taxRate").value=taxDoc?.taxRate||td.rate||8;
   const updAmt=()=>{ const raw=$("#finForm [name=amount]").value, a=sumExpr(raw); $("#amtSum").textContent=/[+-].*\d/.test(raw.replace(/^\s*[+-]/,""))&&a>0?"= "+money(a):"";
     const r=parseFloat(String($("#taxRate").value).replace(",","."))||0; $("#taxInfo").textContent=$("#taxOn").checked&&a>0?`Прихід ${money(a)} · податок ${money(Math.round(a*r)/100)} окремою витратою «Податки» · залишиться ${money(a-Math.round(a*r)/100)}`:"" };
-  const updClose=()=>{ if(!$("#finForm [name=site]")) return; const sid=$("#finForm [name=site]").value, st=site(sid); const show=mode==="in"&&st&&st.type!=="warehouse"&&!(st.split&&st.active===false);
+  const updClose=()=>{ if(!$("#finForm [name=site]")) return; const sid=$("#finForm [name=site]").value, st=site(sid); const show=mode==="in"&&st&&st.type!=="warehouse"&&!isPerm(st)&&!(st.split&&st.active===false);
     $("#closeBox").style.display=show?"":"none"; if(!show){$("#closeSite").checked=false;$("#closeInfo").textContent="";return}
     if(!$("#closeSite").checked){$("#closeInfo").textContent="";return}
     const a=sumExpr($("#finForm [name=amount]").value)||0, r=$("#taxOn").checked?(parseFloat(String($("#taxRate").value).replace(",","."))||0):0, t=siteTotals()[sid]||{in:0,out:0};
