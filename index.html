@@ -378,16 +378,31 @@ function renderTools(){
     $("#view").innerHTML=`<div class="empty">Інструменту ще немає.<br><br>${S.people.size<2||!S.sites.size?"Спочатку додайте <b>людей</b> і <b>об'єкти/склади</b> на відповідних вкладках, потім — інструмент кнопкою «+».":"Натисніть «+», щоб додати перший інструмент."}</div>`;
     return;
   }
-  let h=`<div class="section-t" style="display:flex">Знайдено<span class="count">${list.length}</span></div><div class="list">`;
-  for(const t of list){
-    const r=roleOf(t);
-    h+=`<div class="card" data-tool="${t.id}">
+  const tcard=t=>{ const r=roleOf(t); return `<div class="card" data-tool="${t.id}">
       ${S.select?`<input type="checkbox" class="cb" ${S.selected.has(t.id)?"checked":""} tabindex="-1">`:`<div class="stripe ${r==="owner"?"own":r==="worker"?"wrk":""}"></div>`}
       <div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div>
       <div class="m">${esc(t.cat||"")}${t.brand||t.model?" · "+esc([t.brand,t.model].filter(Boolean).join(" ")):""}</div>
-      <div class="tags">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`;
-  }
-  $("#view").innerHTML=h+`</div>`;
+      <div class="tags">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`; };
+  const flat=(S.q||"").trim()||S.site||S.person||S.cat||S.holderType!=="all"||S.toolFlat;
+  const modeBtn=`<div style="display:flex;justify-content:flex-end;margin:-2px 0 6px"><button class="btn ghost sm" id="tlMode">${S.toolFlat?"🗂 Групами":"☰ Одним списком"}</button></div>`;
+  if(flat){ let h=((S.q||"").trim()||S.site||S.person||S.cat||S.holderType!=="all"?"":modeBtn)+`<div class="section-t" style="display:flex">Знайдено<span class="count">${list.length}</span></div><div class="list">`+list.map(tcard).join("")+`</div>`;
+    $("#view").innerHTML=h; $("#tlMode")?.addEventListener("click",()=>{ S.toolFlat=!S.toolFlat; renderTools() }); return }
+  // 🗂 групами: склад / об'єкт / бригада / людина — відкривається по натисканню
+  S.toolOpen=S.toolOpen||new Set(); const G=new Map();
+  for(const t of list){ const p=t.holder?person(t.holder):null, s2=t.site?site(t.site):null;
+    const k=p?(p.crew?"c:":"p:")+p.id:s2?(s2.type==="warehouse"?"w:":"s:")+s2.id:"none"; if(!G.has(k)) G.set(k,[]); G.get(k).push(t) }
+  const meta=k=>{ if(k==="none") return {ic:"❓",nm:"Без місця",ord:9}; const [ty,id]=k.split(":");
+    if(ty==="w") return {ic:"🏬",nm:site(id)?.name||"Склад",ord:1}; if(ty==="s") return {ic:"🏗️",nm:site(id)?.name||"Об'єкт",ord:2,sub:site(id)?.active===false?"архів":""};
+    const p=person(id); return {ic:ty==="c"?"👥":p?.role==="owner"?"👤":"🔧",nm:p?.name||"—",ord:ty==="c"?3:p?.role==="owner"?4:5,sub:site(G.get(k)[0]?.site)?.name?("на: "+[...new Set(G.get(k).map(t=>site(t.site)?.name).filter(Boolean))].slice(0,2).join(", ")):""} };
+  const SEC={1:"🏬 Склади",2:"🏗️ Об'єкти",3:"👥 Бригади",4:"👤 Власники",5:"🔧 Виконавці",9:"Інше"};
+  const keys=[...G.keys()].map(k=>({k,...meta(k),n:G.get(k).reduce((a,t)=>a+qtyOf(t),0)})).sort((a,b)=>a.ord-b.ord||b.n-a.n||a.nm.localeCompare(b.nm,"uk"));
+  let h=modeBtn, last=0;
+  for(const g of keys){ if(g.ord!==last){ h+=`<div class="section-t">${SEC[g.ord]}</div>`; last=g.ord } const op=S.toolOpen.has(g.k);
+    h+=`<div class="card" data-tg="${esc(g.k)}" style="display:block;cursor:pointer;margin-bottom:6px"><div style="display:flex;gap:8px;align-items:center"><b style="flex:1">${op?"▾":"▸"} ${g.ic} ${esc(g.nm)}${g.sub?` <span class="m" style="font-weight:400;color:var(--muted)">· ${esc(g.sub)}</span>`:""}</b><span class="count">${g.n} шт</span></div>
+      ${op?`<div class="list" style="margin-top:8px">${G.get(g.k).sort((a,b)=>String(a.name).localeCompare(String(b.name),"uk")).map(tcard).join("")}</div>`:""}</div>` }
+  $("#view").innerHTML=h;
+  $("#tlMode")?.addEventListener("click",()=>{ S.toolFlat=!S.toolFlat; renderTools() });
+  $("#view").querySelectorAll("[data-tg]").forEach(el=>el.addEventListener("click",e=>{ if(e.target.closest("[data-tool]")) return; const k=el.dataset.tg; S.toolOpen.has(k)?S.toolOpen.delete(k):S.toolOpen.add(k); renderTools() }));
 }
 
 function renderSites(){
