@@ -862,7 +862,7 @@ function personForm(p){
       const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
       const tels=(c.tel||[]).filter(Boolean); let tel=tels[0]||"";
       if(tels.length>1){ const i=prompt("Кілька номерів:\n"+tels.map((t,k)=>`${k+1}. ${t}`).join("\n")+"\nВведіть номер варіанта","1"); tel=tels[(parseInt(i)||1)-1]||tels[0] }
-      const F=n=>$("#pForm [name="+n+"]"); if(tel) F("phone").value=tel; const nm=(c.name||[])[0]; if(nm&&!F("name").value.trim()) F("name").value=nm;
+      const F=n=>$("#pForm [name="+n+"]"); if(tel) F("phone").value=tel; const nm=(c.name||[])[0]; if(nm) F("name").value=nm.trim();
     }catch(e){ if(e?.name!=="AbortError"&&e?.name!=="InvalidStateError") toast("Не вдалося відкрити контакти") } });
   $("#isCrew").onchange=e=>{const c=e.target.checked;$("#crewBox").style.display=c?"block":"none";$("#nmLbl").textContent=c?"Назва бригади *":"Ім'я *";$("#pForm [name=name]").placeholder=c?"напр. Бригада Юри":""};
   $("#showW")?.addEventListener("click",()=>workerSheet(p.id));
