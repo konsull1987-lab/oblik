@@ -897,16 +897,25 @@ function buyList(onlySite){
 // ---------- 💲 Ціни матеріалів (Епіцентр) + 📄 список матеріалів ----------
 function loadMatPrices(cb){ if(S.mpLoaded){ cb&&cb(); return } S.db.doc("meta/matprices").get().then(x=>{ S.matprices=x.exists?(x.data().map||{}):{}; S.mpLoaded=true; cb&&cb() }).catch(()=>{ S.matprices={}; S.mpLoaded=true; cb&&cb() }) }
 function matPriceOf(n){ if(+n.price>0) return {price:+n.price,src:n.priceSrc||"вручну"}; const p=(S.matprices||{})[normName(n.name)]; return p&&+p.price>0&&(!p.unit||!n.unit||normUnit(p.unit)===normUnit(n.unit))?p:null }
+const MAT_NOTE=["Вартість матеріалів у пропозицію не входить.","Вартість матеріалів входить у загальну суму пропозиції."];
+const UNITS=["шт","м²","м³","м.п.","м","кг","т","л","мішок","лист","рулон","балон","відро","каністра","упак","компл","пог.м","год","послуга","точка","отвір"];
+function unitSel(attrs,val,style){ val=String(val||""); const l=UNITS.includes(val)||!val?UNITS:[val,...UNITS];
+  return `<select class="unitSel" ${attrs} style="${style||""}">${l.map(u=>`<option ${u===val?"selected":""}>${esc(u)}</option>`).join("")}<option value="__o">✏️ інша…</option></select>` }
+document.addEventListener("input",e=>{ if(e.target.matches?.("select.unitSel")&&e.target.value==="__o") e.stopPropagation() },true);
+document.addEventListener("change",e=>{ const t=e.target; if(!t.matches?.("select.unitSel")||t.value!=="__o") return;
+  const v=(prompt("Одиниця виміру:","")||"").trim(); if(!v){ t.selectedIndex=0 } else { const o=document.createElement("option"); o.textContent=v; t.insertBefore(o,t.firstChild); t.value=v }
+  setTimeout(()=>t.dispatchEvent(new Event("input",{bubbles:true})),0) },true);
 async function epicentrPrices(items){ // items: [{name,unit}] → оновлює S.matprices і meta/matprices
   if(!window.__fbAIWeb) throw new Error("ШІ недоступний");
   const prompt=`Знайди АКТУАЛЬНІ роздрібні ціни в гривнях у мережі «Епіцентр» (сайт epicentrk.ua) на будівельні матеріали нижче. Якщо в назві ВКАЗАНО бренд чи модель (Ceresit CM 11, Knauf Rotband…) — бери ціну саме цього товару. Якщо бренд НЕ вказано (просто «Клей для плитки», «Ґрунтовка») — подивись 4–6 різних брендів цього типу і стандартної фасовки в Епіцентрі (без найдешевших «економ» і без преміум-спецсумішей) і поверни СЕРЕДНЮ ціну; у title напиши діапазон і бренди, напр. «середнє з 5: Ceresit, Kreisel, Siltek… 290–480 ₴/25 кг». Ціну перерахуй на ОДИНИЦЮ зі списку: якщо одиниця «кг», а товар продається мішком 25 кг — поділи; якщо «л», а каністра 10 л — поділи; «мішок», «лист», «балон», «шт» — ціна за упаковку/штуку.
 Список (номер. назва | одиниця):
 ${items.map((x,i)=>`${i}. ${x.name} | ${x.unit||"шт"}`).join("\n")}
+ВАЖЛИВО: price — завжди за ОДИНИЦЮ зі списку (за 1 лист, 1 мішок, 1 балон, 1 л…). Якщо точного товару немає — дай орієнтовну середню ціну схожого (avg:true), а не 0.
 Відповідь — лише JSON без пояснень: {"items":[{"i":0,"price":0,"unit":"","title":"товар або «середнє з N: бренди, діапазон»","avg":true,"url":""}]}. Якщо не знайшов — price 0.`;
   const r=await window.__fbAIWeb(prompt); const j=JSON.parse(String(r.text).replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1"));
   const map={...(S.matprices||{})}, at=Date.now(); let n=0;
   for(const x of (j.items||[])){ const it=items[+x.i]; if(!it||!(+x.price>0)) continue; n++;
-    map[normName(it.name)]={price:Math.round(+x.price*100)/100,unit:normUnit(x.unit||it.unit),title:String(x.title||"").slice(0,160),avg:!!x.avg,url:String(x.url||"").slice(0,300),src:r.web?"Епіцентр":"орієнтовно",at} }
+    map[normName(it.name)]={price:Math.round(+x.price*100)/100,unit:normUnit(it.unit||x.unit),title:String(x.title||"").slice(0,160),avg:!!x.avg,url:String(x.url||"").slice(0,300),src:r.web?"Епіцентр":"орієнтовно",at} }
   if(n) await write(db=>db.doc("meta/matprices").set({map,updatedAt:at})); S.matprices=map; return {n,web:r.web} }
 function matListDoc(s){
   loadMatPrices(()=>{ const mats=(s.needs||[]).map((n,i)=>({n,i})).filter(x=>x.n.kind==="material");
@@ -1816,7 +1825,7 @@ function docForm(d){
   $("#dCli").onchange=e=>{if(e.target.value==="__new"){const keep=collect();reqForm("clients",null,id=>docForm({...keep,client:id}))}};
   const drawItems=()=>{$("#dItems").innerHTML=items.map((it,i)=>`<div class="card" style="display:block;margin-bottom:6px;cursor:default">
       <input data-i="${i}" data-k="name" value="${esc(it.name)}" placeholder="Назва роботи" style="margin-bottom:6px">
-      <div class="row"><input data-i="${i}" data-k="unit" value="${esc(it.unit)}" placeholder="од." style="flex:.6"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${esc(it.qty)}" placeholder="к-сть" style="flex:.8"><input data-i="${i}" data-k="price" inputmode="decimal" value="${esc(it.price)}" placeholder="ціна"><button type="button" class="btn ghost sm" data-rm="${i}" style="flex:0 0 auto">✕</button></div></div>`).join("");
+      <div class="row">${unitSel(`data-i="${i}" data-k="unit"`,it.unit,"flex:.6")}<input data-i="${i}" data-k="qty" inputmode="decimal" value="${esc(it.qty)}" placeholder="к-сть" style="flex:.8"><input data-i="${i}" data-k="price" inputmode="decimal" value="${esc(it.price)}" placeholder="ціна"><button type="button" class="btn ghost sm" data-rm="${i}" style="flex:0 0 auto">✕</button></div></div>`).join("");
     updTot();};
   const numv=x=>parseFloat(String(x||"").replace(/\s/g,"").replace(",","."))||0;
   const isShort=()=>$("#dvInv").value==="short"||$("#dvAct").value==="short";
@@ -1959,14 +1968,14 @@ function kpList(){
 }
 function kpFlow(saved,opts){
   const items=priceList(); const n2=v=>Math.round((+v||0)*100)/100; loadMatCat(); loadMatPrices();
-  let st=saved?{...saved,rows:(saved.rows||[]).map(r=>({...r})),text:"",fileParts:[],file:null}:{id:"",withMat:false,site:opts?.site||"",no:String(new Date().getFullYear()).slice(2)+"-"+String(Date.now()).slice(-4),date:todayISO(),client:site(opts?.site)?.customer||"",object:site(opts?.site)?.name||"",fop:[...S.fops.values()][0]?.id||"",disc:0,valid:14,note:"Вартість матеріалів у пропозицію не входить.",text:"",fileParts:[],file:null,rows:[]};
+  let st=saved?{...saved,rows:(saved.rows||[]).map(r=>({...r})),text:"",fileParts:[],file:null}:{id:"",withMat:false,site:opts?.site||"",no:String(new Date().getFullYear()).slice(2)+"-"+String(Date.now()).slice(-4),date:todayISO(),client:site(opts?.site)?.customer||"",object:site(opts?.site)?.name||"",fop:[...S.fops.values()][0]?.id||"",disc:0,valid:14,note:MAT_NOTE[0],text:"",fileParts:[],file:null,rows:[]};
   const tot=()=>n2(st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat)).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0));
   const draw=()=>{
     openSheet(`<h2>📄 Комерційна пропозиція</h2>
       <div class="row"><div class="field"><label>№</label><input id="kpNo" value="${esc(st.no)}"></div><div class="field"><label>Дата</label><input type="date" id="kpD" value="${st.date}"></div></div>
       <div class="field"><label>Замовник</label><input id="kpC" list="kpCl" value="${esc(st.client)}" placeholder="ПІБ або організація"><datalist id="kpCl">${[...S.clients.values()].map(c=>`<option value="${esc(c.name)}">`).join("")}</datalist></div>
       <div class="row"><div class="field"><label>Прив'язати до об'єкта</label><select id="kpS">${siteOptions(st.site||"","— новий / без об'єкта")}</select></div><div class="field"><label>Об'єкт / адреса в документі</label><input id="kpO" value="${esc(st.object)}"></div></div>
-      <div class="seg" id="kpMat" style="margin-bottom:8px"><button type="button" data-v="0" class="${st.withMat?"":"on"}">Тільки роботи</button><button type="button" data-v="1" class="${st.withMat?"on":""}">Роботи + матеріали</button></div>
+      <div class="seg" id="kpMat" style="margin-bottom:8px"><button type="button" data-v="0" class="${st.withMat?"":"on"}">Матеріали не входять</button><button type="button" data-v="1" class="${st.withMat?"on":""}">Матеріали входять</button></div>
       <div class="row"><div class="field"><label>Від кого</label><select id="kpF"><option value="">— назва фірми</option>${[...S.fops.values()].map(f=>`<option value="${f.id}" ${st.fop===f.id?"selected":""}>${esc(f.short||f.name)}</option>`).join("")}</select></div>
         <div class="field"><label>Знижка, %</label><input id="kpDisc" inputmode="decimal" value="${st.disc||0}"></div><div class="field"><label>Діє, днів</label><input id="kpV" inputmode="numeric" value="${st.valid}"></div></div>
       <div class="field"><label>Перелік робіт від замовника (текст)</label><textarea id="kpT" rows="4" placeholder="Вставте перелік: роботи й обсяги…">${esc(st.text)}</textarea></div>
@@ -1978,7 +1987,7 @@ function kpFlow(saved,opts){
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     const bind=(id,k,num)=>{$(id).onchange=e=>{st[k]=num?(parseFloat(String(e.target.value).replace(",","."))||0):e.target.value;if(st.rows.length)drawRows()}};
     $("#kpS").onchange=e=>{ st.site=e.target.value; const x=site(st.site); if(x){ if(!st.object) st.object=x.name; if(!st.client&&x.customer) st.client=x.customer } draw() };
-    $("#kpMat").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; st.withMat=b.dataset.v==="1"; draw() };
+    $("#kpMat").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; st.withMat=b.dataset.v==="1"; if(!st.note||MAT_NOTE.includes(st.note)) st.note=MAT_NOTE[st.withMat?1:0]; draw() };
     bind("#kpNo","no");bind("#kpD","date");bind("#kpC","client");bind("#kpO","object");bind("#kpF","fop");bind("#kpDisc","disc",1);bind("#kpV","valid",1);
     $("#kpT").oninput=e=>st.text=e.target.value;
     const pick=async file=>{ if(!file) return; st.file=file; st.fileParts=[];
@@ -2019,8 +2028,9 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       ${st.rows.map((r,i)=>r.mat&&!st.withMat?"":`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on===false?"opacity:.5":""};${r.on!==false&&!(+r.price>0)?"border:1px solid var(--bad,#e57373)":""}">${r.mat?`<div class="m" style="font-size:11.5px;color:var(--muted)">🧱 матеріал</div>`:""}
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on!==false?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         ${r.orig&&r.orig!==r.name?`<div class="m" style="font-size:12px;color:var(--muted)">у замовника: ${esc(r.orig)}</div>`:""}
-        <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><input data-i="${i}" data-k="unit" value="${esc(r.unit)}" style="flex:0 0 56px;text-align:center"><span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
-        <button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`).join("")}
+        <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-i="${i}" data-k="unit"`,r.unit,"flex:0 0 74px;padding-left:4px;padding-right:2px")}<span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
+        ${r.mat?`${r.priceSrc?`<div class="m" style="font-size:11.5px;color:var(--muted);margin-top:4px">💲 ${esc(r.priceSrc)}</div>`:""}<button type="button" class="btn ghost sm" data-epi="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">💲 ${+r.price>0?"Оновити ціну з Епіцентру":"Знайти ціну в Епіцентрі"}</button></div>`:`<button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`}`).join("")}
+      ${st.withMat&&st.rows.some(r=>r.mat&&r.on!==false&&!(+r.price>0))?`<button class="btn sm" id="kpEpiAll" style="width:100%;margin-bottom:8px">💲 Знайти ціни Епіцентру для всіх матеріалів без ціни (${st.rows.filter(r=>r.mat&&r.on!==false&&!(+r.price>0)).length})</button>`:""}
       <div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="kpAdd2" style="flex:1">🔍 + Робота з прайсу</button><button class="btn ghost sm" id="kpAdd" style="flex:1">✏️ + Рядок вручну</button></div>
       ${st.withMat?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="kpAddM" style="flex:1">🧱 + Один матеріал</button><button class="btn ghost sm" id="kpML" style="flex:1">📝 Список матеріалів</button></div>
       ${st.mlOpen?`<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="font-size:12.5px;margin-bottom:4px">Надиктуйте або вставте весь перелік — ШІ розбере назви й кількість і підбере середні ціни Епіцентру.</div><textarea id="kpMT" rows="5" placeholder="Напр.: клей для плитки 20 мішків, ґрунтовка глибокого проникнення 30 літрів, гіпсокартон стіновий 40 листів, профіль CD 60 штук…">${esc(st.mtext||"")}</textarea><button class="btn" id="kpMGo" style="width:100%;margin-top:6px">🤖 Розібрати й підібрати ціни</button></div>`:""}`:""}
@@ -2035,7 +2045,15 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       else if(k==="qty"||k==="price") r[k]=parseFloat(String(e.target.value).replace(",","."))||0;
       else if(k==="p"){ r.p=+e.target.value; const it=items[r.p]; if(it&&r.orig) learnAlias(r.orig,it.name); if(it){ r.name=it.name; r.unit=it.unit; r.price=it.price; r.cat=it.cat } }
       drawRows()};
-    $("#kpRes").onclick=e=>{ const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
+    async function epiRows(idx,btn){ if(!window.__fbAIWeb){toast("ШІ недоступний");return} const l=idx.map(i=>st.rows[i]); if(!l.length) return;
+      const t0=Date.now(), lbl=btn?.textContent; if(btn){ btn.disabled=true } const tk=setInterval(()=>{ if(btn) btn.textContent=`⏳ Шукаю в Епіцентрі… ${Math.round((Date.now()-t0)/1000)} с` },1000);
+      try{ l.forEach(r=>{ const k=normName(r.name); if(S.matprices&&S.matprices[k]&&idx.length===1) delete S.matprices[k] });
+        const res=await epicentrPrices(l.map(r=>({name:r.name,unit:r.unit||"шт"}))); clearInterval(tk); let n=0;
+        l.forEach(r=>{ const p=(S.matprices||{})[normName(r.name)]; if(p&&+p.price>0){ r.price=p.price; r.priceSrc=(p.src||"")+(p.title?": "+p.title:""); n++ } });
+        drawRows(); toast(n?`Ціни знайдено: ${n} з ${l.length}${res.web?"":" (орієнтовно, без пошуку в інтернеті)"}`:"Не знайшлось — впишіть ціну вручну");
+      }catch(e){ clearInterval(tk); if(btn){btn.disabled=false;btn.textContent=lbl} toast("Не вдалося: "+String(e?.message||e).slice(0,90)) } }
+    $("#kpEpiAll")?.addEventListener("click",e=>loadMatPrices(()=>epiRows(st.rows.map((r,i)=>i).filter(i=>{const r=st.rows[i];return r.mat&&r.on!==false&&!(+r.price>0)}),e.target)));
+    $("#kpRes").onclick=e=>{ const eb=e.target.closest("[data-epi]"); if(eb){ loadMatPrices(()=>epiRows([+eb.dataset.epi],eb)); return } const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
       pickWork(items,st.rows[i].p,v=>$("#kpRes").onchange({target:{dataset:{i,k:"p"},value:String(v)}})) };
     $("#kpAdd2").onclick=()=>$("#kpPick").click();
     $("#kpAddM")?.addEventListener("click",()=>{ const mc=matCat(); pickWork(mc.map(m=>({name:m.name,unit:m.unit,alt:m.alt,cat:m.cat,price:matPriceOf({name:m.name,unit:m.unit})?.price||0})),-1,v=>{ if(v<0) return; const m=mc[v], p=matPriceOf({name:m.name,unit:m.unit});
@@ -2055,8 +2073,8 @@ ${mc.map(m=>m.name+" | "+m.unit).join("\n")}
         const list=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty||1,unit:normUnit(x.unit||"шт")||"шт"}));
         if(!list.length){ toast("Матеріалів не знайдено"); b.disabled=false; b.textContent="🤖 Розібрати й підібрати ціни"; return }
         const miss=list.filter(x=>!matPriceOf(x)); let web=true;
-        if(miss.length&&window.__fbAIWeb){ b.textContent=`⏳ Шукаю ціни Епіцентру (${miss.length})…`; try{ const r=await epicentrPrices(miss); web=r.web }catch(_){ } }
-        let got=0; for(const x of list){ const p=matPriceOf(x); if(p) got++; st.rows.push({on:true,mat:true,name:x.name,qty:x.qty,unit:x.unit,price:p?.price||0,p:-1,cat:"Матеріали",priceSrc:p?.src||""}) }
+        if(miss.length&&window.__fbAIWeb){ b.textContent=`⏳ Шукаю ціни Епіцентру (${miss.length})…`; try{ const r=await epicentrPrices(miss); web=r.web }catch(e){ toast("Ціни не знайшлись: "+String(e?.message||e).slice(0,80)) } }
+        let got=0; for(const x of list){ const p=matPriceOf(x); if(p) got++; st.rows.push({on:true,mat:true,name:x.name,qty:x.qty,unit:x.unit,price:p?.price||0,p:-1,cat:"Матеріали",priceSrc:p?(p.src||"")+(p.title?": "+p.title:""):""}) }
         st.mtext=""; st.mlOpen=false; drawRows(); toast(`Додано ${list.length} матеріалів, з ціною ${got}${web?"":" (ціни орієнтовні, без пошуку)"}${got<list.length?" — решті впишіть ціну":""}`);
       }catch(e){ b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,60)) } }
     $("#kpAdd").onclick=()=>{st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"});drawRows()};
@@ -2113,7 +2131,7 @@ function smetaFlow(siteId){
       <div class="row"><div class="field"><label>Націнка, %</label><input id="smMk" inputmode="decimal" value="${st.mk}"></div><div class="field"><label>№</label><input id="smNo" value="${esc(st.no)}"></div></div>
       <label class="m" style="display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:13.5px"><input type="checkbox" id="smUP" ${st.usePrice?"checked":""} style="width:20px;height:20px"> Де робота є в прайсі/кошторисі — брати ціну звідти, а не ставку + націнку</label>
       ${s.billedTo?`<div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Попередня смета виставлена по ${fmtDay(s.billedTo)}</div>`:""}
-      <div class="seg" id="smMat" style="margin-bottom:8px"><button type="button" data-v="0" class="${st.withMat?"":"on"}">Тільки роботи</button><button type="button" data-v="1" class="${st.withMat?"on":""}">Роботи + матеріали</button></div>
+      <div class="seg" id="smMat" style="margin-bottom:8px"><button type="button" data-v="0" class="${st.withMat?"":"on"}">Матеріали не входять</button><button type="button" data-v="1" class="${st.withMat?"on":""}">Матеріали входять</button></div>
       ${st.withMat?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="m" style="flex:1">Націнка на матеріали, %</span><input id="smMmk" inputmode="decimal" value="${st.mmk}" style="width:70px;text-align:center"></div>`:""}
       ${st.rows.length||(st.withMat&&st.mrows.length)?`<div class="section-t" style="display:flex">Роботи<span class="count">${st.rows.filter(r=>r.on).length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
@@ -2163,7 +2181,7 @@ function smetaHTML(s,st){ const n2=v=>Math.round((+v||0)*100)/100, rows=st.rows.
   ${mrows.length?`<tr><td colspan="6"><b>Роботи</b></td></tr>`:""}${rows.map(tr).join("")}
   ${mrows.length?`<tr><td colspan="5" class="r">Разом роботи:</td><td class="r">${tw.toFixed(2)}</td></tr><tr><td colspan="6"><b>Матеріали</b></td></tr>${mrows.map((r,i)=>tr(r,rows.length+i)).join("")}<tr><td colspan="5" class="r">Разом матеріали:</td><td class="r">${tm.toFixed(2)}</td></tr>`:""}
   <tr class="tot"><td colspan="5" class="r b">Всього до сплати:</td><td class="r b box">${tot.toFixed(2)}</td></tr></table>
-  <p>Всього на суму: <b>${uaWords(tot)}</b>.</p>
+  <p>Всього на суму: <b>${uaWords(tot)}</b>.</p><p>${st.withMat?"Вартість матеріалів входить у загальну суму.":"Вартість матеріалів у суму не входить (матеріали — замовника)."}</p>
   <table class="two" style="margin-top:28px"><tr><td>Виконавець:<br><br><span class="line"></span></td><td>Замовник:<br><br><span class="line"></span></td></tr></table></div>`;
 }
 
@@ -2448,7 +2466,7 @@ function contractForm(c){
     <div class="sum" style="font-size:15px">Сума договору: <b id="ctTot"></b></div>
     <div class="actions">${!isNew?`<button type="button" class="btn danger" id="ctDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
   const tot=()=>$("#ctTot").textContent=money(ctTotal({items:items.map(i=>({...i,qty:parseFloat(String(i.qty).replace(",","."))||0,price:parseFloat(String(i.price).replace(/\s/g,"").replace(",","."))||0})),total:parseFloat(String($("#ctF [name=total]").value).replace(/\s/g,"").replace(",","."))||0}));
-  const draw=()=>{$("#ctItems").innerHTML=items.map((it,i)=>`<div class="card" style="display:block;margin-bottom:6px;cursor:default"><input data-i="${i}" data-k="name" value="${esc(it.name)}" placeholder="Назва роботи" style="margin-bottom:6px"><div class="row"><input data-i="${i}" data-k="unit" value="${esc(it.unit)}" placeholder="од." style="flex:.6"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${esc(it.qty)}" placeholder="к-сть" style="flex:.8"><input data-i="${i}" data-k="price" inputmode="decimal" value="${esc(it.price)}" placeholder="ціна"><button type="button" class="btn ghost sm" data-rm="${i}" style="flex:0 0 auto">✕</button></div></div>`).join("");tot()};
+  const draw=()=>{$("#ctItems").innerHTML=items.map((it,i)=>`<div class="card" style="display:block;margin-bottom:6px;cursor:default"><input data-i="${i}" data-k="name" value="${esc(it.name)}" placeholder="Назва роботи" style="margin-bottom:6px"><div class="row">${unitSel(`data-i="${i}" data-k="unit"`,it.unit,"flex:.6")}<input data-i="${i}" data-k="qty" inputmode="decimal" value="${esc(it.qty)}" placeholder="к-сть" style="flex:.8"><input data-i="${i}" data-k="price" inputmode="decimal" value="${esc(it.price)}" placeholder="ціна"><button type="button" class="btn ghost sm" data-rm="${i}" style="flex:0 0 auto">✕</button></div></div>`).join("");tot()};
   draw();
   $("#ctItems").oninput=e=>{const i=e.target.dataset.i;if(i==null)return;items[i][e.target.dataset.k]=e.target.value;tot()};
   $("#ctF [name=total]").oninput=tot;
