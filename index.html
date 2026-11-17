@@ -1464,8 +1464,8 @@ function workReport(workerId,opts){
         <div class="field"><label>Мінус від кошторису, %</label><input id="wrP" inputmode="decimal" value="${st.pct}"></div></div>
       <div class="m" id="wrEst" style="color:var(--muted);font-size:12.5px;margin:-4px 0 8px">${(()=>{const k=st.est.filter(e=>e.src==="кошторис").length;return `Роботи без ціни рахую: ${k?`за кошторисом об'єкта (позицій: ${k}), а чого там немає — `:""}за прайсом фірми, мінус ${st.pct}% (виконавцю ${100-st.pct}%).`})()}</div>
       <div class="field"><label>Що прислали (текст повідомлення)</label><textarea id="wrT" rows="4" placeholder="Вставте сюди текст з Viber/Telegram…">${esc(st.text)}</textarea></div>
-      <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="wrF" accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf,.docx,.txt,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.oasis.opendocument.spreadsheet,text/csv,text/comma-separated-values,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/octet-stream,application/zip,application/x-zip-compressed" style="display:none"></label>
-        <label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="wrC" accept="image/*" capture="environment" style="display:none"></label></div><label class="m" style="display:block;text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px;text-decoration:underline">Файл не видно? Вибрати з усіх файлів<input type="file" id="wrFAny" style="display:none"></label>
+      <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="wrF" accept="application/*,text/*" style="display:none"></label>
+        <label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="wrC" accept="image/*" capture="environment" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
       ${st.file?`<div class="m" style="margin:-4px 0 8px">📎 ${esc(st.file.name)}</div>`:""}
       <button class="btn" id="wrGo" style="width:100%">🔍 Розібрати й перевірити</button>
       <div id="wrRes"></div>
@@ -1484,7 +1484,7 @@ function workReport(workerId,opts){
         else st.fileParts=[await shrinkImage(file,1800)];
       }catch(e){ toast("Не вдалося прочитати файл"); st.file=null }
       draw() };
-    $("#wrF").onchange=e=>pick(e.target.files[0]); $("#wrFAny").onchange=e=>pick(e.target.files[0]); $("#wrC").onchange=e=>pick(e.target.files[0]);
+    $("#wrF").onchange=e=>pick(e.target.files[0]); $("#wrC").onchange=e=>pick(e.target.files[0]);
     $("#wrGo").onclick=go;
     if(st.rows.length) drawRows();
   };
@@ -2013,7 +2013,7 @@ function kpFlow(saved,opts){
       <div class="row"><div class="field"><label>Від кого</label><select id="kpF"><option value="">— назва фірми</option>${[...S.fops.values()].map(f=>`<option value="${f.id}" ${st.fop===f.id?"selected":""}>${esc(f.short||f.name)}</option>`).join("")}</select></div>
         <div class="field"><label>Знижка, %</label><input id="kpDisc" inputmode="decimal" value="${st.disc||0}"></div><div class="field"><label>Діє, днів</label><input id="kpV" inputmode="numeric" value="${st.valid}"></div></div>
       <div class="field"><label>Перелік робіт від замовника (текст)</label><textarea id="kpT" rows="4" placeholder="Вставте перелік: роботи й обсяги…">${esc(st.text)}</textarea></div>
-      <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="kpFile" accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf,.docx,.txt,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.oasis.opendocument.spreadsheet,text/csv,text/comma-separated-values,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/octet-stream,application/zip,application/x-zip-compressed" style="display:none"></label><label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="kpCam" accept="image/*" capture="environment" style="display:none"></label></div><label class="m" style="display:block;text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px;text-decoration:underline">Файл не видно? Вибрати з усіх файлів<input type="file" id="kpFileAny" style="display:none"></label>
+      <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="kpFile" accept="application/*,text/*" style="display:none"></label><label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="kpCam" accept="image/*" capture="environment" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
       ${st.file?`<div class="m" style="margin:-4px 0 8px">📎 ${esc(st.file.name)}</div>`:""}
       <button class="btn" id="kpGo" style="width:100%">🤖 Розібрати перелік і підібрати ціни</button>
       <div class="row" style="margin-top:6px"><button type="button" class="btn ghost" id="kpPick" style="flex:1">🔍 Додати роботу з прайсу</button><button type="button" class="btn ghost" id="kpManual" style="flex:1">✏️ Рядок вручну</button></div>
@@ -2032,7 +2032,7 @@ function kpFlow(saved,opts){
         else if(file.type==="application/pdf"){ const b=new Uint8Array(await file.arrayBuffer()); let s="";for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192)); st.fileParts=[{mime:"application/pdf",b64:btoa(s)}] }
         else st.fileParts=[await shrinkImage(file,1800)];
       }catch(e){ toast("Не вдалося прочитати файл"); st.file=null } draw() };
-    $("#kpFile").onchange=e=>pick(e.target.files[0]); $("#kpFileAny").onchange=e=>pick(e.target.files[0]); $("#kpCam").onchange=e=>pick(e.target.files[0]);
+    $("#kpFile").onchange=e=>pick(e.target.files[0]); $("#kpCam").onchange=e=>pick(e.target.files[0]);
     $("#kpGo").onclick=go;
     // додати роботу пошуком по прайсу (можна багато разів поспіль) або порожній рядок
     const addPick=()=>pickWork(items,-1,v=>{ if(v<0) return; const it=items[v]; const ex=st.rows.find(r=>r.p===v&&r.on!==false); if(ex){ toast("Ця робота вже є — змініть кількість"); return }
@@ -2992,17 +2992,17 @@ function bindApproved(s){ const box=$("#apBox"); if(!box) return; const re=()=>{
       <tr class="tot"><td colspan="5" class="r b">Разом:</td><td class="r b box">${tot.toFixed(2)}</td></tr></table></div>`,(crew?"Для людей ":"Смета ")+s.name) });
 }
 // 📎 готовий документ з файлу (погоджений PDF/Excel/фото), за бажанням — розібрати позиції ШІ
-function uploadDoc(s){
+function uploadDoc(s,preFile){
   let st={file:null,parts:[],kind:"Смета",no:"",total:"",date:todayISO(),rows:[]};
   const draw=()=>{ openSheet(`<h2>📎 Готовий документ</h2><div class="m" style="margin:-6px 0 8px">🏗️ ${esc(s.name)}</div>
-    ${st.file?`<div class="m" style="margin-bottom:6px">📎 ${esc(st.file.name)}</div>`:""}<div class="row" style="margin-bottom:8px"><label class="btn ghost" style="flex:1;text-align:center">📁 Файл (PDF, Excel)<input type="file" id="udF" accept=".xlsx,.xls,.xlsm,.ods,.csv,.pdf,.docx,.txt,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.oasis.opendocument.spreadsheet,text/csv,text/comma-separated-values,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/octet-stream,application/zip,application/x-zip-compressed" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">📷 Фото<input type="file" id="udP" accept="image/*" style="display:none"></label></div><label class="m" style="display:block;text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px;text-decoration:underline">Файл не видно? Вибрати з усіх файлів<input type="file" id="udFAny" style="display:none"></label>
+    ${st.file?`<div class="m" style="margin-bottom:6px">📎 ${esc(st.file.name)}</div>`:""}<div class="row" style="margin-bottom:8px"><label class="btn ghost" style="flex:1;text-align:center">📁 Файл (PDF, Excel)<input type="file" id="udF" accept="application/*,text/*" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">📷 Фото<input type="file" id="udP" accept="image/*" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
     <div class="row"><div class="field"><label>Що це</label><select id="udK">${["Смета","КП","Акт","Рахунок","Договір","Інше"].map(k=>`<option ${k===st.kind?"selected":""}>${k}</option>`).join("")}</select></div><div class="field"><label>№</label><input id="udN" value="${esc(st.no)}"></div></div>
     <div class="row"><div class="field"><label>Дата</label><input type="date" id="udD" value="${st.date}"></div><div class="field"><label>Сума, ₴</label><input id="udS" inputmode="decimal" value="${st.total}"></div></div>
     ${st.parts.length&&window.__fbAI?`<button class="btn ghost" id="udAI" style="width:100%;margin-bottom:6px">🤖 Розібрати позиції з файлу${st.rows.length?` (вже ${st.rows.length})`:""}</button>`:""}
     ${st.rows.length?`<div class="card" style="display:block;cursor:default;max-height:220px;overflow:auto">${st.rows.map(r=>`<div style="display:flex;gap:6px;font-size:13px;padding:3px 0"><span style="flex:1">${esc(r.name)}</span><span>${r.qty} ${esc(r.unit)}</span><b>${money(Math.round(r.qty*r.price))}</b></div>`).join("")}</div>`:""}
     ${st.parsed?`<div class="m" style="font-size:12.5px;margin-top:6px">${st.rows.length?`Знайдено позицій: ${st.rows.length}. Після збереження можна одразу зробити це кошторисом об'єкта.`:"Таблиці робіт не знайдено — збережеться документ і сума."}${+String(st.total).replace(/\s/g,"").replace(",",".")>0?` Сума: <b>${money(+String(st.total).replace(/\s/g,"").replace(",","."))}</b>.`:""}</div>`:""}
     <button class="btn" id="udOk" style="width:100%;margin-top:8px">💾 Зберегти в об'єкті</button><div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
-    $("#udP").onchange=e=>$("#udF").onchange(e); $("#udFAny").onchange=e=>$("#udF").onchange(e);
+    $("#udP").onchange=e=>$("#udF").onchange(e);
     $("#udF").onchange=async e=>{ const f=e.target.files[0]; if(!f) return; st.file=f; st.parts=[];
       try{ if(/\.(xlsx|xls|xlsm|csv|ods)$/i.test(f.name)){ const X=await loadXLSX(); const wb=X.read(await f.arrayBuffer(),{type:"array"}); st.parts=wb.SheetNames.map(n=>({text:X.utils.sheet_to_csv(wb.Sheets[n]).slice(0,40000)})) }
         else if(f.type==="application/pdf"){ const b=new Uint8Array(await f.arrayBuffer()); let x="";for(let i=0;i<b.length;i+=8192)x+=String.fromCharCode.apply(null,b.subarray(i,i+8192)); st.parts=[{mime:"application/pdf",b64:btoa(x)}] }
@@ -3027,7 +3027,22 @@ function uploadDoc(s){
         if(nid&&data.rows.length&&confirm(`Зробити ${data.sub.toLowerCase()} № ${data.no||""} погодженим кошторисом об'єкта?\n(ставки людям рахуватимуться від цих цін)`)) approveOffer({id:nid,...data},st0);
         else if(data.total>0&&+st0.contract!==data.total&&confirm(`Записати ${money(data.total)} як суму договору з замовником${+st0.contract>0?` (зараз ${money(st0.contract)})`:""}?`)){
           const u={contract:data.total}; if(st.customer&&!st0.customer) u.customer=st.customer; if(await write(db=>db.doc("sites/"+st0.id).update(u))){ Object.assign(st0,u); toast("Суму договору записано") } } } else { b.disabled=false; b.textContent="💾 Зберегти в об'єкті" } };
-  }; draw() }
+  }; draw(); if(preFile) setTimeout(()=>$("#udF")?.onchange({target:{files:[preFile]}}),50) }
+async function handleShare(){ if(!/[?&]share=1/.test(location.search)) return; try{ history.replaceState(null,"",location.pathname) }catch(_){}
+  let t=0; while((!S.db||!S.sites?.size)&&t++<60) await new Promise(r=>setTimeout(r,250)); if(!S.canWrite){ toast("Немає прав на зміни"); return }
+  let file=null, text=""; try{ const c=await caches.open("oblik-share"); const r=await c.match("shared-file");
+    if(r){ const b=await r.blob(); file=new File([b],decodeURIComponent(r.headers.get("x-name")||"файл"),{type:b.type||r.headers.get("content-type")||""}); await c.delete("shared-file") }
+    else { const q=await c.match("shared-text"); if(q){ text=await q.text(); await c.delete("shared-text") } } }catch(_){}
+  if(!file&&!text){ toast("Файл не отримано"); return }
+  const sites=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort((a,b)=>(a.order||0)-(b.order||0));
+  openSheet(`<h2>📥 Отримано ${file?"файл":"текст"}</h2><div class="m" style="margin-bottom:10px">${file?"📎 "+esc(file.name):esc(text.slice(0,200))}</div>
+    <button class="btn" id="shKp" style="width:100%;margin-bottom:6px">📄 Нова смета / КП з цього ${file?"файлу":"тексту"}</button>
+    ${file?`<div class="section-t">або зберегти як готовий документ в об'єкт</div><div class="list">${sites.map(x=>`<div class="card" data-shs="${x.id}"><div class="main"><div class="t">${esc(x.name)}</div></div></div>`).join("")}</div>`:""}
+    <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  $("#shKp").onclick=()=>{ closeSheet(); kpFlow(); setTimeout(()=>{ if(file) $("#kpFile")?.onchange({target:{files:[file]}}); else { const ta=$("#kpT"); if(ta){ ta.value=text; ta.dispatchEvent(new Event("input")) } } },60) };
+  document.querySelectorAll("[data-shs]").forEach(el=>el.onclick=()=>{ const st=site(el.dataset.shs); closeSheet(); uploadDoc(st,file) });
+}
+setTimeout(handleShare,300);
 function fileOfferView(o){
   openSheet(`<h2>📎 ${esc(o.sub||"Документ")} ${o.no?"№ "+esc(o.no):""}</h2><div class="m" style="color:var(--muted);margin-bottom:8px">${esc(site(o.site)?.name||"")} · ${fmtDay(o.date)} · ${esc(o.fileName||"")}</div>
     ${o.total?`<div class="sum">Сума: <b>${money(o.total)}</b></div>`:""}
