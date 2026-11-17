@@ -847,9 +847,10 @@ function personForm(p){
       <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
       <label class="m" id="crewTgl" style="display:${p.role==="worker"?"flex":"none"};gap:8px;align-items:center;margin:0 0 10px;font-size:14px"><input type="checkbox" id="isCrew" ${p.crew?"checked":""} style="width:20px;height:20px"> 👥 Це бригада (2–3 людини, спільна оплата)</label>
       <div class="field"><label id="nmLbl">${p.crew?"Назва бригади *":"Ім'я *"}</label><input name="name" required value="${esc(p.name)}" placeholder="${p.crew?"напр. Бригада Юри":""}"></div>
+      ${!isNew&&p.crew&&S.canWrite?`<button type="button" class="btn ghost sm" id="unCrew" style="width:100%;margin-bottom:10px">👤 Це була окрема людина — розділити на людину і бригаду</button>`:""}
       <div class="field" id="crewBox" style="display:${p.crew?"block":"none"}"><label>Хто в бригаді</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${[...S.people.values()].filter(x=>x.role==="worker"&&!x.crew&&x.id!==p.id).sort(byName).map(x=>`<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" class="crewM" value="${x.id}" ${(p.members||[]).includes(x.id)?"checked":""} style="width:18px;height:18px">${esc(x.name)}</label>`).join("")||`<span class="m">Спочатку додайте виконавців окремо</span>`}</div>
-        <div class="m" style="color:var(--muted);font-size:12px;margin-top:4px">Нарахування й виплати йдуть на бригаду загальною сумою; як ділити між собою — вирішують самі.</div></div>
+        <div class="m" style="color:var(--muted);font-size:12px;margin-top:4px">Нарахування й виплати йдуть на бригаду загальною сумою; як ділити між собою — вирішують самі.${!isNew&&!p.crew?` <b>${esc(p.name)} лишиться окремою людиною</b>, а бригада буде створена окремо, з ним у складі.`:""}</div></div>
       ${!isNew&&!p.crew&&p.role==="worker"?(()=>{const cs=[...S.people.values()].filter(c=>c.crew&&(c.members||[]).includes(p.id));return cs.length?`<div class="m" style="margin:-4px 0 10px">👥 У бригаді: ${cs.map(c=>esc(c.name)).join(", ")}</div>`:""})():""}
       <div class="row"><div class="field"><label>Телефон</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div></div>
         <div class="field"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div></div>
@@ -872,7 +873,17 @@ function personForm(p){
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role,since:f.since||""};
     const crew=role==="worker"&&$("#isCrew").checked; data.crew=crew; data.members=crew?[...document.querySelectorAll(".crewM:checked")].map(x=>x.value):[];
     if(!data.name)return;
+    if(!isNew&&!p.crew&&crew){ // людину не перетворюємо на бригаду — створюємо окрему бригаду, а людина лишається сама собою
+      const cname=data.name===p.name?p.name+" — бригада":data.name, members=[...new Set([p.id,...data.members])];
+      const pd={phone:data.phone,since:data.since,role:"worker",crew:false,members:[]};
+      if(await write(async db=>{ await db.doc("people/"+p.id).update(pd); await db.collection("people").add({name:cname,phone:"",role:"worker",since:todayISO(),crew:true,members}) })){closeSheet();toast(`Створено бригаду «${cname}», ${p.name} лишився окремою людиною`)}
+      return }
     if(await write(db=>isNew?db.collection("people").add(data):db.doc("people/"+p.id).update(data))){closeSheet();toast("Збережено")}
+  });
+  $("#unCrew")?.addEventListener("click",async()=>{
+    const base=p.name.replace(/[\s—–-]*(бригада|brigada)\s*$/i,"").trim()||p.name;
+    if(!confirm(`«${p.name}» стане знову окремою людиною «${base}» — з усіма платежами, які вже на ній записані.\nА бригада «${p.name}» буде створена заново (порожня), з ${base} у складі.\nПродовжити?`)) return;
+    if(await write(async db=>{ await db.doc("people/"+p.id).update({name:base,crew:false,members:[]}); await db.collection("people").add({name:p.name,phone:"",role:"worker",since:todayISO(),crew:true,members:[...new Set([p.id,...(p.members||[])])]}) })){closeSheet();toast(`${base} — знову окрема людина; бригаду створено окремо`)}
   });
   $("#delP")?.addEventListener("click",async()=>{
     if(cnt){toast("Спочатку заберіть у нього інструмент ("+cnt+")");return}
