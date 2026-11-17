@@ -1953,7 +1953,7 @@ function priceItemForm(i,cat){
 }
 function kpList(){
   S.db.collection(R("offers")).get().then(sn=>{ const l=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-    openSheet(`<h2>Збережені КП</h2>${l.length?`<div class="list">${l.map(o=>`<div class="card" data-kp="${o.id}"><div class="main"><div class="t">№ ${esc(o.no||"")} · ${esc(o.client||"без замовника")}</div><div class="m">${fmtDay(o.date)}${o.object?" · "+esc(o.object):""}</div></div><span class="amt">${money(o.total||0)}</span></div>`).join("")}</div>`:`<div class="empty">Ще немає збережених КП</div>`}
+    openSheet(`<h2>Збережені КП</h2>${l.length?`<div class="list">${l.map(o=>`<div class="card" data-kp="${o.id}"><div class="main"><div class="t">№ ${esc(o.no||"")} · ${esc(o.client||"без замовника")}</div><div class="m">${fmtDay(o.date)}${o.object?" · "+esc(o.object):""} · ${o.site&&site(o.site)?.approved?.id===o.id?"✅ погоджено":o.site?"📁 в об'єкті":"попередня, без об'єкта"}</div></div><span class="amt">${money(o.total||0)}</span></div>`).join("")}</div>`:`<div class="empty">Ще немає збережених КП</div>`}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     document.querySelectorAll("[data-kp]").forEach(el=>el.onclick=()=>openOffer(l.find(o=>o.id===el.dataset.kp))) }).catch(e=>toast("Не вдалося завантажити: "+String(e?.message||e).slice(0,60)));
 }
@@ -2027,7 +2027,7 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       ${miss?`<div class="banner">Без ціни: ${miss} поз. — впишіть ціну або виберіть роботу з прайсу.</div>`:""}
       <div class="field"><label>Примітка в КП</label><input id="kpNote" value="${esc(st.note)}"></div>
       <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Просто отримати й переслати:</div>
-      <div class="actions" style="margin-top:4px"><button class="btn ghost" id="kpPrint">🖨️ PDF</button>${st.id&&S.canWrite?`${st.site?`<button class="btn ghost" id="kpAp">✅ Погоджено</button>`:""}<button class="btn danger" id="kpDel">🗑 Видалити</button>`:""}</div>
+      <div class="actions" style="margin-top:4px"><button class="btn ghost" id="kpPrint">🖨️ PDF</button>${st.id&&S.canWrite?`<button class="btn ghost" id="kpAp">✅ Погоджено${st.site?"":" → в об'єкт"}</button><button class="btn danger" id="kpDel">🗑 Видалити</button>`:""}</div>
       ${S.canWrite?`<button class="btn" id="kpSave" style="width:100%;margin-top:6px">💾 ${st.id?"Зберегти зміни":"Зберегти"}${st.site?" в об'єкті":""} + PDF</button>`:""}`;
     $("#kpRes").onchange=e=>{const i=e.target.dataset.i,k=e.target.dataset.k; if(e.target.id==="kpNote"){st.note=e.target.value;return} if(i==null)return; const r=st.rows[i];
       if(k==="on") r.on=e.target.checked; else if(k==="name"||k==="unit") r[k]=e.target.value;
@@ -2041,7 +2041,7 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       st.rows.push({on:true,mat:true,name:m.name,qty:1,unit:m.unit,price:p?.price||0,p:-1,cat:"Матеріали"}); drawRows(); toast(p?"Додано з ціною "+money(p.price):"Додано — впишіть ціну") },"Скасувати") });
     $("#kpAdd").onclick=()=>{st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"});drawRows()};
     $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"КП "+st.no);
-    $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
+    $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
     $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити КП № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
     $("#kpSave").onclick=async()=>{ const data={kind:"kp",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
       const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw() } };
@@ -2854,8 +2854,21 @@ if(SR){ let t=null; new MutationObserver(()=>{ clearTimeout(t); t=setTimeout(()=
 
 
 // ---------- ✅ Погоджена смета: стає кошторисом об'єкта (ставки хлопцям −%), сумою договору; перегляд для замовника і для людей ----------
-async function approveOffer(o){
-  const st=site(o.site); if(!st){ toast("Спершу прив'яжіть документ до об'єкта"); return }
+function offerToSite(o,cb){
+  const l=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort((a,b)=>(a.order||0)-(b.order||0));
+  openSheet(`<h2>КП № ${esc(o.no||"")} погодили</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Пропозиція була без об'єкта. Створіть новий об'єкт — або виберіть існуючий.</div>
+    <div class="card" style="display:block;cursor:default"><div class="field"><label>Назва нового об'єкта</label><input id="otName" value="${esc(o.object||o.client||"")}"></div>
+    <div class="field"><label>Замовник</label><input id="otCust" value="${esc(o.client||"")}"></div><button class="btn" id="otNew" style="width:100%">➕ Створити об'єкт і погодити</button></div>
+    ${l.length?`<div class="section-t">або в існуючий</div><div class="list">${l.map(x=>`<div class="card" data-ots="${x.id}"><div class="main"><div class="t">${esc(x.name)}</div>${x.customer?`<div class="m">${esc(x.customer)}</div>`:""}</div></div>`).join("")}</div>`:""}
+    <div class="actions"><button class="btn ghost" data-close>Скасувати</button></div>`);
+  const link=async st=>{ if(o.id) await write(db=>db.doc(R("offers")+"/"+o.id).update({site:st.id,object:st.name})); closeSheet(); cb(st) };
+  document.querySelectorAll("[data-ots]").forEach(el=>el.onclick=()=>link(site(el.dataset.ots)));
+  $("#otNew").onclick=async()=>{ const name=$("#otName").value.trim(); if(!name){toast("Вкажіть назву");return}
+    const data={perm:false,name,note:o.no?"За КП № "+o.no:"",type:"site",active:true,split:false,customer:$("#otCust").value.trim(),contract:0,order:Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1};
+    let id=null; $("#otNew").disabled=true; if(await write(async db=>{ const r=await db.collection("sites").add(data); id=r.id })&&id){ const st={id,...data}; S.sites.set?.(id,st); link(st) } else $("#otNew").disabled=false };
+}
+async function approveOffer(o,stIn){
+  const st=stIn||site(o.site); if(!st){ offerToSite(o,s2=>approveOffer({...o,site:s2.id},s2)); return }
   const items=[...(o.rows||[]),...(o.mrows||[]).map(r=>({...r,mat:true}))].filter(r=>r.name).map(r=>({name:r.name,unit:r.unit||"",qty:+r.qty||0,price:+r.price||0,mat:!!r.mat}));
   if(!items.length){ toast("У документі немає позицій — спершу розберіть їх"); return }
   const total=Math.round(items.reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
