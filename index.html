@@ -136,6 +136,7 @@ body.duo .card{border-left:3px solid color-mix(in srgb,var(--accent) 45%,transpa
   .doc .req{page-break-inside:avoid;break-inside:avoid}.doc.ct h4{break-after:avoid}.doc .req td{font-size:9.5pt;text-align:left}.doc .pb{page-break-before:always}
 }
 button.card{color:var(--text);background:var(--card);font:inherit}
+#nav{display:flex;flex-wrap:nowrap}#nav button{flex:1 1 0;min-width:0;font-size:11px;padding-left:2px;padding-right:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -460,6 +461,22 @@ const FIELD_NAME={amount:"сума",date:"дата",type:"тип",owner:"хто"
 const SKIP_F=new Set(["updatedAt","createdAt","by","byName","pair","key","raw","order","items","view","short","orig"]);
 function fmtVal(k,v){ if(v==null||v==="") return "—"; if(k==="amount"||k==="contract"||k==="total") return money(v); if(k==="owner"||k==="worker"||k==="holder") return person(v)?.name||v; if(k==="site") return site(v)?.name||v;
   if(k==="type") return {in:"прихід",out:"витрата",accrual:"нарахування"}[v]||v; if(typeof v==="boolean") return v?"так":"ні"; return String(v) }
+// зрозумілий опис змін у списку «Потрібно» (замість [object Object])
+function needsDiff(a,b){ a=Array.isArray(a)?a:[]; b=Array.isArray(b)?b:[]; const k=n=>normName(n?.name), A=new Map(a.map(n=>[k(n),n])), B=new Map(b.map(n=>[k(n),n])), out=[];
+  const q=n=>`${+n.qty||1} ${n.kind==="material"?(n.unit||"шт"):"шт"}`;
+  for(const [key,n] of B) if(!A.has(key)) out.push(`➕ додано: <b>${esc(n.name)}</b> — ${esc(q(n))}`);
+  for(const [key,n] of A) if(!B.has(key)) out.push(`➖ прибрано: <s>${esc(n.name)}</s>`);
+  for(const [key,n] of B){ const o=A.get(key); if(!o) continue; const ch=[];
+    if((+o.qty||1)!==(+n.qty||1)||(o.unit||"")!==(n.unit||"")) ch.push(`кількість ${esc(q(o))} → <b>${esc(q(n))}</b>`);
+    if((+o.got||0)!==(+n.got||0)) ch.push(`привезено ${+o.got||0} → <b>${+n.got||0}</b>`);
+    if(!!o.done!==!!n.done) ch.push(n.done?"<b>✅ позначено «привезено»</b>":"знято позначку «привезено»");
+    if(!!o.ordered!==!!n.ordered) ch.push(n.ordered?"<b>🛒 замовлено</b>":"знято «замовлено»");
+    if((o.kind||"tool")!==(n.kind||"tool")) ch.push(n.kind==="material"?"тепер матеріал":"тепер інструмент");
+    if(JSON.stringify(o.match||[])!==JSON.stringify(n.match||[])&&(n.match||[]).length>(o.match||[]).length) ch.push(`прив'язано до: ${esc((n.match||[]).filter(x=>!(o.match||[]).includes(x)).join(", "))}`);
+    if(o.name!==n.name) ch.push(`назва: <s>${esc(o.name)}</s> → ${esc(n.name)}`);
+    if(ch.length) out.push(`• ${esc(n.name)}: ${ch.join(", ")}`) }
+  return out.length?out.map(x=>`<div class="m" style="font-size:13px">${x}</div>`).join(""):`<div class="m" style="color:var(--muted)">дрібні уточнення в списку «Потрібно»</div>` }
+function fmtAny(k,v){ if(v&&typeof v==="object"){ if(Array.isArray(v)) return v.length+" поз."; return Object.entries(v).filter(([,x])=>x!=null&&typeof x!=="object").slice(0,4).map(([a,x])=>`${a}: ${x}`).join(", ")||"…" } return fmtVal(k,v) }
 function logTitle(e){ const x=e.after||e.before||{}; if(e.col==="fin") return `${fmtVal("type",x.type)} ${money(x.amount)}${x.site?" · "+(site(x.site)?.name||""):""}`; return x.name||x.invNo||x.no||e.id }
 function renderLog(){
   const col=R("log");
@@ -471,7 +488,11 @@ function renderLog(){
     const [ic,verb]=OP[e.op]||["•",e.op];
     let diff="";
     if(e.op==="edit"&&e.before&&e.after){ const ks=[...new Set([...Object.keys(e.before),...Object.keys(e.after)])].filter(k=>!SKIP_F.has(k)&&JSON.stringify(e.before[k]??"")!==JSON.stringify(e.after[k]??""));
-      diff=ks.map(k=>`<div class="m">${esc(FIELD_NAME[k]||k)}: <s style="color:var(--muted)">${esc(fmtVal(k,e.before[k]))}</s> → <b>${esc(fmtVal(k,e.after[k]))}</b></div>`).join("") }
+      diff=ks.map(k=>k==="needs"?`<div class="m" style="margin-top:2px">📝 Потрібно на об'єкт:</div>${needsDiff(e.before.needs,e.after.needs)}`
+        :k==="report"?`<div class="m">звіт робіт оновлено (${(e.after.report?.items||[]).length} поз.)</div>`
+        :k==="phones"?`<div class="m">додаткові телефони: ${esc((e.after.phones||[]).map(x=>x.tel).join(", ")||"—")}</div>`
+        :k==="members"?`<div class="m">склад бригади: ${esc((e.after.members||[]).map(id=>person(id)?.name||"?").join(", ")||"—")}</div>`
+        :`<div class="m">${esc(FIELD_NAME[k]||k)}: <s style="color:var(--muted)">${esc(fmtAny(k,e.before[k]))}</s> → <b>${esc(fmtAny(k,e.after[k]))}</b></div>`).join("") }
     const canBack=S.canWrite&&(e.op==="del"||e.op==="edit")&&e.before;
     return `<div class="hist"><div class="when">${fmtDate(e.at)}${e.byName?" · "+esc(e.byName):""}</div>
       <div>${ic} <b>${esc(verb)}</b> · ${esc(COL_NAME[e.col]||e.col)}: ${esc(logTitle(e))}</div>${diff}
