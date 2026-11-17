@@ -425,8 +425,8 @@ function renderPeople(){
   const cnt={}; for(const t of S.tools.values()) if(t.holder) cnt[t.holder]=(cnt[t.holder]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте власників (себе й напарників) та виконавців кнопкою «+».</div>`; return; }
   let h="";
-  for(const [role,label,cls] of [["owner","Власники","own"],["crew","👥 Бригади","wrk"],["worker","Виконавці","wrk"]]){
-    const l=all.filter(p=>role==="crew"?p.crew:p.role===role&&!p.crew); if(!l.length)continue;
+  for(const [role,label,cls] of [["owner","Власники","own"],["crew","👥 Бригади","wrk"],["worker","Виконавці","wrk"],["helper","💵 Підсоба — розрахунок одразу","wrk"]]){
+    const l=all.filter(p=>role==="crew"?p.crew:role==="helper"?p.role==="worker"&&!p.crew&&p.helper:p.role===role&&!p.crew&&!(role==="worker"&&p.helper)); if(!l.length)continue;
     h+=`<div class="section-t">${label}</div><div class="list">`+l.map(p=>`<div class="card" data-person="${p.id}"><div class="stripe ${cls}"></div><div class="main"><div class="t">${p.crew?"👥 ":""}${esc(p.name)}</div>${p.crew?`<div class="m">${crewNames(p)||"склад не вказано"}</div>`:""}${p.phone||p.since?`<div class="m">${[p.phone?esc(p.phone):"",p.since?"з "+fmtDay(p.since):""].filter(Boolean).join(" · ")}</div>`:""}</div>${p.phone?`<a class="btn ghost sm" href="${telHref(p.phone)}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none" title="Подзвонити">📞</a>`:""}<span class="count">${cnt[p.id]||0} од.</span></div>`).join("")+`</div>`;
   }
   $("#view").innerHTML=h;
@@ -1255,6 +1255,7 @@ function personForm(p){
     <form id="pForm">
       <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
       <label class="m" id="crewTgl" style="display:${p.role==="worker"?"flex":"none"};gap:8px;align-items:center;margin:0 0 10px;font-size:14px"><input type="checkbox" id="isCrew" ${p.crew?"checked":""} style="width:20px;height:20px"> 👥 Це бригада (2–3 людини, спільна оплата)</label>
+      <label class="m" id="helpTgl" style="display:${p.role==="worker"&&!p.crew?"flex":"none"};gap:8px;align-items:center;margin:0 0 10px;font-size:14px"><input type="checkbox" id="isHelp" ${p.helper?"checked":""} style="width:20px;height:20px"> 💵 Підсоба — розрахунок одразу (без нарахувань і боргів)</label>
       <div class="field"><label id="nmLbl">${p.crew?"Назва бригади *":"Ім'я *"}</label><input name="name" required value="${esc(p.name)}" placeholder="${p.crew?"напр. Бригада Юри":""}"></div>
       ${!isNew&&p.crew&&S.canWrite?`<button type="button" class="btn ghost sm" id="unCrew" style="width:100%;margin-bottom:10px">👤 Це була окрема людина — розділити на людину і бригаду</button>`:""}
       <div class="field" id="crewBox" style="display:${p.crew?"block":"none"}"><label>Хто в бригаді</label>
@@ -1268,7 +1269,7 @@ function personForm(p){
     </form>`);
   let role=p.role;
   $("#segR").onclick=e=>{const b=e.target.closest("button");if(!b)return;role=b.dataset.v;[...$("#segR").children].forEach(x=>x.classList.toggle("on",x===b));
-    $("#crewTgl").style.display=role==="worker"?"flex":"none"; if(role!=="worker"){$("#isCrew").checked=false;$("#crewBox").style.display="none"}};
+    $("#crewTgl").style.display=role==="worker"?"flex":"none"; $("#helpTgl").style.display=role==="worker"&&!$("#isCrew").checked?"flex":"none"; if(role!=="worker"){$("#isCrew").checked=false;$("#crewBox").style.display="none"}};
   $("#pickContact")?.addEventListener("click",async()=>{ try{
       // можна вибрати один або кілька контактів (якщо людина записана двічі) — беремо всі їхні номери
       const r=await navigator.contacts.select(["name","tel"],{multiple:true}); const c=r&&r[0]; if(!c) return;
@@ -1284,13 +1285,13 @@ function personForm(p){
     if(e.target.classList.contains("phX")) row.remove();
     if(e.target.classList.contains("phStar")){ const main=$("#pForm [name=phone]"), t=row.querySelector(".phT"), l=row.querySelector(".phL"); if(!t.value.trim()) return;
       const old=main.value; main.value=t.value; if(old.trim()){ t.value=old; l.value="" } else row.remove(); toast("Основний номер змінено — натисніть «Зберегти»") } };
-  $("#isCrew").onchange=e=>{const c=e.target.checked;$("#crewBox").style.display=c?"block":"none";$("#nmLbl").textContent=c?"Назва бригади *":"Ім'я *";$("#pForm [name=name]").placeholder=c?"напр. Бригада Юри":""};
+  $("#isCrew").onchange=e=>{const c=e.target.checked; $("#helpTgl").style.display=c?"none":"flex"; if(c) $("#isHelp").checked=false;$("#crewBox").style.display=c?"block":"none";$("#nmLbl").textContent=c?"Назва бригади *":"Ім'я *";$("#pForm [name=name]").placeholder=c?"напр. Бригада Юри":""};
   $("#showW")?.addEventListener("click",()=>workerSheet(p.id));
   $("#hoP")?.addEventListener("click",()=>handoverSheet("person",p.id));
   $("#showP")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",person:p.id,site:"",cat:"",holderType:"all",q:""});render()});
   $("#pForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role,since:f.since||"",phones:[...document.querySelectorAll("#phList .phr")].map(r=>({label:r.querySelector(".phL").value.trim(),tel:r.querySelector(".phT").value.trim()})).filter(x=>x.tel)};
-    const crew=role==="worker"&&$("#isCrew").checked; data.crew=crew; data.members=crew?[...document.querySelectorAll(".crewM:checked")].map(x=>x.value):[];
+    const crew=role==="worker"&&$("#isCrew").checked; data.crew=crew; data.helper=role==="worker"&&!crew&&$("#isHelp").checked; data.members=crew?[...document.querySelectorAll(".crewM:checked")].map(x=>x.value):[];
     if(!data.name)return;
     if(!isNew&&!p.crew&&crew){ // людину не перетворюємо на бригаду — створюємо окрему бригаду, а людина лишається сама собою
       const cname=data.name===p.name?p.name+" — бригада":data.name, members=[...new Set([p.id,...data.members])];
@@ -1313,7 +1314,7 @@ function personForm(p){
 }
 
 // ---------- Гроші ----------
-const KINDS=["Матеріали","Зарплата","Інструменти","Доставка","Відкат","Податки","Інше"];
+const KINDS=["Матеріали","Зарплата","Підсоба","Інструменти","Доставка","Відкат","Податки","Інше"];
 // сума з виразу: «15000+17 356» → 32356 (також «-», кома як десятковий роздільник)
 function sumExpr(x){ const t=String(x??"").replace(/\s/g,"").replace(/,/g,"."); if(!t) return NaN; if(!/^[+-]?\d*\.?\d+([+-]\d*\.?\d+)*$/.test(t)) return NaN;
   return Math.round((t.match(/[+-]?\d*\.?\d+/g)||[]).reduce((a,n)=>a+parseFloat(n),0)*100)/100 }
@@ -1338,7 +1339,10 @@ function bothBalances(){ if(!S.duoOk||!S.duoLoaded) return null;
   const all=[...S.people.values()].filter(p=>p.role==="owner"), duoO=all.filter(p=>DUO_OWNERS.includes(p.id));
   const t=balancesFor(S.B.trio.fin,S.B.trio.sites,all).b, d=balancesFor(S.B.duo.fin,S.B.duo.sites,duoO).b;
   return duoO.map(o=>({o,trio:t[o.id]||0,duo:d[o.id]||0,sum:(t[o.id]||0)+(d[o.id]||0)})); }
-function workerTotals(){const t={};for(const f of S.fin.values()){if(!f.worker)continue;const x=t[f.worker]||(t[f.worker]={acc:0,paid:0,n:0});if(f.type==="accrual")x.acc+=+f.amount||0;else if(f.type==="out")x.paid+=+f.amount||0;x.n++}return t}
+const isHelperPay=f=>f.type==="out"&&(f.kind==="Підсоба"||!!person(f.worker)?.helper);
+function workerTotals(){const t={};for(const f of S.fin.values()){if(!f.worker)continue;const x=t[f.worker]||(t[f.worker]={acc:0,paid:0,n:0});if(f.type==="accrual")x.acc+=+f.amount||0;else if(f.type==="out"){x.paid+=+f.amount||0; if(isHelperPay(f)) x.acc+=+f.amount||0}x.n++}
+  for(const [id,x] of Object.entries(t)) if(person(id)?.helper) x.acc=x.paid; // підсоба: завжди в нулі
+  return t}
 function customerRows(){const st=siteTotals();return [...S.sites.values()].filter(x=>(+x.contract||0)>0).map(x=>{const paid=st[x.id]?.in||0;return{s:x,contract:+x.contract,paid,debt:+x.contract-paid}}).sort((a,b)=>b.debt-a.debt)}
 function finFiltered(){
   return [...S.fin.values()].filter(f=>{
@@ -1599,6 +1603,12 @@ function finForm(f,preset){
   const setMode=m=>{mode=m;[...$("#segM").children].forEach(x=>x.classList.toggle("on",x.dataset.v===m));document.querySelectorAll("#finForm [data-m]").forEach(el=>el.style.display=el.dataset.m.split(" ").includes(m)?"":"none");$("#ownLbl").textContent=m==="in"?"Хто отримав":"Хто заплатив";$("#wLbl").textContent=m==="accrual"?"Кому нараховано *":"Виконавець"};
   setMode(mode);
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
+  // 💵 підсоба: розрахунок одразу — це завжди виплата з видом «Підсоба», без нарахування
+  const helpSync=()=>{ const ws=$("#finForm [name=worker]"), ks=$("#finForm [name=kind]"); if(!ws||!ks) return; const hp=person(ws.value)?.helper;
+    if(hp&&mode==="accrual"){ setMode("out"); toast("💵 Підсоба — одразу виплата, без нарахування") }
+    if(hp&&mode==="out") ks.value="Підсоба"; };
+  $("#finForm [name=worker]")?.addEventListener("change",helpSync);
+  if(!f.id) helpSync();
   // ---- чек: фото → сума/дата/магазин автоматично; фото зберігається й відкривається з запису ----
   let rcImg=null, rcDrop=false;
   const rcPick=async file=>{ if(!file) return; const info=$("#rcInfo");
@@ -2967,7 +2977,7 @@ $("#nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)
 function renderToday(){
   $("#headTools").innerHTML=""; const n2=v=>Math.round(v);
   // борги виконавцям (по обох базах, якщо людина має доступ до общаку на двох)
-  const debt={}; for(const fin of [S.B.trio.fin,...(S.duoOk?[S.B.duo.fin]:[])]) for(const f of fin.values()){ if(!f.worker) continue; const x=debt[f.worker]||(debt[f.worker]=0);
+  const debt={}; for(const fin of [S.B.trio.fin,...(S.duoOk?[S.B.duo.fin]:[])]) for(const f of fin.values()){ if(!f.worker||person(f.worker)?.helper||isHelperPay(f)) continue; const x=debt[f.worker]||(debt[f.worker]=0);
     if(f.type==="accrual") debt[f.worker]+= +f.amount||0; else if(f.type==="out") debt[f.worker]-= +f.amount||0 }
   const dl=Object.entries(debt).filter(([id,v])=>v>0.5&&person(id)).sort((a,b)=>b[1]-a[1]), dsum=dl.reduce((a,[,v])=>a+v,0);
   const buy=buyGroups(), nBuy=buy.reduce((a,g)=>a+g.l.length,0);
