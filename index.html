@@ -569,22 +569,22 @@ function whereIs(rec,exceptSite){ // схожий інструмент по вс
     const o=m.get(k)||{lbl,qty:0,names:new Set()}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); m.set(k,o) }
   return [...m.values()].sort((a,b)=>b.qty-a.qty) }
 function whereHTML(l){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:2px 0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
-function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
+function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } if(n.kind==="material"){ n._here=[]; return 0 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
 // ШІ: розібрати список потрібного і зіставити з назвами інструменту, які є в базі
 async function aiNeeds(text){
   const uniq=new Map(); for(const t of S.tools.values()){ const k=normName(t.name); if(!uniq.has(k)) uniq.set(k,t.name) }
   const base=[...uniq.entries()].slice(0,700);
   const prompt=`Це список того, що потрібно привезти на будівельний об'єкт (написано як завгодно: російською, суржиком, з помилками, кілька речей в одному рядку).
-Розбий його на окремі позиції. Для кожної: name — правильна назва з нашого довідника (точно як там), якщо така річ там є; інакше коротка зрозуміла назва українською (виправ помилки); qty — кількість (якщо не вказано — 1; «шпателя 10, 50» — це два шпателі: 10 і 50, окремими позиціями); kind — "tool" (інструмент/обладнання, що повертається) або "material" (витратний матеріал: клей, полістирол, мило тощо).
+Розбий його на окремі позиції. Для кожної: name — правильна назва з нашого довідника (точно як там), якщо така річ там є; інакше коротка зрозуміла назва українською (виправ помилки); qty — кількість числом (якщо не вказано — 1; «шпателя 10, 50» — це два шпателі: 10 і 50, окремими позиціями); kind — "tool" (інструмент/обладнання, що повертається після робіт) або "material" (те, що витрачається: клей, суміші, полістирол, піна, саморізи, мило, плівка, сітка тощо); unit — для матеріалу одиниця: шт, мішок, лист, відро, кг, л, м², м.п., рулон, упак. (напр. «полистерол 2ка-4листа» → name «Пінополістирол 20 мм», qty 4, unit «лист»; «клей 5 мішків» → qty 5, unit «мішок»); для інструменту unit "шт". Якщо в одному рядку кілька різних речей («клей для плитки і арміровочний») — розбий на окремі позиції.
 Потім для кожної позиції знайди в переліку назв нашого інструменту ВСІ назви, що означають ту саму річ (інша назва, мова, розмір чи модель — теж підходить: пилосос = будівельний пилосос = порохотяг; лесничка = драбина = стрем'янка; переноска = подовжувач = кабель-подовжувач; уровень = рівень; лазерний уровень = лазерний нівелір = лазер; гребенка = зубчастий шпатель; утюжок = терка; правило = правило алюмінієве; зарядне = зарядний пристрій = зарядка). m — масив номерів з переліку (порожній, якщо такого немає).
 Довідник правильних назв (у дужках — як ще пишуть):
 ${toolCatList()}
 Перелік назв нашого інструменту (номер. назва):
 ${base.map(([k,n],i)=>`${i}. ${n}`).join("\n")}
-Відповідь — лише JSON {"items":[{"name":"","qty":1,"kind":"tool","m":[]}]}.`;
+Відповідь — лише JSON {"items":[{"name":"","qty":1,"unit":"шт","kind":"tool","m":[]}]}.`;
   const txt=await window.__fbAI([{text:"Список:\n"+text}],prompt);
   const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
-  return (j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:Math.max(1,parseInt(x.qty)||1),kind:x.kind==="material"?"material":"tool",
+  return (j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty>0?+x.qty:1,kind:x.kind==="material"?"material":"tool",unit:x.kind==="material"?String(x.unit||"шт").trim():"шт",
     match:[...new Set((Array.isArray(x.m)?x.m:[]).map(i=>base[+i]?.[0]).filter(Boolean))]})) }
 function pickTool(list,n,cb){
   const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100";
@@ -601,19 +601,34 @@ function pickTool(list,n,cb){
   $("#ptDone").onclick=()=>{ close(); cb("done") }; $("#ptUndo")?.addEventListener("click",()=>{ close(); cb("undo") }); $("#ptX").onclick=close; ov.onclick=e=>{ if(e.target===ov) close() };
 }
 function needsHTML(s){
-  const l=s.needs||[]; const miss=l.filter(n=>haveOnSite(n,s.id)<(+n.qty||1));
-  return `<div class="section-t" style="display:flex;margin-top:4px">🧰 Потрібен інструмент<span class="count">${l.length?`бракує ${miss.length} з ${l.length}`:""}</span></div>
-    ${l.map((n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1), here=n._here||[];
-      return `<div class="card" style="display:block;cursor:default;margin-bottom:6px;${ok?"opacity:.6":""}">
-        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1"><button type="button" data-ntog="${i}" style="background:none;border:0;padding:0 4px 0 0;font-size:22px;line-height:1;cursor:pointer;vertical-align:middle" title="${ok?"Привезено":"Позначити як привезене"}">${ok?"✅":"⬜"}</button> ${esc(n.name)} <b>×${+n.qty||1}</b>${n.kind==="material"?` <span class="tag">матеріал</span>`:""}</span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button><button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
-        ${here.length?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
-        ${ok?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id))}</details>`}</div>` }).join("")}
+  const l=s.needs||[], isMat=n=>n.kind==="material", miss=l.filter(n=>haveOnSite(n,s.id)<(+n.qty||1)), missT=miss.filter(n=>!isMat(n));
+  const row=(n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1), here=n._here||[], mat=isMat(n);
+    return `<div class="card" style="display:block;cursor:default;margin-bottom:6px;${ok?"opacity:.6":""}">
+      <div style="display:flex;gap:6px;align-items:center"><button type="button" data-ntog="${i}" style="background:none;border:0;padding:0 2px 0 0;font-size:22px;line-height:1;cursor:pointer" title="${ok?"Привезено":"Позначити як привезене"}">${ok?"✅":"⬜"}</button>
+        <span style="flex:1;min-width:0">${esc(n.name)}</span>
+        ${S.canWrite?`<input data-nq="${i}" inputmode="decimal" value="${+n.qty||1}" style="width:58px;text-align:center;padding:6px 4px">`:`<b>×${+n.qty||1}</b>`}
+        ${mat?(S.canWrite?`<input data-nu="${i}" value="${esc(n.unit||"шт")}" list="nUnits" style="width:62px;text-align:center;padding:6px 4px">`:esc(n.unit||"шт")):`<span class="m" style="font-size:12px">шт</span>`}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+        ${S.canWrite?`<button type="button" class="btn ghost sm" data-nkind="${i}" title="Змінити: інструмент / матеріал">${mat?"🧱 матеріал":"🧰 інструмент"} ⇄</button>`:""}
+        <span class="m" style="font-size:12px;flex:1">${mat?(n.done?"привезено":"треба закупити / привезти"):(have?`є тут: ${have}`:"тут немає")}</span>
+        ${S.canWrite?`${mat?"":`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button>`}<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
+      ${here.length&&!mat?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
+      ${ok||mat?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id))}</details>`}</div>` };
+  const tools=l.map((n,i)=>[n,i]).filter(([n])=>!isMat(n)), mats=l.map((n,i)=>[n,i]).filter(([n])=>isMat(n));
+  const cnt=g=>{ const m=g.filter(([n])=>haveOnSite(n,s.id)<(+n.qty||1)).length; return g.length?`бракує ${m} з ${g.length}`:"" };
+  return `<datalist id="nUnits"><option value="шт"><option value="мішок"><option value="лист"><option value="відро"><option value="кг"><option value="л"><option value="м²"><option value="м.п."><option value="рулон"><option value="упак."></datalist>
+    <div class="section-t" style="display:flex;margin-top:4px">🧰 Потрібен інструмент<span class="count">${cnt(tools)}</span></div>
+    ${tools.map(([n,i])=>row(n,i)).join("")||(l.length?`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`:"")}
+    ${mats.length?`<div class="section-t" style="display:flex;margin-top:8px">🧱 Потрібні матеріали<span class="count">${cnt(mats)}</span></div>${mats.map(([n,i])=>row(n,i)).join("")}`:""}
     ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="nAdd" style="flex:1">+ Додати потрібне</button>${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="flex:1">🔄 Перевірити наявність</button>`:""}</div>
-      ${miss.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібне</button>`:""}`:""}` }
+      ${missT.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібний інструмент</button>`:""}`:""}` }
 function bindNeeds(s){ loadToolCat();
   const box=$("#needsBox"); if(!box) return; const re=()=>{ box.innerHTML=needsHTML(s); bindNeeds(s) };
   const save=async l=>{ l=l.map(({_here,...x})=>x); if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
   box.querySelectorAll("[data-ndel]").forEach(b=>b.onclick=()=>save((s.needs||[]).filter((_,i)=>i!==+b.dataset.ndel)));
+  box.querySelectorAll("[data-nq]").forEach(el=>el.onchange=()=>{ const v=parseFloat(String(el.value).replace(",",".")); if(!(v>0)){ el.value=s.needs[+el.dataset.nq].qty||1; return } const l=s.needs.map(x=>({...x})); l[+el.dataset.nq].qty=v; save(l) });
+  box.querySelectorAll("[data-nu]").forEach(el=>el.onchange=()=>{ const l=s.needs.map(x=>({...x})); l[+el.dataset.nu].unit=el.value.trim()||"шт"; save(l) });
+  box.querySelectorAll("[data-nkind]").forEach(b=>b.onclick=()=>{ const l=s.needs.map(x=>({...x})), x=l[+b.dataset.nkind]; x.kind=x.kind==="material"?"tool":"material"; if(x.kind==="material"&&!x.unit) x.unit="шт"; save(l) });
   // натиснув ⬜ — позначено «привезено»; натиснув ✅, поставлену вручну, — знято
   box.querySelectorAll("[data-ntog]").forEach(b=>b.onclick=()=>{ if(!S.canWrite) return; const i=+b.dataset.ntog, l=s.needs.map(x=>({...x})), x=l[i];
     if(x.done){ x.done=false; save(l); return }
@@ -626,7 +641,7 @@ function bindNeeds(s){ loadToolCat();
       if(res==="done"){ x.done=true } else if(res==="undo"){ x.done=false; x.match=[] } else { x.done=false; x.match=[...new Set([...(Array.isArray(x.match)?x.match:[]),normName(res.name)])] }
       save(l) }) });
   $("#nAdd")?.addEventListener("click",()=>{
-    box.insertAdjacentHTML("beforeend",`<div id="nForm"><textarea id="nTxt" rows="4" placeholder="Кожен інструмент з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
+    box.insertAdjacentHTML("beforeend",`<div id="nForm"><textarea id="nTxt" rows="4" placeholder="Інструмент і матеріали — кожне з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
       <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="nCancel" style="flex:1">Скасувати</button><button class="btn sm" id="nOk" style="flex:1">Додати</button></div></div>`);
     $("#nAdd").style.display="none"; $("#nTxt").focus();
     $("#nCancel").onclick=re;
@@ -641,9 +656,9 @@ function bindNeeds(s){ loadToolCat();
   $("#nAI")?.addEventListener("click",async()=>{ const b=$("#nAI"); b.disabled=true; b.textContent="⏳ Перевіряю…";
     try{ const old=s.needs||[]; const r=await aiNeeds(old.map(n=>`${n.name} ${+n.qty||1} шт`).join("\n"));
       // зберігаємо наші позиції, лише оновлюємо відповідності (за порядком/назвою)
-      const l=old.map((n,i)=>{ const x=r.find(y=>normName(y.name)===normName(n.name))||r[i]; return x?{...n,match:x.match,kind:x.kind}:n });
+      const l=old.map((n,i)=>{ const x=r.find(y=>normName(y.name)===normName(n.name))||r[i]; return x?{...n,name:n.name.replace(/^\s*\d+\s*[.)]\s*[,.]?\s*/,"")||n.name,match:x.match,kind:x.kind,unit:n.unit||x.unit}:n });
       save(l); toast("Перевірено") }catch(e){ toast("Не вдалося: "+String(e?.message||e).slice(0,60)); re() } });
-  $("#nBring")?.addEventListener("click",()=>{ const l=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1));
+  $("#nBring")?.addEventListener("click",()=>{ const l=(s.needs||[]).filter(n=>n.kind!=="material"&&haveOnSite(n,s.id)<(+n.qty||1));
     photoFlow({mode:"move",text:true,to:s.id,listText:l.map(n=>`${n.name} ${Math.max(1,(+n.qty||1)-haveOnSite(n,s.id))} шт`).join("\n")}) });
 }
 
