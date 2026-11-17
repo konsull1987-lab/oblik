@@ -2024,7 +2024,9 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       <div class="sum">Разом: <b>${money(t)}</b>${+st.disc?` · знижка ${st.disc}%: −${money(d)} · <b>до сплати ${money(n2(t-d))}</b>`:""}</div>
       ${miss?`<div class="banner">Без ціни: ${miss} поз. — впишіть ціну або виберіть роботу з прайсу.</div>`:""}
       <div class="field"><label>Примітка в КП</label><input id="kpNote" value="${esc(st.note)}"></div>
-      <div class="actions"><button class="btn ghost" id="kpSave">💾 Зберегти</button><button class="btn" id="kpPrint">🖨️ Друк / PDF</button></div>`;
+      <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Просто отримати й переслати:</div>
+      <div class="actions" style="margin-top:4px"><button class="btn ghost" id="kpPrint">🖨️ PDF</button>${st.id&&S.canWrite?`<button class="btn danger" id="kpDel">🗑 Видалити</button>`:""}</div>
+      ${S.canWrite?`<button class="btn" id="kpSave" style="width:100%;margin-top:6px">💾 ${st.id?"Зберегти зміни":"Зберегти"}${st.site?" в об'єкті":""} + PDF</button>`:""}`;
     $("#kpRes").onchange=e=>{const i=e.target.dataset.i,k=e.target.dataset.k; if(e.target.id==="kpNote"){st.note=e.target.value;return} if(i==null)return; const r=st.rows[i];
       if(k==="on") r.on=e.target.checked; else if(k==="name"||k==="unit") r[k]=e.target.value;
       else if(k==="qty"||k==="price") r[k]=parseFloat(String(e.target.value).replace(",","."))||0;
@@ -2037,8 +2039,9 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       st.rows.push({on:true,mat:true,name:m.name,qty:1,unit:m.unit,price:p?.price||0,p:-1,cat:"Матеріали"}); drawRows(); toast(p?"Додано з ціною "+money(p.price):"Додано — впишіть ціну") },"Скасувати") });
     $("#kpAdd").onclick=()=>{st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"});drawRows()};
     $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"КП "+st.no);
+    $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити КП № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
     $("#kpSave").onclick=async()=>{ const data={kind:"kp",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
-      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; toast("КП збережено") } };
+      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw() } };
   }
   draw();
 }
@@ -2099,7 +2102,9 @@ function smetaFlow(siteId){
           <div class="row" style="margin-top:6px;align-items:center"><input data-mi="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(r.unit)} ×</span><input data-mi="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div></div>`).join("")
           :`<div class="m" style="color:var(--muted);margin-bottom:6px">Немає привезених матеріалів у «Потрібно» цього об'єкта.</div>`}`:""}
       <div class="sum">Замовнику: <b>${money(tot)}</b> · собівартість ${money(cost)} · різниця <b class="in">${money(n2(tot-cost))}</b></div>
-      <div class="actions"><button class="btn ghost" id="smXls">⬇️ Excel</button><button class="btn ghost" id="smSave">💾 Зберегти</button><button class="btn" id="smPrint">🖨️ PDF</button></div>
+      <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Просто отримати й переслати:</div>
+      <div class="actions" style="margin-top:4px"><button class="btn ghost" id="smXls">⬇️ Excel</button><button class="btn ghost" id="smPrint">🖨️ PDF</button></div>
+      ${S.canWrite?`<button class="btn" id="smSave" style="width:100%;margin-top:6px">💾 Зберегти в об'єкті + PDF</button>`:""}
       ${S.canWrite?`<button class="btn ghost" id="smMark" style="width:100%;margin-top:6px">✅ Позначити як виставлене (по ${fmtDay(st.to)})</button>`:""}`
       :`<div class="empty">За цей період немає робіт зі «Звіту робіт» по цьому об'єкту. Смета збирається з нарахувань, зроблених через «📋 Звіт робіт».</div>`}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -2117,7 +2122,7 @@ function smetaFlow(siteId){
       const rows=clean(st.rows), mrows=st.withMat?clean(st.mrows):[], total=Math.round([...rows,...mrows].reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
       const data={kind:"smeta",site:siteId,no:st.no,date:todayISO(),from:st.from,to:st.to,withMat:!!st.withMat,rows,mrows,total,client:s.customer||"",object:s.name||"",createdAt:st.savedAt||Date.now(),updatedAt:Date.now()};
       const ok=await write(async db=>{ if(st.savedId) await db.doc(R("offers")+"/"+st.savedId).set(data); else { const r=await db.collection(R("offers")).add(data); st.savedId=r.id; st.savedAt=data.createdAt } });
-      if(ok) toast("Смету збережено — вона в об'єкті, вкладка «📁 Документи»") });
+      if(ok){ toast("Смету збережено в об'єкті («📁 Документи»)"); printDoc(smetaHTML(s,st),"Смета "+st.no) } });
     $("#smXls")?.addEventListener("click",async()=>{ try{ const X=await loadXLSX(); const rows=[...st.rows,...(st.withMat?st.mrows:[])].filter(r=>r.on);
       const aoa=[["Смета виконаних робіт № "+st.no],["Об'єкт: "+(s.name||"")+(s.customer?" · Замовник: "+s.customer:"")],["Період: "+fmtDay(st.from)+" – "+fmtDay(st.to)],[],["№","Найменування робіт","Од.","К-сть","Ціна, грн","Сума, грн"],
         ...rows.map((r,i)=>[i+1,r.name,r.unit,r.qty,r.price,n2(r.qty*r.price)]),[],["","Всього","","","",n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0))]];
@@ -2861,11 +2866,13 @@ function loadSiteDocs(s){
   const box=$("#sDocs"); if(!box) return;
   S.db.collection(R("offers")).get().then(sn=>{ const off=sn.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.site===s.id).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
     const docs=isDuo()?[]:[...S.docs.values()].filter(d=>d.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-    const row=(ic,t,sub,amt,attr)=>`<div class="card" ${attr} style="cursor:pointer"><div class="main"><div class="t">${ic} ${t}</div><div class="m">${sub}</div></div><span class="amt">${amt}</span></div>`;
+    const row=(ic,t,sub,amt,attr,del)=>`<div class="card" ${attr} style="cursor:pointer"><div class="main"><div class="t">${ic} ${t}</div><div class="m">${sub}</div></div><span class="amt">${amt}</span>${S.canWrite?`<button class="btn ghost sm" ${del} title="Видалити" style="margin-left:6px">✕</button>`:""}</div>`;
     box.innerHTML=`${S.canWrite?`<div class="actions" style="margin:0 0 8px;flex-wrap:wrap">${!isDuo()?`<button class="btn ghost sm" id="sdKp">💼 Нова КП</button>`:""}<button class="btn ghost sm" id="sdSm">📋 Смета</button>${!isDuo()?`<button class="btn ghost sm" id="sdDoc">🧾 Рахунок / акт</button>`:""}</div>`:""}
-      ${off.length||docs.length?`<div class="list">${off.map(o=>row(o.kind==="smeta"?"📋":"💼",(o.kind==="smeta"?"Смета":"КП")+" № "+esc(o.no||""),fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":""),money(o.total||0),`data-off="${o.id}"`)).join("")}
-        ${docs.map(d=>row("🧾","Рах. № "+esc(d.invNo||"")+(d.actNo?" · Акт № "+esc(d.actNo):""),fmtDay(d.date)+" · "+esc(cliOf(d).name||""),money(docTotal(d)),`data-sdoc="${d.id}"`)).join("")}</div>`
+      ${off.length||docs.length?`<div class="list">${off.map(o=>row(o.kind==="smeta"?"📋":"💼",(o.kind==="smeta"?"Смета":"КП")+" № "+esc(o.no||""),fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":""),money(o.total||0),`data-off="${o.id}"`,`data-xoff="${o.id}"`)).join("")}
+        ${docs.map(d=>row("🧾","Рах. № "+esc(d.invNo||"")+(d.actNo?" · Акт № "+esc(d.actNo):""),fmtDay(d.date)+" · "+esc(cliOf(d).name||""),money(docTotal(d)),`data-sdoc="${d.id}"`,`data-xdoc="${d.id}"`)).join("")}</div>`
         :`<div class="empty">Документів ще немає. Збережені смети, КП, рахунки й акти цього об'єкта з'являться тут.</div>`}`;
+    box.querySelectorAll("[data-xoff]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const o=off.find(x=>x.id===b.dataset.xoff); if(!confirm(`Видалити ${o.kind==="smeta"?"смету":"КП"} № ${o.no}?`)) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ toast("Видалено"); loadSiteDocs(s) } });
+    box.querySelectorAll("[data-xdoc]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const d=S.docs.get(b.dataset.xdoc); if(!confirm(`Видалити рахунок № ${d?.invNo||""}${d?.actNo?" і акт № "+d.actNo:""}?`)) return; if(await write(db=>db.doc("docs/"+b.dataset.xdoc).delete())){ toast("Видалено"); setTimeout(()=>loadSiteDocs(s),300) } });
     box.querySelectorAll("[data-off]").forEach(c=>c.onclick=()=>openOffer(off.find(o=>o.id===c.dataset.off)));
     box.querySelectorAll("[data-sdoc]").forEach(c=>c.onclick=()=>docView(c.dataset.sdoc));
     $("#sdKp")?.addEventListener("click",()=>kpFlow(null,{site:s.id}));
