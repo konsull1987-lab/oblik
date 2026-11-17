@@ -2005,6 +2005,16 @@ function kpFlow(saved,opts){
     $("#kpManual").onclick=()=>{ st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"}); draw() };
     if(st.rows.length) drawRows();
   };
+  function localP(name){ const al=aliasOf(name); if(al){ const i=items.findIndex(it=>it.name===al); if(i>=0) return i }
+    const q=normW(name).split(" ").filter(w=>w.length>2).join(" "); if(!q) return -1;
+    const hits=items.map((it,i)=>({i,t:it.name+" "+(it.alt||"")})).filter(x=>wordHit(x.t,q)); if(hits.length) return hits.sort((a,b)=>a.t.length-b.t.length)[0].i;
+    return -1 }
+  function localParse(text){ return String(text).split(/[\n;,]+/).map(x=>x.trim()).filter(Boolean).map(seg=>{
+      const m=seg.match(/(\d+(?:[.,]\d+)?)\s*(м2|м²|кв\.?\s*м|квадрат\S*|м\.?\s*п\.?|пог\S*\s*м\S*|метр\S*|м3|м³|куб\S*|шт\S*|точ\S*|отв\S*)?/i);
+      const qty=m?parseFloat(m[1].replace(",",".")):1, u=m&&m[2]?m[2].toLowerCase():"";
+      const unit=/2|²|кв/.test(u)?"м²":/3|³|куб/.test(u)?"м³":/п|метр/.test(u)?"м.п.":/шт/.test(u)?"шт":/точ/.test(u)?"точка":/отв/.test(u)?"отвір":"";
+      return {name:(m?seg.replace(m[0]," "):seg).replace(/\s+/g," ").trim()||seg,qty,unit} }) }
+  function rowOf(x,p){ const it=p>=0?items[p]:null; return {on:true,name:it?it.name:String(x.name).trim(),orig:String(x.name).trim(),qty:+x.qty||1,unit:it?it.unit:String(x.unit||""),price:it?it.price:0,p,cat:it?it.cat:"Інші роботи"} }
   async function go(){
     if(!st.text.trim()&&!st.fileParts.length){toast("Вставте перелік або додайте файл — або додавайте роботи кнопкою «🔍 Додати роботу з прайсу»");return}
     if(!window.__fbAI){toast("Розпізнавання недоступне");return}
@@ -2017,10 +2027,14 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
 Відповідь — лише JSON {"items":[{"name":"","qty":1,"unit":"","p":-1}]}.`;
     try{ const txt=await window.__fbAI([...(st.text.trim()?[{text:"Перелік замовника:\n"+st.text}]:[]),...st.fileParts],prompt);
       clearInterval(tick); const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
-      const before=st.rows.length; st.rows=[...st.rows,...(j.items||[]).filter(x=>x&&x.name).map(x=>{ let p=Number.isInteger(+x.p)&&+x.p>=0&&+x.p<items.length?+x.p:-1; const al=aliasOf(x.name); if(al){ const i=items.findIndex(it=>it.name===al); if(i>=0) p=i } const it=p>=0?items[p]:null;
-        return {on:true,name:it?it.name:String(x.name).trim(),orig:String(x.name).trim(),qty:+x.qty||1,unit:it?it.unit:String(x.unit||""),price:it?it.price:0,p,cat:it?it.cat:"Інші роботи"} })];
-      if(st.rows.length===before) toast("Робіт не знайдено"); st.text=""; draw();
-    }catch(e){ clearInterval(tick); b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,60)) }
+      let ai=(j.items||[]).filter(x=>x&&x.name); if(!ai.length&&st.text.trim()) ai=localParse(st.text);
+      const before=st.rows.length; st.rows=[...st.rows,...ai.map(x=>{ let p=Number.isInteger(+x.p)&&+x.p>=0&&+x.p<items.length?+x.p:-1; const al=aliasOf(x.name); if(al){ const i=items.findIndex(it=>it.name===al); if(i>=0) p=i } if(p<0) p=localP(x.name); return rowOf(x,p) })];
+      if(st.rows.length===before){ toast("Робіт не знайдено — текст залишився, можна виправити й спробувати ще раз"); b.disabled=false; b.textContent="🔍 Спробувати ще раз"; return }
+      st.text=""; draw();
+    }catch(e){ clearInterval(tick);
+      const loc=st.text.trim()?localParse(st.text).map(x=>rowOf(x,localP(x.name))).filter(r=>r.p>=0):[];
+      if(loc.length){ st.rows=[...st.rows,...loc]; st.text=""; draw(); toast(`ШІ не відповів — знайшов у прайсі сам: ${loc.length}`); return }
+      b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,60)+" — текст залишився") }
   }
   function drawRows(){
     const t=tot(), d=n2(t*(+st.disc||0)/100), miss=st.rows.filter(r=>r.on!==false&&!(+r.price>0)).length;
