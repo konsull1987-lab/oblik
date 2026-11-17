@@ -834,6 +834,7 @@ function firstSeen(id){ let m="";
   for(const f of [...S.B.trio.fin.values(),...(S.duoOk?S.B.duo.fin.values():[])]) if(f.date&&(f.worker===id||f.owner===id||f.from===id||f.to===id)&&(!m||f.date<m)) m=f.date;
   for(const x of S.moves) if((x.to===id||x.from===id||x.holder===id)&&x.at){ const d=new Date(x.at).toISOString().slice(0,10); if(!m||d<m) m=d }
   return m }
+const phRow=x=>`<div class="phr" style="display:flex;gap:6px;margin-top:6px"><input class="phL" value="${esc(x?.label||"")}" placeholder="чий / який" style="flex:.7"><input class="phT" type="tel" value="${esc(x?.tel||"")}" placeholder="номер" style="flex:1"><button type="button" class="btn ghost sm phX">✕</button></div>`;
 const crewNames=p=>(p.members||[]).map(id=>person(id)?.name).filter(Boolean).map(esc).join(", ");
 function personForm(p){
   const isNew=!p; p=p||{role:"worker"};
@@ -842,6 +843,7 @@ function personForm(p){
     ${!isNew&&p.role==="worker"?(()=>{const x=workerTotals()[p.id];const d=x?x.acc-x.paid:0;return `<button class="btn ghost" id="showW" style="width:100%;margin-bottom:8px">Розрахунки: ${x&&!x.acc?"виплачено "+money(x.paid):d>0?"винні "+money(d):d<0?"аванс "+money(-d):"боргу немає"}</button>`})():""}
     ${!isNew&&p.phone?`<a class="btn" href="${telHref(p.phone)}" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px">📞 Подзвонити ${esc(p.phone)}</a>
       <div class="actions" style="margin:0 0 8px"><a class="btn ghost" href="https://t.me/${telNum(p.phone)}" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none">✈️ Telegram</a><a class="btn ghost" href="viber://chat?number=${encodeURIComponent(telNum(p.phone))}" style="flex:1;text-align:center;text-decoration:none">💜 Viber</a></div>`:""}
+    ${!isNew?(p.phones||[]).filter(x=>x&&x.tel).map(x=>`<div class="actions" style="margin:0 0 8px;align-items:center"><span style="flex:1.4;font-size:14px">${x.label?esc(x.label)+": ":""}${esc(x.tel)}</span><a class="btn ghost sm" href="${telHref(x.tel)}" style="text-decoration:none">📞</a><a class="btn ghost sm" href="https://t.me/${telNum(x.tel)}" target="_blank" rel="noopener" style="text-decoration:none">✈️</a><a class="btn ghost sm" href="viber://chat?number=${encodeURIComponent(telNum(x.tel))}" style="text-decoration:none">💜</a></div>`).join(""):""}
     ${!isNew?`<div class="actions" style="margin:0 0 12px"><button class="btn ghost" id="showP">Інструмент у нього (${cnt})</button>${cnt?`<button class="btn ghost" id="hoP">🧰 Список / повернути</button>`:""}</div>`:""}
     <form id="pForm">
       <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
@@ -852,7 +854,8 @@ function personForm(p){
         <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${[...S.people.values()].filter(x=>x.role==="worker"&&!x.crew&&x.id!==p.id).sort(byName).map(x=>`<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" class="crewM" value="${x.id}" ${(p.members||[]).includes(x.id)?"checked":""} style="width:18px;height:18px">${esc(x.name)}</label>`).join("")||`<span class="m">Спочатку додайте виконавців окремо</span>`}</div>
         <div class="m" style="color:var(--muted);font-size:12px;margin-top:4px">Нарахування й виплати йдуть на бригаду загальною сумою; як ділити між собою — вирішують самі.${!isNew&&!p.crew?` <b>${esc(p.name)} лишиться окремою людиною</b>, а бригада буде створена окремо, з ним у складі.`:""}</div></div>
       ${!isNew&&!p.crew&&p.role==="worker"?(()=>{const cs=[...S.people.values()].filter(c=>c.crew&&(c.members||[]).includes(p.id));return cs.length?`<div class="m" style="margin:-4px 0 10px">👥 У бригаді: ${cs.map(c=>esc(c.name)).join(", ")}</div>`:""})():""}
-      <div class="row"><div class="field"><label>Телефон</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div></div>
+      <div class="row"><div class="field"><label>Телефон</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div>
+        <div id="phList">${(p.phones||[]).map(x=>phRow(x)).join("")}</div><button type="button" class="btn ghost sm" id="phAdd" style="margin-top:6px">+ ще номер</button></div>
         <div class="field"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div></div>
       ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delP">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
     </form>`);
@@ -861,21 +864,24 @@ function personForm(p){
     $("#crewTgl").style.display=role==="worker"?"flex":"none"; if(role!=="worker"){$("#isCrew").checked=false;$("#crewBox").style.display="none"}};
   $("#pickContact")?.addEventListener("click",async()=>{ try{
       const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
-      const tels=(c.tel||[]).filter(Boolean); let tel=tels[0]||"";
-      if(tels.length>1){ const i=prompt("Кілька номерів:\n"+tels.map((t,k)=>`${k+1}. ${t}`).join("\n")+"\nВведіть номер варіанта","1"); tel=tels[(parseInt(i)||1)-1]||tels[0] }
-      const F=n=>$("#pForm [name="+n+"]"); if(tel) F("phone").value=tel; const nm=(c.name||[])[0]; if(nm) F("name").value=nm.trim();
+      const tels=[...new Set((c.tel||[]).map(t=>String(t).trim()).filter(Boolean))]; const tel=tels[0]||"";
+      const F=n=>$("#pForm [name="+n+"]"); if(tel) F("phone").value=tel;
+      const have=new Set([...document.querySelectorAll(".phT")].map(i=>telNum(i.value)));
+      for(const t of tels.slice(1)) if(!have.has(telNum(t))) $("#phList").insertAdjacentHTML("beforeend",phRow({tel:t})); const nm=(c.name||[])[0]; if(nm) F("name").value=nm.trim();
     }catch(e){ if(e?.name!=="AbortError"&&e?.name!=="InvalidStateError") toast("Не вдалося відкрити контакти") } });
+  $("#phAdd").onclick=()=>{ $("#phList").insertAdjacentHTML("beforeend",phRow({})); $("#phList").lastElementChild.querySelector(".phT").focus() };
+  $("#phList").onclick=e=>{ if(e.target.classList.contains("phX")) e.target.closest(".phr").remove() };
   $("#isCrew").onchange=e=>{const c=e.target.checked;$("#crewBox").style.display=c?"block":"none";$("#nmLbl").textContent=c?"Назва бригади *":"Ім'я *";$("#pForm [name=name]").placeholder=c?"напр. Бригада Юри":""};
   $("#showW")?.addEventListener("click",()=>workerSheet(p.id));
   $("#hoP")?.addEventListener("click",()=>handoverSheet("person",p.id));
   $("#showP")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",person:p.id,site:"",cat:"",holderType:"all",q:""});render()});
   $("#pForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role,since:f.since||""};
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role,since:f.since||"",phones:[...document.querySelectorAll("#phList .phr")].map(r=>({label:r.querySelector(".phL").value.trim(),tel:r.querySelector(".phT").value.trim()})).filter(x=>x.tel)};
     const crew=role==="worker"&&$("#isCrew").checked; data.crew=crew; data.members=crew?[...document.querySelectorAll(".crewM:checked")].map(x=>x.value):[];
     if(!data.name)return;
     if(!isNew&&!p.crew&&crew){ // людину не перетворюємо на бригаду — створюємо окрему бригаду, а людина лишається сама собою
       const cname=data.name===p.name?p.name+" — бригада":data.name, members=[...new Set([p.id,...data.members])];
-      const pd={phone:data.phone,since:data.since,role:"worker",crew:false,members:[]};
+      const pd={phone:data.phone,phones:data.phones,since:data.since,role:"worker",crew:false,members:[]};
       if(await write(async db=>{ await db.doc("people/"+p.id).update(pd); await db.collection("people").add({name:cname,phone:"",role:"worker",since:todayISO(),crew:true,members}) })){closeSheet();toast(`Створено бригаду «${cname}», ${p.name} лишився окремою людиною`)}
       return }
     if(await write(db=>isNew?db.collection("people").add(data):db.doc("people/"+p.id).update(data))){closeSheet();toast("Збережено")}
