@@ -137,6 +137,10 @@ body.duo .card{border-left:3px solid color-mix(in srgb,var(--accent) 45%,transpa
 }
 button.card{color:var(--text);background:var(--card);font:inherit}
 #nav{display:flex;flex-wrap:nowrap}#nav button{flex:1 1 0;min-width:0;font-size:11px;padding-left:2px;padding-right:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.micBtn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;font-size:18px;padding:6px 9px;margin-left:6px;cursor:pointer;flex:0 0 auto}
+.micBtn.area{position:absolute;right:6px;bottom:6px;margin:0}
+.micBtn.rec{background:#e11d48;color:#fff;border-color:#e11d48;animation:micp 1s infinite}
+@keyframes micp{50%{opacity:.6}}
 </style>
 </head>
 <body>
@@ -2803,6 +2807,29 @@ function globalSearch(){
     else if(k==="n"){ S.siteTab="needs"; siteForm(S.sites.get(id)) } };
 }
 $("#searchBtn").addEventListener("click",globalSearch);
+
+// ---------- 🎤 Голосове введення: кнопка мікрофона біля полів списків і пошуку ----------
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let micRec=null, micBtn=null;
+function micStop(){ try{ micRec&&micRec.stop() }catch(_){} micRec=null; if(micBtn){ micBtn.classList.remove("rec"); micBtn.textContent="🎤" } micBtn=null }
+function micStart(btn,field){
+  if(micRec){ const same=micBtn===btn; micStop(); if(same) return }
+  const r=new SR(); r.lang="uk-UA"; r.interimResults=true; r.continuous=field.tagName==="TEXTAREA"; r.maxAlternatives=1;
+  const isArea=field.tagName==="TEXTAREA", base=isArea?(field.value&&!/\n$/.test(field.value)?field.value+"\n":field.value):"";
+  let fin="";
+  r.onresult=e=>{ let interim=""; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) fin+=(isArea?t.trim()+"\n":t); else interim+=t }
+    field.value=base+fin+interim; field.dispatchEvent(new Event("input",{bubbles:true})) };
+  r.onerror=e=>{ if(e.error==="not-allowed") toast("Дозвольте мікрофон для застосунку в налаштуваннях браузера"); else if(e.error!=="no-speech"&&e.error!=="aborted") toast("Мікрофон: "+e.error); micStop() };
+  r.onend=()=>{ if(micBtn===btn){ field.value=field.value.replace(/\n+$/,isArea?"\n":""); field.dispatchEvent(new Event("change",{bubbles:true})); micStop() } };
+  try{ r.start(); micRec=r; micBtn=btn; btn.classList.add("rec"); btn.textContent="⏹"; toast(isArea?"Говоріть — кожна позиція з нового речення. ⏹ — стоп":"Говоріть…") }catch(e){ toast("Не вдалося увімкнути мікрофон") } }
+function addMics(root){ if(!SR) return;
+  (root||document).querySelectorAll('textarea:not([data-mic]),input[type=search]:not([data-mic])').forEach(f=>{ f.dataset.mic="1";
+    const b=document.createElement("button"); b.type="button"; b.className="micBtn"; b.textContent="🎤"; b.title="Надиктувати голосом";
+    b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); micStart(b,f) };
+    const w=document.createElement("div"); f.parentNode.insertBefore(w,f); w.appendChild(f); w.appendChild(b);
+    if(f.tagName==="TEXTAREA"){ w.style.position="relative"; f.style.paddingRight="50px"; b.classList.add("area") }
+    else { w.style.cssText="display:flex;align-items:center;flex:1;min-width:0;margin-bottom:"+(getComputedStyle(f).marginBottom||"0"); f.style.flex="1"; f.style.minWidth="0"; f.style.marginBottom="0" } }) }
+if(SR){ let t=null; new MutationObserver(()=>{ clearTimeout(t); t=setTimeout(()=>addMics(document),60) }).observe(document.body,{childList:true,subtree:true}); }
 // «+» — одна кнопка для всіх дій
 function fabMenu(){
   const duo=isDuo(), it=(id,ic,t,sub)=>`<button type="button" class="card" data-fa="${id}" style="display:flex;gap:10px;align-items:center;text-align:left;width:100%;margin-bottom:6px;cursor:pointer;color:var(--text);background:var(--card);border:1px solid var(--line);font:inherit;padding:12px 14px"><span style="font-size:24px;width:32px;text-align:center">${ic}</span><span style="flex:1"><b>${t}</b>${sub?`<div class="m" style="font-size:12px;color:var(--muted)">${sub}</div>`:""}</span></button>`;
