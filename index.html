@@ -566,7 +566,7 @@ function whereIs(rec,exceptSite){ // схожий інструмент по вс
     const o=m.get(k)||{lbl,qty:0,names:new Set()}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); m.set(k,o) }
   return [...m.values()].sort((a,b)=>b.qty-a.qty) }
 function whereHTML(l){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:2px 0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
-function haveOnSite(n,siteId){ let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
+function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
 // ШІ: розібрати список потрібного і зіставити з назвами інструменту, які є в базі
 async function aiNeeds(text){
   const uniq=new Map(); for(const t of S.tools.values()){ const k=normName(t.name); if(!uniq.has(k)) uniq.set(k,t.name) }
@@ -581,20 +581,40 @@ ${base.map(([k,n],i)=>`${i}. ${n}`).join("\n")}
   const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
   return (j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:Math.max(1,parseInt(x.qty)||1),kind:x.kind==="material"?"material":"tool",
     match:[...new Set((Array.isArray(x.m)?x.m:[]).map(i=>base[+i]?.[0]).filter(Boolean))]})) }
+function pickTool(list,n,cb){
+  const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100";
+  ov.innerHTML=`<div class="sheet" style="max-height:88vh;display:flex;flex-direction:column"><h2 style="margin-bottom:4px">«${esc(n.name)}» — що з наявного тут?</h2>
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Виберіть інструмент на цьому об'єкті, який і є цією позицією. Застосунок запам'ятає назву.</div>
+    <input id="ptQ" type="search" placeholder="Пошук…" autocomplete="off" style="margin-bottom:8px">
+    <div id="ptL" style="overflow:auto;flex:1;min-height:160px"></div>
+    <div class="actions" style="flex-wrap:wrap"><button class="btn ghost" id="ptDone">✅ Просто позначити «вже є»</button>${n.done||(n.match||[]).length?`<button class="btn ghost" id="ptUndo">Скинути</button>`:""}<button class="btn ghost" id="ptX">Скасувати</button></div></div>`;
+  document.body.appendChild(ov); const close=()=>ov.remove();
+  const draw=()=>{ const q=$("#ptQ").value; const l=list.filter(t=>!q.trim()||wordHit(t.name+" "+(t.brand||"")+" "+(t.model||""),q));
+    $("#ptL").innerHTML=l.length?l.map(t=>`<div data-pt="${t.id}" style="padding:10px 4px;border-bottom:1px solid var(--line,#2a2f38);cursor:pointer"><div>${esc(t.name)}${t.brand?" · "+esc(t.brand):""}${t.inv?" #"+esc(t.inv):""}</div><div class="m" style="font-size:12px;color:var(--muted)">${qtyOf(t)} шт${t.holder?" · у "+esc(person(t.holder)?.name||""):""}</div></div>`).join(""):`<div class="empty">${list.length?"Нічого не знайдено":"На цьому об'єкті ще немає інструменту в базі"}</div>` };
+  $("#ptQ").oninput=draw; draw();
+  $("#ptL").onclick=e=>{ const d=e.target.closest("[data-pt]"); if(d){ close(); cb(S.tools.get(d.dataset.pt)) } };
+  $("#ptDone").onclick=()=>{ close(); cb("done") }; $("#ptUndo")?.addEventListener("click",()=>{ close(); cb("undo") }); $("#ptX").onclick=close; ov.onclick=e=>{ if(e.target===ov) close() };
+}
 function needsHTML(s){
   const l=s.needs||[]; const miss=l.filter(n=>haveOnSite(n,s.id)<(+n.qty||1));
   return `<div class="section-t" style="display:flex;margin-top:4px">🧰 Потрібен інструмент<span class="count">${l.length?`бракує ${miss.length} з ${l.length}`:""}</span></div>
     ${l.map((n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1), here=n._here||[];
       return `<div class="card" style="display:block;cursor:default;margin-bottom:6px;${ok?"opacity:.6":""}">
-        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1">${ok?"✅":"⬜"} ${esc(n.name)} <b>×${+n.qty||1}</b>${n.kind==="material"?` <span class="tag">матеріал</span>`:""}</span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
+        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1">${ok?"✅":"⬜"} ${esc(n.name)} <b>×${+n.qty||1}</b>${n.kind==="material"?` <span class="tag">матеріал</span>`:""}</span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button><button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
         ${here.length?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
         ${ok?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id))}</details>`}</div>` }).join("")}
     ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="nAdd" style="flex:1">+ Додати потрібне</button>${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="flex:1">🔄 Перевірити наявність</button>`:""}</div>
       ${miss.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібне</button>`:""}`:""}` }
 function bindNeeds(s){
   const box=$("#needsBox"); if(!box) return; const re=()=>{ box.innerHTML=needsHTML(s); bindNeeds(s) };
-  const save=async l=>{ if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
+  const save=async l=>{ l=l.map(({_here,...x})=>x); if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
   box.querySelectorAll("[data-ndel]").forEach(b=>b.onclick=()=>save((s.needs||[]).filter((_,i)=>i!==+b.dataset.ndel)));
+  // вручну прив'язати позицію до інструменту, який уже є на об'єкті (якщо ШІ не зрозумів назву)
+  box.querySelectorAll("[data-nlink]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.nlink, n=s.needs[i];
+    const here=[...S.tools.values()].filter(t=>t.site===s.id).sort((a,b)=>a.name.localeCompare(b.name,"uk"));
+    pickTool(here,n,res=>{ const l=s.needs.map(x=>({...x})), x=l[i];
+      if(res==="done"){ x.done=true } else if(res==="undo"){ x.done=false; x.match=[] } else { x.done=false; x.match=[...new Set([...(Array.isArray(x.match)?x.match:[]),normName(res.name)])] }
+      save(l) }) });
   $("#nAdd")?.addEventListener("click",()=>{
     box.insertAdjacentHTML("beforeend",`<div id="nForm"><textarea id="nTxt" rows="4" placeholder="Кожен інструмент з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
       <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="nCancel" style="flex:1">Скасувати</button><button class="btn sm" id="nOk" style="flex:1">Додати</button></div></div>`);
