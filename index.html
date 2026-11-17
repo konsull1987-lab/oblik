@@ -306,7 +306,7 @@ function render(){
   if(S.err) ban.push(S.err==="permission-denied"?"Ця пошта не має доступу до бази. Попросіть Андрія додати вас.":"Помилка доступу до бази ("+esc(S.err)+").");
   if(window.__demo) ban.push('🧪 Демо-режим: це окрема копія даних для тесту — усе, що ви тут змінюєте, зберігається лише в ній і не зачіпає реальну базу. <a href="#" id="demoReset" style="color:inherit;text-decoration:underline;white-space:nowrap">Скинути демо</a>');
   else if(!S.canWrite) ban.push("Режим перегляду: зміни можуть вносити лише власники.");
-  if(S.canWrite&&!window.__demo&&S.backupLoaded&&Date.now()-(S.backupAt||0)>BACKUP_DAYS*864e5&&S.tools.size+S.fin.size>0) ban.push(`☁️ ${S.backupAt?"Сьогодні ще не зберігали копію на Google Диск":"Резервної копії на Google Диску ще немає"}. <a href="#" id="bkNow" style="color:inherit;text-decoration:underline;white-space:nowrap">Зберегти зараз</a> <span id="bkMsg"></span>`);
+  if(S.canWrite&&!window.__demo&&S.backupLoaded&&Date.now()-(S.backupAt||0)>BACKUP_DAYS*864e5&&S.tools.size+S.fin.size>0) ban.push(`☁️ ${S.backupAt?`Резервна копія на Google Диску — ${Math.floor((Date.now()-S.backupAt)/864e5)} дн. тому, час зробити свіжу`:"Резервної копії на Google Диску ще немає"}. <a href="#" id="bkNow" style="color:inherit;text-decoration:underline;white-space:nowrap">Зберегти зараз</a> <span id="bkMsg"></span>`);
   $("#banner").innerHTML=ban.map(b=>`<div class="banner">${b}</div>`).join("");
   $("#fab").style.display=(S.canWrite&&!S.select&&S.tab!=="history")?"":"none";
   ({today:renderToday,tools:renderTools,sites:renderSites,people:renderPeople,history:renderHistory,money:renderMoney})[S.tab]();
@@ -2750,7 +2750,7 @@ function returnAllForm(kind,id){
 }
 
 // ---------- Резервна копія на Google Диск ----------
-const BACKUP_DAYS=1;
+const BACKUP_DAYS=7;
 async function driveBackup(silent){
   if(!window.__fbDump||!window.__driveToken){toast("Недоступно");return false}
   const bar=$("#bkMsg"); const say=t=>{ if(bar) bar.textContent=t };
@@ -2766,9 +2766,9 @@ async function driveBackup(silent){
     const name="oblik-backup-"+todayISO()+".json", body=JSON.stringify(data), b="oblik"+Date.now();
     const mp=`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({name,parents:[folder]})}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
     r=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{...H,"Content-Type":"multipart/related; boundary="+b},body:mp}); if(!r.ok) throw new Error("Drive "+r.status+": "+(await r.text()).slice(0,200));
-    // залишаємо 12 останніх копій
+    // залишаємо 20 останніх копій (≈ 5 місяців при щотижневих)
     r=await fetch(api+"?q="+encodeURIComponent(`'${folder}' in parents and trashed=false`)+"&orderBy=createdTime desc&fields=files(id)&pageSize=100",{headers:H});
-    if(r.ok){ const old=((await r.json()).files||[]).slice(12); for(const f of old) await fetch(api+"/"+f.id,{method:"DELETE",headers:H}).catch(()=>{}) }
+    if(r.ok){ const old=((await r.json()).files||[]).slice(20); for(const f of old) await fetch(api+"/"+f.id,{method:"DELETE",headers:H}).catch(()=>{}) }
     await write(db=>db.doc("meta/backup").set({at:Date.now(),by:window.__fbEmail||"",size:body.length}));
     say("⏳ Записи для таблиць…"); let n3=0,n2=0;
     try{ const dels=async c=>{ try{ return (await window.__fbList(c)).map(x=>({id:x.id,at:x.at})) }catch(_){ return [] } };
@@ -2926,7 +2926,7 @@ function openMenu(){
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
     <div class="section-t">Google-таблиця ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</div>
     <button class="btn" id="mGs" style="width:100%;margin-bottom:6px">🔄 Оновити з таблиці</button>
-    <button class="btn ghost" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Зберегти на Google Диск</button>
+    <button class="btn ghost" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Зберегти на Google Диск${S.backupAt?` <span style="font-weight:400;color:var(--muted)">· остання ${fmtDay(new Date(S.backupAt).toISOString().slice(0,10))}</span>`:""}</button>
     <div style="color:var(--muted);font-size:12.5px;margin:0 2px 8px">Резервна копія + нові записи для таблиць. Потім напишіть Claude «синхронізуй» — він перенесе їх у таблицю. ${S.backupAt?"Останнє збереження: "+fmtDate(S.backupAt):"Ще не зберігали"}.</div><div id="bkMsg" class="m" style="margin-bottom:6px"></div>
     <details style="margin:4px 0 12px"><summary style="color:var(--muted);font-size:13px;cursor:pointer">Додатково</summary>
       <button class="btn ghost" id="mExport" style="width:100%;margin:8px 0">⬇️ Зберегти копію на телефон</button>
