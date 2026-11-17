@@ -834,7 +834,7 @@ function firstSeen(id){ let m="";
   for(const f of [...S.B.trio.fin.values(),...(S.duoOk?S.B.duo.fin.values():[])]) if(f.date&&(f.worker===id||f.owner===id||f.from===id||f.to===id)&&(!m||f.date<m)) m=f.date;
   for(const x of S.moves) if((x.to===id||x.from===id||x.holder===id)&&x.at){ const d=new Date(x.at).toISOString().slice(0,10); if(!m||d<m) m=d }
   return m }
-const phRow=x=>`<div class="phr" style="display:flex;gap:6px;margin-top:6px"><input class="phL" value="${esc(x?.label||"")}" placeholder="чий / який" style="flex:.7"><input class="phT" type="tel" value="${esc(x?.tel||"")}" placeholder="номер" style="flex:1"><button type="button" class="btn ghost sm phStar" title="Зробити основним">⭐</button><button type="button" class="btn ghost sm phX">✕</button></div>`;
+const phRow=x=>`<div class="phr" style="display:flex;gap:6px;margin-top:6px"><input class="phT" type="tel" value="${esc(x?.tel||"")}" placeholder="номер" style="flex:1.7;min-width:0"><input class="phL" value="${esc(x?.label||"")}" placeholder="підпис" style="flex:1;min-width:0"><button type="button" class="btn ghost sm phStar" title="Зробити основним">⭐</button><button type="button" class="btn ghost sm phX">✕</button></div>`;
 const crewNames=p=>(p.members||[]).map(id=>person(id)?.name).filter(Boolean).map(esc).join(", ");
 function personForm(p){
   const isNew=!p; p=p||{role:"worker"};
@@ -854,9 +854,9 @@ function personForm(p){
         <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${[...S.people.values()].filter(x=>x.role==="worker"&&!x.crew&&x.id!==p.id).sort(byName).map(x=>`<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" class="crewM" value="${x.id}" ${(p.members||[]).includes(x.id)?"checked":""} style="width:18px;height:18px">${esc(x.name)}</label>`).join("")||`<span class="m">Спочатку додайте виконавців окремо</span>`}</div>
         <div class="m" style="color:var(--muted);font-size:12px;margin-top:4px">Нарахування й виплати йдуть на бригаду загальною сумою; як ділити між собою — вирішують самі.${!isNew&&!p.crew?` <b>${esc(p.name)} лишиться окремою людиною</b>, а бригада буде створена окремо, з ним у складі.`:""}</div></div>
       ${!isNew&&!p.crew&&p.role==="worker"?(()=>{const cs=[...S.people.values()].filter(c=>c.crew&&(c.members||[]).includes(p.id));return cs.length?`<div class="m" style="margin:-4px 0 10px">👥 У бригаді: ${cs.map(c=>esc(c.name)).join(", ")}</div>`:""})():""}
-      <div class="row"><div class="field"><label>Телефон (основний)</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div>
+      <div class="field"><label>Телефон (основний)</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div>
         <div id="phList">${(p.phones||[]).map(x=>phRow(x)).join("")}</div><button type="button" class="btn ghost sm" id="phAdd" style="margin-top:6px">+ ще номер</button></div>
-        <div class="field"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div></div>
+        <div class="field" style="max-width:220px"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div>
       ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delP">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
     </form>`);
   let role=p.role;
