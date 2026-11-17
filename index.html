@@ -367,7 +367,7 @@ function renderTools(){
     <div class="stats">${st("all","",sq(all),"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}</div>
     <div class="search"><input id="q" type="search" placeholder="Пошук: назва, номер, людина, об'єкт…" value="${esc(S.q)}">
       <button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
-    <div style="display:flex;gap:6px;margin:6px 0"><button class="btn ghost sm" id="catBtn" style="flex:1">📚 Довідник</button><button class="btn ghost sm" id="buyBtn" style="flex:1">🛒 Закупівля</button></div>
+    <div style="display:flex;gap:6px;margin:6px 0"><button class="btn ghost sm" id="catBtn" style="flex:1">📚 Інструменти і матеріали</button><button class="btn ghost sm" id="buyBtn" style="flex:1">🛒 Закупівля</button></div>
     <div class="filters">
       <select id="fCat">${catOptions(S.cat,true)}</select>
       <select id="fSite">${siteOptions(S.site,"Усі місця")}</select>
@@ -777,7 +777,7 @@ function toolCatSheet(){
     const draw=()=>{ const l=toolCat().map((c,i)=>({...c,i})), unk=new Set(); const known=new Set(l.map(c=>normName(c.name)));
       for(const t of S.tools.values()) if(!known.has(normName(t.name))) unk.add(t.name);
       const groups={}; for(const c of l){ if(q&&!wordHit(c.name+" "+(c.alt||"")+" "+c.cat,q)) continue; (groups[c.cat]=groups[c.cat]||[]).push(c) }
-      openSheet(`<h2>📚 Довідник інструменту</h2>
+      openSheet(`<h2>📚 Інструменти і матеріали</h2>
         <div class="seg" style="margin-bottom:8px"><button type="button" class="on">🧰 Інструмент</button><button type="button" id="tcMats">🧱 Матеріали</button></div>
         <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Правильні назви інструменту і як їх пишуть люди. За ним застосунок розпізнає списки, фото й потрібне на об'єкт. ${unk.size?`<b>У базі ${unk.size} назв не з довідника.</b>`:"Усі назви в базі — з довідника ✅"}</div>
         ${S.canWrite&&unk.size?`<button class="btn" id="tcNorm" style="width:100%;margin-bottom:8px">✨ Привести назви інструменту до довідника</button>`:""}
@@ -844,7 +844,7 @@ function matCatSheet(){
   loadMatCat(()=>{ let q="", open="";
     const draw=()=>{ const l=matCat().map((c,i)=>({...c,i})); const groups={};
       for(const c of l){ if(q&&!wordHit(c.name+" "+(c.alt||"")+" "+c.cat,q)) continue; (groups[c.cat]=groups[c.cat]||[]).push(c) }
-      openSheet(`<h2>🧱 Довідник матеріалів</h2>
+      openSheet(`<h2>📚 Інструменти і матеріали</h2>
         <div class="seg" style="margin-bottom:8px"><button type="button" id="mcTools">🧰 Інструмент</button><button type="button" class="on">🧱 Матеріали</button></div>
         <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Правильні назви будівельних матеріалів, одиниці й як їх пишуть. За ним ШІ розпізнає матеріали в списках потрібного й складає закупівлю.</div>
         <input id="mcQ" type="search" placeholder="Пошук: клей, профіль, піна…" value="${esc(q)}" style="margin-bottom:8px">
