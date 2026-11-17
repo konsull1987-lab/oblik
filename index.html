@@ -572,7 +572,7 @@ function whereIs(rec,exceptSite){ // схожий інструмент по вс
     const o=m.get(k)||{lbl,qty:0,names:new Set()}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); m.set(k,o) }
   return [...m.values()].sort((a,b)=>b.qty-a.qty) }
 function whereHTML(l){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:2px 0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
-function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } if(n.kind==="material"){ n._here=[]; return 0 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
+function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } if(n.kind==="material"){ n._here=[]; return +n.got||0 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
 // ШІ: розібрати список потрібного і зіставити з назвами інструменту, які є в базі
 async function aiNeeds(text,imgs,existing){ imgs=imgs||[]; existing=existing||[];
   const uniq=new Map(); for(const t of S.tools.values()){ const k=normName(t.name); if(!uniq.has(k)) uniq.set(k,t.name) }
@@ -618,7 +618,7 @@ function needsHTML(s){
         ${mat?(S.canWrite?`<input data-nu="${i}" value="${esc(n.unit||"шт")}" list="nUnits" style="width:62px;text-align:center;padding:6px 4px">`:esc(n.unit||"шт")):`<span class="m" style="font-size:12px">шт</span>`}</div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
         ${S.canWrite?`<button type="button" class="btn ghost sm" data-nkind="${i}" title="Змінити: інструмент / матеріал">${mat?"🧱 матеріал":"🧰 інструмент"} ⇄</button>`:""}
-        <span class="m" style="font-size:12px;flex:1">${mat?(n.done?"привезено":n.ordered?"🛒 замовлено":"треба закупити / привезти"):(have?`є тут: ${have}`:n.ordered?"🛒 замовлено":"тут немає")}</span>
+        <span class="m" style="font-size:12px;flex:1">${mat?(n.done||have>=(+n.qty||1)?"привезено все":`${S.canWrite?`привезено <input data-ngot="${i}" inputmode="decimal" value="${+n.got||0}" style="width:52px;text-align:center;padding:4px">`:`привезено ${+n.got||0}`} · <b>бракує ${Math.round(((+n.qty||1)-have)*100)/100} ${esc(n.unit||"шт")}</b>${n.ordered?" · 🛒":""}`):(have?`є тут: ${have}`:n.ordered?"🛒 замовлено":"тут немає")}</span>
         ${S.canWrite?`${mat?"":`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button>`}<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
       ${here.length&&!mat?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
       ${ok||mat?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id))}</details>`}</div>` };
@@ -642,8 +642,10 @@ function bindNeeds(s){ loadToolCat(); loadMatCat();
   box.querySelectorAll("[data-nu]").forEach(el=>el.onchange=()=>{ const l=s.needs.map(x=>({...x})); l[+el.dataset.nu].unit=el.value.trim()||"шт"; save(l) });
   box.querySelectorAll("[data-nkind]").forEach(b=>b.onclick=()=>{ const l=s.needs.map(x=>({...x})), x=l[+b.dataset.nkind]; x.kind=x.kind==="material"?"tool":"material"; if(x.kind==="material"&&!x.unit) x.unit="шт"; save(l) });
   // натиснув ⬜ — позначено «привезено»; натиснув ✅, поставлену вручну, — знято
+  box.querySelectorAll("[data-ngot]").forEach(el=>el.onchange=()=>{ const v=Math.max(0,parseFloat(String(el.value).replace(",","."))||0), l=s.needs.map(x=>({...x})), x=l[+el.dataset.ngot]; x.got=v; x.done=v>=(+x.qty||1); save(l) });
   box.querySelectorAll("[data-ntog]").forEach(b=>b.onclick=()=>{ if(!S.canWrite) return; const i=+b.dataset.ntog, l=s.needs.map(x=>({...x})), x=l[i];
-    if(x.done){ x.done=false; save(l); return }
+    if(x.done||(x.kind==="material"&&(+x.got||0)>=(+x.qty||1))){ x.done=false; if(x.kind==="material") x.got=0; save(l); return }
+    if(x.kind==="material"){ x.got=+x.qty||1; x.done=true; save(l); return }
     if(haveOnSite(s.needs[i],s.id)>=(+x.qty||1)){ toast("Вже є на об'єкті: "+(s.needs[i]._here||[]).slice(0,2).join(", ")); return }
     x.done=true; save(l) });
   // вручну прив'язати позицію до інструменту, який уже є на об'єкті (якщо ШІ не зрозумів назву)
@@ -808,11 +810,11 @@ function buyGroups(onlySite){
 function buyList(onlySite){
   const groups=buyGroups(onlySite);
   const text=()=>{ const g=groups.map(g=>({...g,l:g.l.filter(x=>x.on)})).filter(g=>g.l.length); if(!g.length) return "";
-    return `Закупівля ${fmtDay(todayISO())}\n`+g.map(g=>`\n📍 ${g.site.name}:\n`+g.l.map(x=>`— ${x.n.name} — ${+x.n.qty||1} ${x.mat?(x.n.unit||"шт"):"шт"}${x.mat?"":" (інструмент)"}`).join("\n")).join("\n") };
+    return `Закупівля ${fmtDay(todayISO())}\n`+g.map(g=>`\n📍 ${g.site.name}:\n`+g.l.map(x=>`— ${x.n.name} — ${x.mat?Math.round(((+x.n.qty||1)-(+x.n.got||0))*100)/100:(+x.n.qty||1)} ${x.mat?(x.n.unit||"шт"):"шт"}${x.mat?"":" (інструмент)"}`).join("\n")).join("\n") };
   const draw=()=>{ const tot=groups.reduce((a,g)=>a+g.l.filter(x=>x.on).length,0);
     openSheet(`<h2>🛒 Список на закупівлю</h2>
       <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Матеріали з «Потрібного» на об'єктах і інструмент, якого немає ніде в базі. Зніміть галочку з того, що не треба. Вже замовлене позначене 🛒.</div>
-      ${groups.length?groups.map((g,gi)=>`<div class="section-t">📍 ${esc(g.site.name)}</div>${g.l.map((x,xi)=>`<label class="card" style="display:flex;gap:8px;align-items:center;margin-bottom:4px;${x.on?"":"opacity:.55"}"><input type="checkbox" data-b="${gi}_${xi}" ${x.on?"checked":""} style="width:20px;height:20px"><span style="flex:1">${esc(x.n.name)}${x.mat?"":` <span class="tag">інструмент</span>`}${x.n.ordered?` <span class="tag">🛒 замовлено</span>`:""}</span><b>${+x.n.qty||1} ${esc(x.mat?(x.n.unit||"шт"):"шт")}</b></label>`).join("")}`).join(""):`<div class="empty">Нічого купувати не треба ✅</div>`}
+      ${groups.length?groups.map((g,gi)=>`<div class="section-t">📍 ${esc(g.site.name)}</div>${g.l.map((x,xi)=>`<label class="card" style="display:flex;gap:8px;align-items:center;margin-bottom:4px;${x.on?"":"opacity:.55"}"><input type="checkbox" data-b="${gi}_${xi}" ${x.on?"checked":""} style="width:20px;height:20px"><span style="flex:1">${esc(x.n.name)}${x.mat?"":` <span class="tag">інструмент</span>`}${x.n.ordered?` <span class="tag">🛒 замовлено</span>`:""}</span><b>${x.mat?Math.round(((+x.n.qty||1)-(+x.n.got||0))*100)/100:(+x.n.qty||1)} ${esc(x.mat?(x.n.unit||"шт"):"шт")}</b></label>`).join("")}`).join(""):`<div class="empty">Нічого купувати не треба ✅</div>`}
       ${tot?`<div class="actions"><button class="btn ghost" id="bCopy">📋 Скопіювати</button><button class="btn" id="bShare">📤 Надіслати</button></div>
         ${S.canWrite?`<button class="btn ghost" id="bMark" style="width:100%;margin-top:6px">🛒 Позначити вибране як замовлене</button>`:""}`:""}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
