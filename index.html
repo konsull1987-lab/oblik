@@ -605,7 +605,7 @@ function needsHTML(s){
   return `<div class="section-t" style="display:flex;margin-top:4px">🧰 Потрібен інструмент<span class="count">${l.length?`бракує ${miss.length} з ${l.length}`:""}</span></div>
     ${l.map((n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1), here=n._here||[];
       return `<div class="card" style="display:block;cursor:default;margin-bottom:6px;${ok?"opacity:.6":""}">
-        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1">${ok?"✅":"⬜"} ${esc(n.name)} <b>×${+n.qty||1}</b>${n.kind==="material"?` <span class="tag">матеріал</span>`:""}</span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button><button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
+        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1"><button type="button" data-ntog="${i}" style="background:none;border:0;padding:0 4px 0 0;font-size:22px;line-height:1;cursor:pointer;vertical-align:middle" title="${ok?"Привезено":"Позначити як привезене"}">${ok?"✅":"⬜"}</button> ${esc(n.name)} <b>×${+n.qty||1}</b>${n.kind==="material"?` <span class="tag">матеріал</span>`:""}</span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button><button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
         ${here.length?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
         ${ok?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id))}</details>`}</div>` }).join("")}
     ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="nAdd" style="flex:1">+ Додати потрібне</button>${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="flex:1">🔄 Перевірити наявність</button>`:""}</div>
@@ -614,6 +614,11 @@ function bindNeeds(s){ loadToolCat();
   const box=$("#needsBox"); if(!box) return; const re=()=>{ box.innerHTML=needsHTML(s); bindNeeds(s) };
   const save=async l=>{ l=l.map(({_here,...x})=>x); if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
   box.querySelectorAll("[data-ndel]").forEach(b=>b.onclick=()=>save((s.needs||[]).filter((_,i)=>i!==+b.dataset.ndel)));
+  // натиснув ⬜ — позначено «привезено»; натиснув ✅, поставлену вручну, — знято
+  box.querySelectorAll("[data-ntog]").forEach(b=>b.onclick=()=>{ if(!S.canWrite) return; const i=+b.dataset.ntog, l=s.needs.map(x=>({...x})), x=l[i];
+    if(x.done){ x.done=false; save(l); return }
+    if(haveOnSite(s.needs[i],s.id)>=(+x.qty||1)){ toast("Вже є на об'єкті: "+(s.needs[i]._here||[]).slice(0,2).join(", ")); return }
+    x.done=true; save(l) });
   // вручну прив'язати позицію до інструменту, який уже є на об'єкті (якщо ШІ не зрозумів назву)
   box.querySelectorAll("[data-nlink]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.nlink, n=s.needs[i];
     const here=[...S.tools.values()].filter(t=>t.site===s.id).sort((a,b)=>a.name.localeCompare(b.name,"uk"));
