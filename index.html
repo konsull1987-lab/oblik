@@ -1734,7 +1734,50 @@ function settleBlock(){
         ${lc.length?lc.map(line).join(""):`<div class="m">✅ Усі в нулях</div>`}
         <div class="m" style="color:var(--muted);font-size:12px">Неподілений прибуток лишається на руках у тих, хто його тримає.</div></details>`:""}` }).join("")}</div>`;
 }
+function statSeg(){ return `<div class="seg" id="statSeg" style="margin-bottom:10px">${[["earn","💰 Заробіток"],["cust","👤 Замовники"],["sites","🏗️ Об'єкти"]].map(([k,l])=>`<button type="button" data-st="${k}" class="${(S.statMode||"earn")===k?"on":""}">${l}</button>`).join("")}</div>` }
+function bindStatSeg(){ $("#statSeg")?.addEventListener("click",e=>{ const b=e.target.closest("[data-st]"); if(b){ S.statMode=b.dataset.st; renderMoneyStats() } }) }
+const bar=(v,max,col)=>`<div style="height:6px;background:var(--line,#2a2f38);border-radius:3px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${Math.max(0,Math.min(100,max>0?v/max*100:0))}%;background:${col}"></div></div>`;
+function siteStats(){ const r={}, now=new Date(), mk=[]; for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); mk.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")) }
+  for(const f of S.fin.values()){ if(!f.site||f.kind==="Взаємозалік") continue; const x=r[f.site]||(r[f.site]={in:0,out:0,acc:0,wpaid:0,last:"",lastIn:"",m:{}}); const a=+f.amount||0, d=f.date||"";
+    if(f.type==="accrual"){ if(!person(f.worker)?.helper) x.acc+=a }
+    else{ if(f.type==="in"){ x.in+=a; if(d>x.lastIn) x.lastIn=d } else { x.out+=a; if(f.worker&&!isHelperPay(f)) x.wpaid+=a }
+      const k=d.slice(0,7); if(mk.includes(k)){ const m=x.m[k]||(x.m[k]={in:0,out:0}); m[f.type==="in"?"in":"out"]+=a } }
+    if(d>x.last) x.last=d }
+  return {r,mk} }
+const daysAgo=iso=>iso?Math.floor((Date.now()-new Date(iso+"T12:00:00").getTime())/864e5):null;
+function renderStatsCust(){
+  const {r}=siteStats(); const rows=customerRows().filter(x=>x.s.type!=="warehouse");
+  let h=statSeg()+`<div class="sum" style="color:var(--muted);font-size:12.5px">Борг = сума договору − отримано від замовника. Договір вказується в об'єкті («⚙️ Дані») або погодженням смети.</div>`;
+  if(!rows.length){ $("#view").innerHTML=h+`<div class="empty">Немає об'єктів із сумою договору.</div>`; bindStatSeg(); return }
+  const tot=rows.reduce((a,x)=>a+Math.max(0,x.debt),0), totC=rows.reduce((a,x)=>a+x.contract,0), totP=rows.reduce((a,x)=>a+x.paid,0);
+  h+=`<div class="card" style="display:block;cursor:default;margin-bottom:10px"><div style="display:flex"><b style="flex:1">Замовники винні</b><b class="in">${money(tot)}</b></div>
+    <div class="m">договорів на ${money(totC)} · отримано ${money(totP)} (${totC?Math.round(totP/totC*100):0}%)</div>${bar(totP,totC,"var(--green,#3fb950)")}</div><div class="list">`;
+  for(const x of rows){ const st=r[x.s.id]||{}, dd=daysAgo(st.lastIn), pct=x.contract?Math.round(x.paid/x.contract*100):0;
+    h+=`<div class="card" data-site="${x.s.id}" style="display:block"><div style="display:flex;gap:8px"><div style="flex:1"><div class="t">${esc(x.s.name)}${x.s.active===false?` <span class="tag">архів</span>`:""}</div>
+      <div class="m">👤 ${esc(x.s.customer||"замовник не вказаний")} · договір ${money(x.contract)} · отримано ${money(x.paid)} (${pct}%)</div>
+      <div class="m" style="color:${dd!=null&&dd>14&&x.debt>0?"var(--red,#e5534b)":"var(--muted)"}">${st.lastIn?`остання оплата ${fmtDay(st.lastIn)} — ${dd} дн. тому`:"оплат ще не було"}</div></div>
+      <span class="amt ${x.debt>0?"in":""}" style="white-space:nowrap">${x.debt>0?money(x.debt):x.debt<0?"переплата "+money(-x.debt):"✓ оплачено"}</span></div>${bar(x.paid,x.contract,x.debt>0?"var(--accent)":"var(--green,#3fb950)")}</div>` }
+  $("#view").innerHTML=h+`</div>`; bindStatSeg() }
+function renderStatsSites(){
+  const {r,mk}=siteStats(); S.stAll=!!S.stAll;
+  const l=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&(S.stAll||x.active!==false)&&r[x.id]).map(x=>({s:x,t:r[x.id]})).sort((a,b)=>(b.t.last||"").localeCompare(a.t.last||""));
+  let h=statSeg()+`<label class="m" style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="checkbox" id="stAll" ${S.stAll?"checked":""} style="width:20px;height:20px"> Показати й архівні</label>
+    <div class="sum" style="color:var(--muted);font-size:12.5px">По кожному об'єкту: гроші, борг замовника, борг виконавцям і рух за останні 6 місяців (зелене — прихід, червоне — витрати).</div>`;
+  if(!l.length){ $("#view").innerHTML=h+`<div class="empty">Записів по об'єктах немає.</div>`; bindStatSeg(); $("#stAll").onchange=e=>{S.stAll=e.target.checked;renderMoneyStats()}; return }
+  const sum=l.reduce((a,x)=>({in:a.in+x.t.in,out:a.out+x.t.out,acc:a.acc+Math.max(0,x.t.acc-x.t.wpaid),cd:a.cd+Math.max(0,(+x.s.contract||0)>0?(+x.s.contract)-x.t.in:0)}),{in:0,out:0,acc:0,cd:0});
+  h+=`<div class="card" style="display:block;cursor:default;margin-bottom:10px"><b>Разом по ${l.length} об'єктах</b><div class="m">прихід <span class="in">${money(sum.in)}</span> · витрати <span class="out">${money(sum.out)}</span> · прибуток <b class="${sum.in-sum.out<0?"out":""}">${money(sum.in-sum.out)}</b></div>
+    <div class="m">👤 замовники винні <b class="in">${money(sum.cd)}</b> · 👷 ми винні виконавцям <b class="out">${money(sum.acc)}</b></div></div><div class="list">`;
+  for(const {s:x,t} of l){ const p=t.in-t.out, mg=t.in>0?Math.round(p/t.in*100):null, cd=(+x.contract||0)>0?(+x.contract)-t.in:null, wd=Math.max(0,t.acc-t.wpaid);
+    const mx=Math.max(1,...mk.map(k=>Math.max(t.m[k]?.in||0,t.m[k]?.out||0)));
+    const spark=`<div style="display:flex;gap:4px;align-items:flex-end;height:34px;margin-top:6px">${mk.map(k=>{ const m=t.m[k]||{in:0,out:0}; return `<div style="flex:1;display:flex;gap:1px;align-items:flex-end;height:100%" title="${MONTHS[+k.slice(5)-1]}: +${money(m.in)} / −${money(m.out)}"><div style="flex:1;background:var(--green,#3fb950);height:${m.in/mx*100}%;min-height:${m.in?2:0}px;border-radius:2px 2px 0 0"></div><div style="flex:1;background:var(--red,#e5534b);height:${m.out/mx*100}%;min-height:${m.out?2:0}px;border-radius:2px 2px 0 0"></div></div>` }).join("")}</div>
+      <div style="display:flex;gap:4px">${mk.map(k=>`<span class="m" style="flex:1;text-align:center;font-size:10px;color:var(--muted)">${MONTHS[+k.slice(5)-1].slice(0,3)}</span>`).join("")}</div>`;
+    h+=`<div class="card" data-site="${x.id}" style="display:block"><div style="display:flex;gap:8px"><div class="t" style="flex:1">${esc(x.name)}${x.active===false?` <span class="tag">архів</span>`:""}</div><b class="${p<0?"out":"in"}">${money(p)}</b></div>
+      <div class="m">прихід ${money(t.in)} · витрати ${money(t.out)}${mg!=null?` · маржа ${mg}%`:""}</div>
+      <div class="m">${cd!=null?(cd>0?`👤 ${esc(x.customer||"замовник")} винен <b class="in">${money(cd)}</b>`:cd<0?`👤 переплата ${money(-cd)}`:`👤 оплачено повністю`):`<span style="color:var(--muted)">договір не вказаний</span>`}${wd>0?` · 👷 винні виконавцям <b class="out">${money(wd)}</b>`:""}</div>
+      <div class="m" style="color:var(--muted);font-size:11.5px">останній запис ${fmtDay(t.last)}${t.last?` (${daysAgo(t.last)} дн. тому)`:""}</div>${spark}</div>` }
+  $("#view").innerHTML=h+`</div>`; bindStatSeg(); $("#stAll").onchange=e=>{S.stAll=e.target.checked;renderMoneyStats()} }
 function renderMoneyStats(){
+  if(S.statMode==="cust") return renderStatsCust(); if(S.statMode==="sites") return renderStatsSites();
   const all=[...S.people.values()].filter(p=>p.role==="owner").sort(byName);
   const duoO=all.filter(p=>DUO_OWNERS.includes(p.id));
   const T=monthStats(S.B.trio.fin,all), withDuo=S.duoOk&&S.duoLoaded, D=withDuo?monthStats(S.B.duo.fin,duoO):{};
@@ -1745,7 +1788,7 @@ function renderMoneyStats(){
   const yT=months.reduce((a,k)=>a+(T[k]?.profit||0),0), yD=months.reduce((a,k)=>a+(D[k]?.profit||0),0);
   const person=o=>(DUO_OWNERS.includes(o.id)&&withDuo);
   const perYear=all.map(o=>({o,v:yT/all.length+(person(o)?yD/duoO.length:0)}));
-  let h=settleBlock()+`<div class="filters"><select id="sYear">${years.map(y=>`<option ${y===S.sYear?"selected":""}>${y}</option>`).join("")}</select></div>
+  let h=statSeg()+settleBlock()+`<div class="filters"><select id="sYear">${years.map(y=>`<option ${y===S.sYear?"selected":""}>${y}</option>`).join("")}</select></div>
     <div class="sum" style="color:var(--muted);font-size:12.5px">Заробіток = прихід − витрати за місяць (без взаємозаліків), поділений порівну між власниками бази${withDuo?": на трьох — на 3, общак — на 2":""}.</div>
     <div class="card" style="display:block;cursor:default;margin-bottom:10px"><div class="t" style="font-weight:700;margin-bottom:6px">За ${S.sYear} рік</div>
       ${perYear.map(x=>`<div style="display:flex;gap:8px"><span style="flex:1">${esc(x.o.name)}${person(x.o)?` <span style="color:var(--muted);font-size:12px">(на трьох ${money(yT/all.length)} + на двох ${money(yD/duoO.length)})</span>`:""}</span><b class="${cls(x.v)}">${money(x.v)}</b></div>`).join("")}
@@ -1762,7 +1805,7 @@ function renderMoneyStats(){
         ${withDuo?`<div class="m" style="margin-top:6px"><b>Общак на двох:</b> ${d?`прихід ${money(d.in)} · витрати ${money(d.out)} · прибуток <b class="${cls(d.profit)}">${money(d.profit)}</b> → кожному ${money(d.share)}`:"записів немає"}</div>
         ${d?duoO.map(o=>`<div class="m" style="color:var(--muted)">${esc(o.name)}: ${pl(d,o)}</div>`).join(""):""}`:""}
       </details></div>`; }
-  $("#view").innerHTML=h;
+  $("#view").innerHTML=h; bindStatSeg();
 }
 
 // ---------- Документи: рахунок і акт ----------
