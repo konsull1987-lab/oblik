@@ -1476,8 +1476,10 @@ function workReport(workerId,opts){
     $("#wrP").onchange=e=>{const v=parseFloat(String(e.target.value).replace(",","."));if(isFinite(v)&&v>=0&&v<100){st.pct=v;try{localStorage.setItem("wrPct",String(v))}catch(_){}}st.rows.forEach(calc);draw()};
     $("#wrT").oninput=e=>st.text=e.target.value;
     const pick=async file=>{ if(!file) return; st.file=file; st.fileParts=[];
-      try{ if(/\.(xlsx|xls|csv)$/i.test(file.name)){ const X=await loadXLSX(); const wb=X.read(await file.arrayBuffer(),{type:"array"}); st.fileParts=wb.SheetNames.map(n=>({text:"Аркуш "+n+":\n"+X.utils.sheet_to_csv(wb.Sheets[n]).slice(0,30000)})) }
+      try{ if(/\.(xlsx|xls|csv|ods)$/i.test(file.name)){ const X=await loadXLSX(); const wb=X.read(await file.arrayBuffer(),{type:"array"}); st.fileParts=wb.SheetNames.map(n=>({text:"Аркуш "+n+":\n"+X.utils.sheet_to_csv(wb.Sheets[n]).slice(0,30000)})) }
         else if(/\.txt$/i.test(file.name)) st.fileParts=[{text:await file.text()}];
+        else if(/\.docx$/i.test(file.name)) st.fileParts=[{text:"Документ Word "+file.name+":\n"+await docxText(await file.arrayBuffer())}];
+        else if(/\.doc$/i.test(file.name)){ toast("Старий формат .doc — збережіть як .docx або PDF"); st.file=null; draw(); return }
         else if(file.type==="application/pdf"){ const b=new Uint8Array(await file.arrayBuffer()); let s="";for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192)); st.fileParts=[{mime:"application/pdf",b64:btoa(s)}] }
         else st.fileParts=[await shrinkImage(file,1800)];
       }catch(e){ toast("Не вдалося прочитати файл"); st.file=null }
@@ -2023,8 +2025,10 @@ function kpFlow(saved,opts){
     bind("#kpNo","no");bind("#kpD","date");bind("#kpC","client");bind("#kpO","object");bind("#kpF","fop");bind("#kpDisc","disc",1);bind("#kpV","valid",1);
     $("#kpT").oninput=e=>st.text=e.target.value;
     const pick=async file=>{ if(!file) return; st.file=file; st.fileParts=[];
-      try{ if(/\.(xlsx|xls|csv)$/i.test(file.name)){ const X=await loadXLSX(); const wb=X.read(await file.arrayBuffer(),{type:"array"}); st.fileParts=wb.SheetNames.map(n=>({text:"Аркуш "+n+":\n"+X.utils.sheet_to_csv(wb.Sheets[n]).slice(0,30000)})) }
+      try{ if(/\.(xlsx|xls|csv|ods)$/i.test(file.name)){ const X=await loadXLSX(); const wb=X.read(await file.arrayBuffer(),{type:"array"}); st.fileParts=wb.SheetNames.map(n=>({text:"Аркуш "+n+":\n"+X.utils.sheet_to_csv(wb.Sheets[n]).slice(0,30000)})) }
         else if(/\.txt$/i.test(file.name)) st.fileParts=[{text:await file.text()}];
+        else if(/\.docx$/i.test(file.name)) st.fileParts=[{text:"Документ Word "+file.name+":\n"+await docxText(await file.arrayBuffer())}];
+        else if(/\.doc$/i.test(file.name)){ toast("Старий формат .doc — збережіть як .docx або PDF"); st.file=null; draw(); return }
         else if(file.type==="application/pdf"){ const b=new Uint8Array(await file.arrayBuffer()); let s="";for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192)); st.fileParts=[{mime:"application/pdf",b64:btoa(s)}] }
         else st.fileParts=[await shrinkImage(file,1800)];
       }catch(e){ toast("Не вдалося прочитати файл"); st.file=null } draw() };
@@ -2462,7 +2466,8 @@ async function docxText(buf){
   const ls=ent.lo+30+dv.getUint16(ent.lo+26,true)+dv.getUint16(ent.lo+28,true), raw=u8.slice(ls,ls+ent.cs);
   let xml; if(ent.m===0) xml=new TextDecoder().decode(raw);
   else { const ds=new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw")); xml=await new Response(ds).text() }
-  return xml.replace(/<w:tab\/>/g,"\t").replace(/<w:br[^>]*\/>/g,"\n").replace(/<\/w:tc>/g," | ").replace(/<\/w:p>/g,"\n").replace(/<[^>]+>/g,"")
+  xml=xml.replace(/<w:tc[ >][\s\S]*?<\/w:tc>/g,m=>m.replace(/<\/w:p>/g," "));
+  return xml.replace(/<w:tab\/>/g,"\t").replace(/<w:br[^>]*\/>/g,"\n").replace(/<\/w:tc>/g," | ").replace(/<\/w:tr>/g,"\n").replace(/<\/w:p>/g,"\n").replace(/<[^>]+>/g,"")
     .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&").replace(/\n{3,}/g,"\n\n").trim();
 }
 async function aiParts(name,type,buf){
@@ -3000,6 +3005,7 @@ function uploadDoc(s){
     $("#udF").onchange=async e=>{ const f=e.target.files[0]; if(!f) return; st.file=f; st.parts=[];
       try{ if(/\.(xlsx|xls|csv|ods)$/i.test(f.name)){ const X=await loadXLSX(); const wb=X.read(await f.arrayBuffer(),{type:"array"}); st.parts=wb.SheetNames.map(n=>({text:X.utils.sheet_to_csv(wb.Sheets[n]).slice(0,40000)})) }
         else if(f.type==="application/pdf"){ const b=new Uint8Array(await f.arrayBuffer()); let x="";for(let i=0;i<b.length;i+=8192)x+=String.fromCharCode.apply(null,b.subarray(i,i+8192)); st.parts=[{mime:"application/pdf",b64:btoa(x)}] }
+        else if(/\.docx$/i.test(f.name)) st.parts=[{text:"Документ Word:\n"+await docxText(await f.arrayBuffer())}];
         else if(/^image\//.test(f.type)) st.parts=[await shrinkImage(f,1800)]; else if(/^text\//.test(f.type)) st.parts=[{text:(await f.text()).slice(0,40000)}] }catch(_){ toast("Файл не прочитався — збережу як є") } draw() };
     const sv=()=>{ st.kind=$("#udK").value; st.no=$("#udN").value; st.date=$("#udD").value; st.total=$("#udS").value };
     $("#udAI")?.addEventListener("click",async()=>{ sv(); const b=$("#udAI"); b.disabled=true; b.textContent="⏳ Розбираю…";
