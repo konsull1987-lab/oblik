@@ -1960,7 +1960,8 @@ function kpFlow(saved){
       <div class="field"><label>Перелік робіт від замовника (текст)</label><textarea id="kpT" rows="4" placeholder="Вставте перелік: роботи й обсяги…">${esc(st.text)}</textarea></div>
       <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="kpFile" accept=".xlsx,.xls,.csv,.pdf,.txt,image/*" style="display:none"></label><label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="kpCam" accept="image/*" capture="environment" style="display:none"></label></div>
       ${st.file?`<div class="m" style="margin:-4px 0 8px">📎 ${esc(st.file.name)}</div>`:""}
-      <button class="btn" id="kpGo" style="width:100%">🔍 Підібрати ціни з прайсу</button>
+      <button class="btn" id="kpGo" style="width:100%">🤖 Розібрати перелік і підібрати ціни</button>
+      <div class="row" style="margin-top:6px"><button type="button" class="btn ghost" id="kpPick" style="flex:1">🔍 Додати роботу з прайсу</button><button type="button" class="btn ghost" id="kpManual" style="flex:1">✏️ Рядок вручну</button></div>
       <div id="kpRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     const bind=(id,k,num)=>{$(id).onchange=e=>{st[k]=num?(parseFloat(String(e.target.value).replace(",","."))||0):e.target.value;if(st.rows.length)drawRows()}};
@@ -1974,10 +1975,15 @@ function kpFlow(saved){
       }catch(e){ toast("Не вдалося прочитати файл"); st.file=null } draw() };
     $("#kpFile").onchange=e=>pick(e.target.files[0]); $("#kpCam").onchange=e=>pick(e.target.files[0]);
     $("#kpGo").onclick=go;
+    // додати роботу пошуком по прайсу (можна багато разів поспіль) або порожній рядок
+    const addPick=()=>pickWork(items,-1,v=>{ if(v<0) return; const it=items[v]; const ex=st.rows.find(r=>r.p===v&&r.on!==false); if(ex){ toast("Ця робота вже є — змініть кількість"); return }
+      st.rows.push({on:true,name:it.name,orig:"",qty:1,unit:it.unit,price:it.price,p:v,cat:it.cat}); draw(); toast("Додано: "+it.name+" — вкажіть обсяг") },"Скасувати");
+    $("#kpPick").onclick=addPick;
+    $("#kpManual").onclick=()=>{ st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"}); draw() };
     if(st.rows.length) drawRows();
   };
   async function go(){
-    if(!st.text.trim()&&!st.fileParts.length){toast("Вставте перелік або додайте файл");return}
+    if(!st.text.trim()&&!st.fileParts.length){toast("Вставте перелік або додайте файл — або додавайте роботи кнопкою «🔍 Додати роботу з прайсу»");return}
     if(!window.__fbAI){toast("Розпізнавання недоступне");return}
     const b=$("#kpGo"); b.disabled=true; const t0=Date.now(); const tick=setInterval(()=>{const el=$("#kpGo");if(el)el.textContent=`⏳ Підбираю… ${Math.round((Date.now()-t0)/1000)} с`},1000);
     const prompt=`Це перелік будівельних робіт від замовника (текст, таблиця, кошторис або фото). Випиши КОЖНУ роботу окремим рядком: name — назва як у замовника; qty — обсяг числом (якщо не вказано — 1); unit — одиниця.
@@ -1988,9 +1994,9 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
 Відповідь — лише JSON {"items":[{"name":"","qty":1,"unit":"","p":-1}]}.`;
     try{ const txt=await window.__fbAI([...(st.text.trim()?[{text:"Перелік замовника:\n"+st.text}]:[]),...st.fileParts],prompt);
       clearInterval(tick); const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
-      st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>{ let p=Number.isInteger(+x.p)&&+x.p>=0&&+x.p<items.length?+x.p:-1; const al=aliasOf(x.name); if(al){ const i=items.findIndex(it=>it.name===al); if(i>=0) p=i } const it=p>=0?items[p]:null;
-        return {on:true,name:it?it.name:String(x.name).trim(),orig:String(x.name).trim(),qty:+x.qty||1,unit:it?it.unit:String(x.unit||""),price:it?it.price:0,p,cat:it?it.cat:"Інші роботи"} });
-      if(!st.rows.length) toast("Робіт не знайдено"); draw();
+      const before=st.rows.length; st.rows=[...st.rows,...(j.items||[]).filter(x=>x&&x.name).map(x=>{ let p=Number.isInteger(+x.p)&&+x.p>=0&&+x.p<items.length?+x.p:-1; const al=aliasOf(x.name); if(al){ const i=items.findIndex(it=>it.name===al); if(i>=0) p=i } const it=p>=0?items[p]:null;
+        return {on:true,name:it?it.name:String(x.name).trim(),orig:String(x.name).trim(),qty:+x.qty||1,unit:it?it.unit:String(x.unit||""),price:it?it.price:0,p,cat:it?it.cat:"Інші роботи"} })];
+      if(st.rows.length===before) toast("Робіт не знайдено"); st.text=""; draw();
     }catch(e){ clearInterval(tick); b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,60)) }
   }
   function drawRows(){
@@ -2001,7 +2007,7 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
         ${r.orig&&r.orig!==r.name?`<div class="m" style="font-size:12px;color:var(--muted)">у замовника: ${esc(r.orig)}</div>`:""}
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><input data-i="${i}" data-k="unit" value="${esc(r.unit)}" style="flex:0 0 56px;text-align:center"><span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
         <button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`).join("")}
-      <button class="btn ghost sm" id="kpAdd" style="margin-bottom:8px">+ Додати рядок</button>
+      <div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="kpAdd2" style="flex:1">🔍 + Робота з прайсу</button><button class="btn ghost sm" id="kpAdd" style="flex:1">✏️ + Рядок вручну</button></div>
       <div class="sum">Разом: <b>${money(t)}</b>${+st.disc?` · знижка ${st.disc}%: −${money(d)} · <b>до сплати ${money(n2(t-d))}</b>`:""}</div>
       ${miss?`<div class="banner">Без ціни: ${miss} поз. — впишіть ціну або виберіть роботу з прайсу.</div>`:""}
       <div class="field"><label>Примітка в КП</label><input id="kpNote" value="${esc(st.note)}"></div>
@@ -2013,6 +2019,7 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       drawRows()};
     $("#kpRes").onclick=e=>{ const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
       pickWork(items,st.rows[i].p,v=>$("#kpRes").onchange({target:{dataset:{i,k:"p"},value:String(v)}})) };
+    $("#kpAdd2").onclick=()=>$("#kpPick").click();
     $("#kpAdd").onclick=()=>{st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"});drawRows()};
     $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"КП "+st.no);
     $("#kpSave").onclick=async()=>{ const data={no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
