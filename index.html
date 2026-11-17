@@ -3082,6 +3082,7 @@ $("#headTools").addEventListener("click",e=>{
 $("#view").addEventListener("change",e=>{ if(e.target.id==="sYear"){S.sYear=e.target.value;render()} });
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
 $("#view").addEventListener("click",e=>{
+  const bsw=e.target.closest("[data-base]"); if(bsw){ setBase(bsw.dataset.base); return }
   const u=e.target.closest("[data-undo]"); if(u){ undoLog(u.dataset.undo); return }
   const st=e.target.closest("[data-settle]"); if(st){ const [base,from,to,amt]=st.dataset.settle.split("|");
     if((base==="duo")!==isDuo()) setBase(base);
