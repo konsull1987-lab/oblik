@@ -2992,8 +2992,8 @@ function bindApproved(s){ const box=$("#apBox"); if(!box) return; const re=()=>{
       <tr class="tot"><td colspan="5" class="r b">Разом:</td><td class="r b box">${tot.toFixed(2)}</td></tr></table></div>`,(crew?"Для людей ":"Смета ")+s.name) });
 }
 // 📎 готовий документ з файлу (погоджений PDF/Excel/фото), за бажанням — розібрати позиції ШІ
-function uploadDoc(s,preFile){
-  let st={file:null,parts:[],kind:"Смета",no:"",total:"",date:todayISO(),rows:[]};
+function uploadDoc(s,preFile,preKind){
+  let st={kindFixed:!!preKind,file:null,parts:[],kind:preKind||"Смета",no:"",total:"",date:todayISO(),rows:[]};
   const draw=()=>{ openSheet(`<h2>📎 Готовий документ</h2><div class="m" style="margin:-6px 0 8px">🏗️ ${esc(s.name)}</div>
     ${st.file?`<div class="m" style="margin-bottom:6px">📎 ${esc(st.file.name)}</div>`:""}<div class="row" style="margin-bottom:8px"><label class="btn ghost" style="flex:1;text-align:center">📁 Файл (PDF, Excel)<input type="file" id="udF" accept="application/*,text/*" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">📷 Фото<input type="file" id="udP" accept="image/*" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
     <div class="row"><div class="field"><label>Що це</label><select id="udK">${["Смета","КП","Акт","Рахунок","Договір","Інше"].map(k=>`<option ${k===st.kind?"selected":""}>${k}</option>`).join("")}</select></div><div class="field"><label>№</label><input id="udN" value="${esc(st.no)}"></div></div>
@@ -3017,7 +3017,7 @@ function uploadDoc(s,preFile){
 4) no — номер документа, date — дата у форматі РРРР-ММ-ДД, customer — замовник (ПІБ або назва), якщо є.
 Числа — точно як у документі. Відповідь — лише JSON {"kind":"","no":"","date":"","customer":"","total":0,"items":[{"name":"","qty":0,"unit":"","price":0,"mat":false}]}`)).replace(/^```(json)?|```$/g,"").trim());
         st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty||1,unit:String(x.unit||""),price:+x.price||0,mat:!!x.mat})); if(!st.no&&j.no) st.no=String(j.no); if(!st.total&&+j.total) st.total=String(j.total);
-        if(["Смета","КП","Акт","Рахунок","Договір","Інше"].includes(j.kind)) st.kind=j.kind; if(/^\d{4}-\d\d-\d\d$/.test(j.date||"")) st.date=j.date; if(j.customer) st.customer=String(j.customer).trim(); st.parsed=true;
+        if(!st.kindFixed&&["Смета","КП","Акт","Рахунок","Договір","Інше"].includes(j.kind)) st.kind=j.kind; if(/^\d{4}-\d\d-\d\d$/.test(j.date||"")) st.date=j.date; if(j.customer) st.customer=String(j.customer).trim(); st.parsed=true;
         if(!st.total&&st.rows.length) st.total=String(Math.round(st.rows.reduce((a,r)=>a+r.qty*r.price,0)*100)/100) }catch(e){ toast("Не вдалося розібрати: "+String(e?.message||e).slice(0,60)) } draw() });
     $("#udOk").onclick=async()=>{ sv(); if(!st.file){ toast("Виберіть файл"); return } const b=$("#udOk"); b.disabled=true; b.textContent="Зберігаю…";
       let fid=""; try{ fid=(await saveFile(st.file)).id }catch(e){ toast(String(e?.message)==="big"?"Файл більший за 8 МБ":"Файл не збережено"); b.disabled=false; b.textContent="💾 Зберегти в об'єкті"; return }
@@ -3027,21 +3027,34 @@ function uploadDoc(s,preFile){
         if(nid&&data.rows.length&&confirm(`Зробити ${data.sub.toLowerCase()} № ${data.no||""} погодженим кошторисом об'єкта?\n(ставки людям рахуватимуться від цих цін)`)) approveOffer({id:nid,...data},st0);
         else if(data.total>0&&+st0.contract!==data.total&&confirm(`Записати ${money(data.total)} як суму договору з замовником${+st0.contract>0?` (зараз ${money(st0.contract)})`:""}?`)){
           const u={contract:data.total}; if(st.customer&&!st0.customer) u.customer=st.customer; if(await write(db=>db.doc("sites/"+st0.id).update(u))){ Object.assign(st0,u); toast("Суму договору записано") } } } else { b.disabled=false; b.textContent="💾 Зберегти в об'єкті" } };
-  }; draw(); if(preFile) setTimeout(()=>$("#udF")?.onchange({target:{files:[preFile]}}),50) }
+  }; draw(); if(preFile) setTimeout(async()=>{ await $("#udF")?.onchange({target:{files:[preFile]}}); if(st.parts.length) $("#udAI")?.click() },50) }
 async function handleShare(){ if(!/[?&]share=1/.test(location.search)) return; try{ history.replaceState(null,"",location.pathname) }catch(_){}
   let t=0; while((!S.db||!S.sites?.size)&&t++<60) await new Promise(r=>setTimeout(r,250)); if(!S.canWrite){ toast("Немає прав на зміни"); return }
   let file=null, text=""; try{ const c=await caches.open("oblik-share"); const r=await c.match("shared-file");
     if(r){ const b=await r.blob(); file=new File([b],decodeURIComponent(r.headers.get("x-name")||"файл"),{type:b.type||r.headers.get("content-type")||""}); await c.delete("shared-file") }
     else { const q=await c.match("shared-text"); if(q){ text=await q.text(); await c.delete("shared-text") } } }catch(_){}
   if(!file&&!text){ toast("Файл не отримано"); return }
-  const sites=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort((a,b)=>(a.order||0)-(b.order||0));
-  openSheet(`<h2>📥 Отримано ${file?"файл":"текст"}</h2><div class="m" style="margin-bottom:10px">${file?"📎 "+esc(file.name):esc(text.slice(0,200))}</div>
-    <button class="btn" id="shKp" style="width:100%;margin-bottom:6px">📄 Нова смета / КП з цього ${file?"файлу":"тексту"}</button>
-    ${file?`<div class="section-t">або зберегти як готовий документ в об'єкт</div><div class="list">${sites.map(x=>`<div class="card" data-shs="${x.id}"><div class="main"><div class="t">${esc(x.name)}</div></div></div>`).join("")}</div>`:""}
-    <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
-  $("#shKp").onclick=()=>{ closeSheet(); kpFlow(); setTimeout(()=>{ if(file) $("#kpFile")?.onchange({target:{files:[file]}}); else { const ta=$("#kpT"); if(ta){ ta.value=text; ta.dispatchEvent(new Event("input")) } } },60) };
-  document.querySelectorAll("[data-shs]").forEach(el=>el.onclick=()=>{ const st=site(el.dataset.shs); closeSheet(); uploadDoc(st,file) });
+  shareSheet(file,text) }
+function shareSheet(file,text){
+  const img=file&&/^image\//.test(file.type);
+  const T=[["kp","📄","Нова смета / КП","без об'єкта: тендер, пропозиція — ШІ розбере роботи"],
+    ["doc:Договір","🤝","Договір","в об'єкт: сума договору, таблиця робіт якщо є"],["doc:Смета","📋","Погоджена смета","в об'єкт: позиції → кошторис"],["doc:КП","📄","КП в об'єкт",""],
+    ["doc:Акт","✅","Акт виконаних робіт",""],["doc:Рахунок","🧾","Рахунок",""],
+    ...(img?[["rc","🧾","Чек витрати","сума зчитається сама"]]:[]),["rep","👷","Звіт робіт від хлопців","обсяги → нарахування"],["doc:Інше","📎","Інший документ","просто зберегти в об'єкті"]];
+  const it=([id,ic,t,sub])=>`<button type="button" class="card" data-sht="${id}" style="display:flex;gap:10px;align-items:center;text-align:left;width:100%;margin-bottom:6px;cursor:pointer;color:var(--text);background:var(--card);border:1px solid var(--line);font:inherit;padding:11px 14px"><span style="font-size:22px">${ic}</span><span><b>${t}</b>${sub?`<div class="m" style="font-size:12px;color:var(--muted)">${sub}</div>`:""}</span></button>`;
+  openSheet(`<h2>📥 Що це за ${file?"файл":"текст"}?</h2><div class="m" style="margin-bottom:10px">${file?"📎 "+esc(file.name):esc(String(text).slice(0,200))}</div>${T.map(it).join("")}<div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  document.querySelectorAll("[data-sht]").forEach(el=>el.onclick=()=>{ const a=el.dataset.sht;
+    if(a==="kp"){ closeSheet(); kpFlow(); setTimeout(async()=>{ if(file){ await $("#kpFile")?.onchange({target:{files:[file]}}); } else { const ta=$("#kpT"); if(ta){ ta.value=text; ta.dispatchEvent(new Event("input")) } } setTimeout(()=>$("#kpGo")?.click(),100) },60); return }
+    shareSite(a.startsWith("doc:")?"Куди зберегти: "+a.slice(4).toLowerCase()+"?":"Який об'єкт?",st=>{
+      if(a.startsWith("doc:")){ if(!file){ toast("Для документа потрібен файл"); return } uploadDoc(st,file,a.slice(4)) }
+      else if(a==="rc"){ finForm(null,{type:"out",site:st.id}); setTimeout(()=>$("#rcGal")?.onchange({target:{files:[file]}}),80) }
+      else if(a==="rep"){ workReport(null,{site:st.id}); setTimeout(()=>{ if(file) $("#wrF")?.onchange({target:{files:[file]}}); else { const ta=$("#wrT"); if(ta){ ta.value=text; ta.dispatchEvent(new Event("input")) } } },80) } }) });
 }
+function shareSite(title,cb){ const l=[...S.sites.values()].filter(x=>x.type!=="warehouse").sort((a,b)=>(b.active!==false)-(a.active!==false)||(a.order||0)-(b.order||0));
+  openSheet(`<h2>${esc(title)}</h2><input type="search" id="shQ" placeholder="Пошук об'єкта…" style="margin-bottom:8px"><div class="list" id="shL"></div><div class="actions"><button class="btn ghost" data-close>Скасувати</button></div>`);
+  const draw=()=>{ const q=$("#shQ").value.trim(); $("#shL").innerHTML=l.filter(x=>!q||wordHit(x.name+" "+(x.customer||""),q)).map(x=>`<div class="card" data-shs="${x.id}"><div class="main"><div class="t">${esc(x.name)}${x.active===false?" · архів":""}</div>${x.customer?`<div class="m">${esc(x.customer)}</div>`:""}</div></div>`).join("")||`<div class="empty">Не знайдено</div>`;
+    document.querySelectorAll("[data-shs]").forEach(el=>el.onclick=()=>{ const st=site(el.dataset.shs); closeSheet(); setTimeout(()=>cb(st),30) }) };
+  $("#shQ").oninput=draw; draw() }
 setTimeout(handleShare,300);
 function fileOfferView(o){
   openSheet(`<h2>📎 ${esc(o.sub||"Документ")} ${o.no?"№ "+esc(o.no):""}</h2><div class="m" style="color:var(--muted);margin-bottom:8px">${esc(site(o.site)?.name||"")} · ${fmtDay(o.date)} · ${esc(o.fileName||"")}</div>
