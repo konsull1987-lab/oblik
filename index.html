@@ -513,8 +513,34 @@ function renderBulk(){
 }
 
 // ---------- Модальні вікна ----------
-function openSheet(html){ $("#modal").innerHTML=`<div class="overlay"><div class="sheet">${html}</div></div>`; }
-function closeSheet(){ $("#modal").innerHTML=""; }
+// Вікна з історією: свайп «назад» (кнопка назад Android) повертає на попередній крок, а не закриває все.
+// Перемальовування того самого вікна (пошук, галочки) крок не додає; перемикання вкладок об'єкта — додає.
+const sheetStack=[]; let popIgnore=0;
+const sheetKey=()=>{ const m=$("#modal"); return (m.querySelector(".sheet h2")?.textContent||"")+"|"+(m.querySelector("#segS button.on")?.dataset.v||"") };
+function openSheet(html){ const m=$("#modal"), had=m.firstElementChild, oldKey=had?sheetKey():"";
+  const tmp=document.createElement("div"); tmp.innerHTML=`<div class="overlay"><div class="sheet">${html}</div></div>`; const node=tmp.firstElementChild;
+  const newKey=(node.querySelector(".sheet h2")?.textContent||"")+"|"+(node.querySelector("#segS button.on")?.dataset.v||"");
+  if(had&&newKey!==oldKey){ sheetStack.push({node:had,onclick:m.onclick,onchange:m.onchange,oninput:m.oninput,scroll:had.querySelector(".sheet")?.scrollTop||0}); had.remove(); try{history.pushState({sheet:sheetStack.length+1},"")}catch(_){} }
+  else if(!had){ try{history.pushState({sheet:1},"")}catch(_){} }
+  if(had&&newKey===oldKey){ const sc=had.querySelector(".sheet")?.scrollTop||0; had.remove(); m.appendChild(node); const sh=node.querySelector(".sheet"); if(sh) sh.scrollTop=sc; return }
+  if(had) { m.onclick=null; m.onchange=null; m.oninput=null }
+  m.appendChild(node); }
+function closeSheet(){ const m=$("#modal"); const n=sheetStack.length+(m.firstElementChild?1:0); sheetStack.length=0; m.innerHTML=""; m.onclick=null; m.onchange=null; m.oninput=null;
+  if(n>0&&history.state&&history.state.sheet){ popIgnore+=n; try{history.go(-n)}catch(_){ popIgnore=0 } } }
+function sheetBack(){ const m=$("#modal"), prev=sheetStack.pop(); m.innerHTML="";
+  if(prev){ m.appendChild(prev.node); m.onclick=prev.onclick; m.onchange=prev.onchange; m.oninput=prev.oninput; const sh=prev.node.querySelector(".sheet"); if(sh) sh.scrollTop=prev.scroll }
+  else { m.onclick=null; m.onchange=null; m.oninput=null } }
+window.addEventListener("popstate",()=>{
+  if(popIgnore>0){ popIgnore--; return }
+  const ov=[...document.body.children].filter(x=>x.classList?.contains("overlay")); // вікна вибору (пошук, вибір роботи) — закриваємо першими
+  if(ov.length){ ovPop=true; ov[ov.length-1].remove(); return }
+  if($("#modal").firstElementChild) sheetBack();
+});
+// вікна вибору/пошуку поверх усього: відкрили — крок в історії; закрили кнопкою — прибираємо цей крок
+let ovPop=false;
+new MutationObserver(ms=>{ for(const m of ms){
+  for(const n of m.addedNodes) if(n.classList?.contains("overlay")) try{history.pushState({ov:1},"")}catch(_){}
+  for(const n of m.removedNodes) if(n.classList?.contains("overlay")){ if(ovPop){ ovPop=false } else { popIgnore++; try{history.back()}catch(_){ popIgnore-- } } } } }).observe(document.body,{childList:true});
 $("#modal").addEventListener("click",e=>{ if(e.target.classList.contains("overlay")||e.target.closest("[data-close]")) closeSheet(); });
 
 
