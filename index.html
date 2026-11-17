@@ -135,6 +135,7 @@ body.duo .card{border-left:3px solid color-mix(in srgb,var(--accent) 45%,transpa
   .doc.ct{font-size:10pt;text-align:justify}.doc.ct p{margin:3px 0}.doc.ct h4{text-align:center;font-size:10pt;margin:10px 0 4px}
   .doc .req{page-break-inside:avoid;break-inside:avoid}.doc.ct h4{break-after:avoid}.doc .req td{font-size:9.5pt;text-align:left}.doc .pb{page-break-before:always}
 }
+button.card{color:var(--text);background:var(--card);font:inherit}
 </style>
 </head>
 <body>
@@ -2643,7 +2644,7 @@ function globalSearch(){
 $("#searchBtn").addEventListener("click",globalSearch);
 // «+» — одна кнопка для всіх дій
 function fabMenu(){
-  const duo=isDuo(), it=(id,ic,t,sub)=>`<button type="button" class="card" data-fa="${id}" style="display:flex;gap:10px;align-items:center;text-align:left;width:100%;margin-bottom:6px;cursor:pointer"><span style="font-size:24px;width:32px;text-align:center">${ic}</span><span style="flex:1"><b>${t}</b>${sub?`<div class="m" style="font-size:12px;color:var(--muted)">${sub}</div>`:""}</span></button>`;
+  const duo=isDuo(), it=(id,ic,t,sub)=>`<button type="button" class="card" data-fa="${id}" style="display:flex;gap:10px;align-items:center;text-align:left;width:100%;margin-bottom:6px;cursor:pointer;color:var(--text);background:var(--card);border:1px solid var(--line);font:inherit;padding:12px 14px"><span style="font-size:24px;width:32px;text-align:center">${ic}</span><span style="flex:1"><b>${t}</b>${sub?`<div class="m" style="font-size:12px;color:var(--muted)">${sub}</div>`:""}</span></button>`;
   openSheet(`<h2>Що додати?</h2>
     <div class="section-t">💰 Гроші</div>
     ${it("out","💸","Витрата")}${it("rc","🧾","Витрата з чеком","сфотографуйте — сума зчитається сама")}${it("in","💰","Прихід від замовника")}
