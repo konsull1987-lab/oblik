@@ -1930,6 +1930,12 @@ function loadAliases(){ if(S.aliasesLoaded) return; S.aliasesLoaded=true; S.db.d
 const AI_SYN=`Назви робіт можуть бути написані по-різному: українською, російською, суржиком, скорочено, з помилками, у множині чи іншими словами. Зіставляй за ЗМІСТОМ роботи, а не за буквами. Приклади однакових робіт: арміровка = армування = армування сіткою; шпаклёвка = шпаклювання = шпаклівка; ГКЛ = гіпсокартон = гипрок; кафель = плитка; плинтус = плінтус; откоси = відкоси = укоси; затирка = фуга = затирка швів; грунтовка = ґрунтування = праймер; стяжка = заливка підлоги; штукатурка по маякам = штукатурка; демонтаж = розбирання = знесення; м/п = м.п. = пог. м = погонний метр; м2 = кв.м = м²; м3 = куб = м³. Якщо обсяг робіт однаковий за змістом, але трохи відрізняється уточненням (наприклад «армування стін» і «армування сіткою»), — це та сама робота.`;
 function loadPrice(){ loadAliases(); if(S.priceLoading) return; S.priceLoading=true;
   S.db.doc("meta/price").get().then(x=>{ S.price=x.exists?x.data():null; S.priceLoaded=true; if(S.mtab==="price") render() }).catch(()=>{ S.priceLoaded=true; if(S.mtab==="price") render() }) }
+async function addWorksToPrice(rows,src){ if(!S.canWrite||!S.db) return 0;
+  if(!S.priceLoaded){ try{ const x=await S.db.doc("meta/price").get(); S.price=x.exists?x.data():null; S.priceLoaded=true }catch(_){ return 0 } }
+  const l=priceList().map(x=>({...x})), have=new Set(l.flatMap(x=>[x.name,...String(x.alt||"").split(/[,;]/)].map(normW).filter(Boolean))), add=[];
+  for(const r of rows||[]){ if(r.mat||r.on===false) continue; const name=String(r.name||"").trim(); if(name.length<3||have.has(normW(name))) continue;
+    add.push({name,unit:String(r.unit||"шт").trim()||"шт",price:Math.round((+r.price||0)*100)/100,cat:r.cat&&r.cat!=="Матеріали"?r.cat:"Інші роботи",alt:r.orig&&normW(r.orig)!==normW(name)?String(r.orig).trim():"",src:src||"додано з документа"}); have.add(normW(name)) }
+  if(!add.length) return 0; return await savePrice([...l,...add])?add.length:0 }
 async function savePrice(items){ const data={items,updatedAt:Date.now(),by:window.__fbEmail||"",seedVer:PRICE_VER};
   if(await write(db=>db.doc("meta/price").set(data))){ S.price=data; S.priceMerged=null; render(); return true } return false }
 function renderMoneyPrice(){
@@ -2100,7 +2106,8 @@ ${mc.map(m=>m.name+" | "+m.unit).join("\n")}
     $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
     $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити КП № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
     $("#kpSave").onclick=async()=>{ const data={kind:"kp",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
-      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw() } };
+      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw();
+        addWorksToPrice(st.rows,"з КП № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}${st.rows.some(r=>!r.mat&&r.on!==false&&!(+r.price>0))?" (без ціни — допишете в прайсі)":""}`),1500) }) } };
   }
   draw();
 }
@@ -2181,7 +2188,8 @@ function smetaFlow(siteId){
       const rows=clean(st.rows), mrows=st.withMat?clean(st.mrows):[], total=Math.round([...rows,...mrows].reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
       const data={kind:"smeta",site:siteId,no:st.no,date:todayISO(),from:st.from,to:st.to,withMat:!!st.withMat,rows,mrows,total,client:s.customer||"",object:s.name||"",createdAt:st.savedAt||Date.now(),updatedAt:Date.now()};
       const ok=await write(async db=>{ if(st.savedId) await db.doc(R("offers")+"/"+st.savedId).set(data); else { const r=await db.collection(R("offers")).add(data); st.savedId=r.id; st.savedAt=data.createdAt } });
-      if(ok){ toast("Смету збережено в об'єкті («📁 Документи»)"); printDoc(smetaHTML(s,st),"Смета "+st.no) } });
+      if(ok){ toast("Смету збережено в об'єкті («📁 Документи»)"); printDoc(smetaHTML(s,st),"Смета "+st.no);
+        addWorksToPrice(rows,"зі смети № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}`),1500) }) } });
     $("#smXls")?.addEventListener("click",async()=>{ try{ const X=await loadXLSX(); const rows=[...st.rows,...(st.withMat?st.mrows:[])].filter(r=>r.on);
       const aoa=[["Смета виконаних робіт № "+st.no],["Об'єкт: "+(s.name||"")+(s.customer?" · Замовник: "+s.customer:"")],["Період: "+fmtDay(st.from)+" – "+fmtDay(st.to)],[],["№","Найменування робіт","Од.","К-сть","Ціна, грн","Сума, грн"],
         ...rows.map((r,i)=>[i+1,r.name,r.unit,r.qty,r.price,n2(r.qty*r.price)]),[],["","Всього","","","",n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0))]];
