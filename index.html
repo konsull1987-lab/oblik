@@ -2154,7 +2154,12 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       ${st.withMat&&st.rows.some(r=>r.mat&&r.on!==false&&!(+r.price>0))?`<button class="btn sm" id="kpEpiAll" style="width:100%;margin-bottom:8px">💲 Знайти ціни Епіцентру для всіх матеріалів без ціни (${st.rows.filter(r=>r.mat&&r.on!==false&&!(+r.price>0)).length})</button>`:""}
       ${st.rows.length?`<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="font-size:12.5px;margin-bottom:6px">📈 Підняти ціни на %${st.mkHist?` · <span style="color:var(--muted)">застосовано: ${esc(st.mkHist)}</span>`:""}</div>
         <div class="row" style="align-items:center;gap:6px"><span style="flex:0 0 auto">Роботи +</span><input id="kpMkW" inputmode="decimal" placeholder="0" value="${esc(st.mkW||"")}" style="flex:1;min-width:0;text-align:center"><span>%</span>${st.withMat?`<span style="flex:0 0 auto;margin-left:6px">Матеріали +</span><input id="kpMkM" inputmode="decimal" placeholder="0" value="${esc(st.mkM||"")}" style="flex:1;min-width:0;text-align:center"><span>%</span>`:""}</div>
-        <div class="row" style="margin-top:6px"><button type="button" class="btn sm" id="kpMkGo" style="flex:1">Застосувати</button>${st.mkPrev?`<button type="button" class="btn ghost sm" id="kpMkUndo" style="flex:1">↩️ Скасувати підняття</button>`:""}</div></div>`:""}
+        <div class="row" style="margin-top:6px"><button type="button" class="btn sm" id="kpMkGo" style="flex:1">Застосувати</button></div>
+        <div class="m" style="font-size:12.5px;margin:10px 0 6px">🎯 Підігнати під домовлену суму</div>
+        <div class="row" style="align-items:center;gap:6px"><input id="kpFitS" inputmode="decimal" placeholder="напр. 100000" value="${esc(st.fitS||"")}" style="flex:1;min-width:0"><span>₴</span>
+          ${st.withMat?`<select id="kpFitW" style="flex:1;min-width:0"><option value="all" ${st.fitW==="all"||!st.fitW?"selected":""}>все</option><option value="work" ${st.fitW==="work"?"selected":""}>лише роботи</option><option value="mat" ${st.fitW==="mat"?"selected":""}>лише матеріали</option></select>`:""}</div>
+        <button type="button" class="btn sm" id="kpFitGo" style="width:100%;margin-top:6px">🎯 Підігнати ціни</button>
+        ${st.mkPrev?`<button type="button" class="btn ghost sm" id="kpMkUndo" style="width:100%;margin-top:6px">↩️ Повернути початкові ціни</button>`:""}</div>`:""}
       <div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="kpAdd2" style="flex:1">🔍 + Робота з прайсу</button><button class="btn ghost sm" id="kpAdd" style="flex:1">✏️ + Рядок вручну</button></div>
       ${st.withMat?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="kpAddM" style="flex:1">🧱 + Один матеріал</button><button class="btn ghost sm" id="kpML" style="flex:1">📝 Список матеріалів</button></div>
       ${st.mlOpen?`<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="font-size:12.5px;margin-bottom:4px">Надиктуйте або вставте весь перелік — ШІ розбере назви й кількість і підбере ціни Епіцентру (максимальні серед поширених брендів).</div><textarea id="kpMT" rows="5" placeholder="Напр.: клей для плитки 20 мішків, ґрунтовка глибокого проникнення 30 літрів, гіпсокартон стіновий 40 листів, профіль CD 60 штук…">${esc(st.mtext||"")}</textarea><button class="btn" id="kpMGo" style="width:100%;margin-top:6px">🤖 Розібрати й підібрати ціни</button></div>`:""}`:""}
@@ -2182,6 +2187,19 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       st.rows.forEach(r=>{ const k=r.mat?pm:pw; if(k&&+r.price>0) r.price=Math.ceil(+r.price*(1+k/100)) });
       st.mkHist=[st.mkHist,[pw?`роботи +${pw}%`:"",pm?`матеріали +${pm}%`:""].filter(Boolean).join(", ")].filter(Boolean).join("; потім ");
       st.mkW=""; st.mkM=""; drawRows(); toast("Ціни піднято") });
+    $("#kpFitS")?.addEventListener("input",e=>st.fitS=e.target.value); $("#kpFitW")?.addEventListener("change",e=>st.fitW=e.target.value);
+    $("#kpFitGo")?.addEventListener("click",()=>{ const target=parseFloat(String(st.fitS||"").replace(/\s/g,"").replace(",","."));
+      if(!(target>0)){ toast("Вкажіть суму"); return } const scope=st.withMat?(st.fitW||"all"):"work";
+      const cnt=r=>r.on!==false&&(st.withMat||!r.mat), inS=r=>cnt(r)&&+r.price>0&&+r.qty>0&&(scope==="all"||(scope==="mat")===!!r.mat);
+      const sc=st.rows.filter(inS); if(!sc.length){ toast(scope==="mat"?"Немає матеріалів з ціною":scope==="work"?"Немає робіт з ціною":"Немає рядків з ціною — спершу вкажіть ціни"); return }
+      const pre=n2(target/(1-(+st.disc||0)/100)), sSum=sc.reduce((a,r)=>a+n2(r.qty*r.price),0), fixed=n2(tot()-sSum), need=n2(pre-fixed);
+      if(!(need>0)){ toast(`Інші рядки вже дають ${money(fixed)} — більше за суму`); return }
+      if(!st.mkPrev) st.mkPrev=st.rows.map(r=>r.price); const k=need/sSum;
+      sc.forEach(r=>r.price=Math.max(1,Math.round(r.price*k)));
+      let diff=n2(pre-tot()); if(Math.abs(diff)>=0.01){ const one=sc.filter(r=>+r.qty===1).sort((a,b)=>b.price-a.price)[0];
+        const big=one||[...sc].sort((a,b)=>b.qty*b.price-a.qty*a.price)[0]; big.price=n2(big.price+diff/big.qty); diff=n2(pre-tot()) }
+      st.mkHist=[st.mkHist,`під суму ${money(target)} (${scope==="all"?"все":scope==="work"?"роботи":"матеріали"}, ×${(Math.round(k*1000)/1000).toString().replace(".",",")})`].filter(Boolean).join("; потім ");
+      drawRows(); toast(Math.abs(diff)<0.01?`Готово: разом ${money(target)}`:`Готово, різниця через копійки: ${money(Math.abs(diff))}`) });
     $("#kpMkUndo")?.addEventListener("click",()=>{ if(st.mkPrev&&st.mkPrev.length===st.rows.length) st.rows.forEach((r,i)=>r.price=st.mkPrev[i]); else toast("Рядки змінились — повернув лише ті, що були");
       if(st.mkPrev&&st.mkPrev.length!==st.rows.length) st.mkPrev.forEach((p,i)=>{ if(st.rows[i]) st.rows[i].price=p });
       st.mkPrev=null; st.mkHist=""; drawRows(); toast("Ціни повернуто") });
