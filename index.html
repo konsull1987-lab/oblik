@@ -556,23 +556,41 @@ function notifyDone(text){
 const pfBuyWh=()=>{ try{ const v=localStorage.getItem("pfBuyWh"); if(v&&S.sites.get(v)) return v }catch(_){} const w=[...S.sites.values()].find(x=>x.type==="warehouse"&&/андр/i.test(x.name))||[...S.sites.values()].find(x=>x.type==="warehouse"); return w?.id||"" };
 const pfNewOn=()=>{ try{ return localStorage.getItem("pfNew")!=="0" }catch(_){ return true } };
 // ---------- 🧰 Де є інструмент + список потрібного на об'єкт ----------
+// інструмент «той самий» для потрібного: збіг за списком, який підібрав ШІ (різні назви одного інструмента), або за словами
+function needHit(n,t){ const nm=normName(t.name); if(Array.isArray(n.match)&&n.match.includes(nm)) return true; return toolScore({name:n.name,cat:n.cat||"",brand:n.brand||""},t)>=(Array.isArray(n.match)?3:2) }
 function whereIs(rec,exceptSite){ // схожий інструмент по всіх складах/об'єктах/людях
   const m=new Map();
   for(const t of S.tools.values()){ if(exceptSite&&t.site===exceptSite) continue; if(t.status&&t.status!=="ok") continue;
-    if(toolScore({name:rec.name,cat:rec.cat||"",brand:rec.brand||""},t)<(rec.cat?3:2)) continue;
+    if(Array.isArray(rec.match)||rec.need){ if(!needHit(rec,t)) continue } else if(toolScore({name:rec.name,cat:rec.cat||"",brand:rec.brand||""},t)<(rec.cat?3:2)) continue;
     const k=t.site?"s:"+t.site:"p:"+(t.holder||""); const lbl=t.site?((site(t.site)?.type==="warehouse"?"🏬 ":"🏗️ ")+(site(t.site)?.name||"?")):("👤 "+(person(t.holder)?.name||"без місця"));
     const o=m.get(k)||{lbl,qty:0,names:new Set()}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); m.set(k,o) }
   return [...m.values()].sort((a,b)=>b.qty-a.qty) }
 function whereHTML(l){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:2px 0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
-function haveOnSite(n,siteId){ let q=0; for(const t of S.tools.values()) if(t.site===siteId&&toolScore({name:n.name,cat:n.cat||""},t)>=2) q+=qtyOf(t); return q }
+function haveOnSite(n,siteId){ let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
+// ШІ: розібрати список потрібного і зіставити з назвами інструменту, які є в базі
+async function aiNeeds(text){
+  const uniq=new Map(); for(const t of S.tools.values()){ const k=normName(t.name); if(!uniq.has(k)) uniq.set(k,t.name) }
+  const base=[...uniq.entries()].slice(0,700);
+  const prompt=`Це список того, що потрібно привезти на будівельний об'єкт (написано як завгодно: російською, суржиком, з помилками, кілька речей в одному рядку).
+Розбий його на окремі позиції. Для кожної: name — коротка зрозуміла назва українською (виправ помилки, напр. «Мокловица» → «Макловиця», «Пилесос» → «Пилосос»); qty — кількість (якщо не вказано — 1; «шпателя 10, 50» — це два шпателі: 10 і 50, окремими позиціями); kind — "tool" (інструмент/обладнання, що повертається) або "material" (витратний матеріал: клей, полістирол, мило тощо).
+Потім для кожної позиції знайди в переліку назв нашого інструменту ВСІ назви, що означають ту саму річ (інша назва, мова, розмір чи модель — теж підходить: пилосос = будівельний пилосос = порохотяг; лесничка = драбина = стрем'янка; переноска = подовжувач = кабель-подовжувач; уровень = рівень; лазерний уровень = лазерний нівелір = лазер; гребенка = зубчастий шпатель; утюжок = терка; правило = правило алюмінієве; зарядне = зарядний пристрій = зарядка). m — масив номерів з переліку (порожній, якщо такого немає).
+Перелік назв нашого інструменту (номер. назва):
+${base.map(([k,n],i)=>`${i}. ${n}`).join("\n")}
+Відповідь — лише JSON {"items":[{"name":"","qty":1,"kind":"tool","m":[]}]}.`;
+  const txt=await window.__fbAI([{text:"Список:\n"+text}],prompt);
+  const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
+  return (j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:Math.max(1,parseInt(x.qty)||1),kind:x.kind==="material"?"material":"tool",
+    match:[...new Set((Array.isArray(x.m)?x.m:[]).map(i=>base[+i]?.[0]).filter(Boolean))]})) }
 function needsHTML(s){
   const l=s.needs||[]; const miss=l.filter(n=>haveOnSite(n,s.id)<(+n.qty||1));
   return `<div class="section-t" style="display:flex;margin-top:4px">🧰 Потрібен інструмент<span class="count">${l.length?`бракує ${miss.length} з ${l.length}`:""}</span></div>
-    ${l.map((n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1);
+    ${l.map((n,i)=>{ const have=haveOnSite(n,s.id), ok=have>=(+n.qty||1), here=n._here||[];
       return `<div class="card" style="display:block;cursor:default;margin-bottom:6px;${ok?"opacity:.6":""}">
-        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1">${ok?"✅":"⬜"} ${esc(n.name)} <b>×${+n.qty||1}</b></span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
-        ${ok?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs(n,s.id))}</details>`}</div>` }).join("")}
-    ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="nAdd" style="flex:1">+ Додати потрібне</button>${miss.length?`<button class="btn sm" id="nBring" style="flex:1">🚚 Завезти потрібне</button>`:""}</div>`:""}` }
+        <div style="display:flex;gap:8px;align-items:center"><span style="flex:1">${ok?"✅":"⬜"} ${esc(n.name)} <b>×${+n.qty||1}</b>${n.kind==="material"?` <span class="tag">матеріал</span>`:""}</span><span class="m" style="font-size:12px">${have?`є тут: ${have}`:"тут немає"}</span>${S.canWrite?`<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
+        ${here.length?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
+        ${ok?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id))}</details>`}</div>` }).join("")}
+    ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="nAdd" style="flex:1">+ Додати потрібне</button>${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="flex:1">🔄 Перевірити наявність</button>`:""}</div>
+      ${miss.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібне</button>`:""}`:""}` }
 function bindNeeds(s){
   const box=$("#needsBox"); if(!box) return; const re=()=>{ box.innerHTML=needsHTML(s); bindNeeds(s) };
   const save=async l=>{ if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
@@ -582,11 +600,19 @@ function bindNeeds(s){
       <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="nCancel" style="flex:1">Скасувати</button><button class="btn sm" id="nOk" style="flex:1">Додати</button></div></div>`);
     $("#nAdd").style.display="none"; $("#nTxt").focus();
     $("#nCancel").onclick=re;
-    $("#nOk").onclick=()=>{ const add=$("#nTxt").value.split(/\n|;/).map(x=>x.trim()).filter(Boolean).map(line=>{
+    $("#nOk").onclick=async()=>{ const raw=$("#nTxt").value.trim(); if(!raw){re();return}
+      const simple=()=>raw.split(/\n|;/).map(x=>x.trim().replace(/^\d+[.)]\s*/,"")).filter(Boolean).map(line=>{
         const m=line.match(/^(.*?)[\s,—–-]*(?:[xх×]\s*)?(\d+)\s*(?:шт\.?|штук[и]?|pcs)?\s*$/i);
         return m&&m[1].trim()?{name:m[1].trim(),qty:+m[2]}:{name:line,qty:1} });
+      let add=null; if(window.__fbAI){ const b=$("#nOk"); b.disabled=true; b.textContent="⏳ Розбираю…"; try{ add=await aiNeeds(raw) }catch(e){ toast("ШІ не відповів — додаю як є") } }
+      if(!add||!add.length) add=simple();
       if(add.length) save([...(s.needs||[]),...add]); else re() };
   });
+  $("#nAI")?.addEventListener("click",async()=>{ const b=$("#nAI"); b.disabled=true; b.textContent="⏳ Перевіряю…";
+    try{ const old=s.needs||[]; const r=await aiNeeds(old.map(n=>`${n.name} ${+n.qty||1} шт`).join("\n"));
+      // зберігаємо наші позиції, лише оновлюємо відповідності (за порядком/назвою)
+      const l=old.map((n,i)=>{ const x=r.find(y=>normName(y.name)===normName(n.name))||r[i]; return x?{...n,match:x.match,kind:x.kind}:n });
+      save(l); toast("Перевірено") }catch(e){ toast("Не вдалося: "+String(e?.message||e).slice(0,60)); re() } });
   $("#nBring")?.addEventListener("click",()=>{ const l=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1));
     photoFlow({mode:"move",text:true,to:s.id,listText:l.map(n=>`${n.name} ${Math.max(1,(+n.qty||1)-haveOnSite(n,s.id))} шт`).join("\n")}) });
 }
