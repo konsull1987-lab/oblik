@@ -2022,7 +2022,8 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><input data-i="${i}" data-k="unit" value="${esc(r.unit)}" style="flex:0 0 56px;text-align:center"><span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
         <button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`).join("")}
       <div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="kpAdd2" style="flex:1">🔍 + Робота з прайсу</button><button class="btn ghost sm" id="kpAdd" style="flex:1">✏️ + Рядок вручну</button></div>
-      ${st.withMat?`<button class="btn ghost sm" id="kpAddM" style="width:100%;margin-bottom:8px">🧱 + Матеріал (з довідника, ціна Епіцентру)</button>`:""}
+      ${st.withMat?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="kpAddM" style="flex:1">🧱 + Один матеріал</button><button class="btn ghost sm" id="kpML" style="flex:1">📝 Список матеріалів</button></div>
+      ${st.mlOpen?`<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="font-size:12.5px;margin-bottom:4px">Надиктуйте або вставте весь перелік — ШІ розбере назви й кількість і підбере середні ціни Епіцентру.</div><textarea id="kpMT" rows="5" placeholder="Напр.: клей для плитки 20 мішків, ґрунтовка глибокого проникнення 30 літрів, гіпсокартон стіновий 40 листів, профіль CD 60 штук…">${esc(st.mtext||"")}</textarea><button class="btn" id="kpMGo" style="width:100%;margin-top:6px">🤖 Розібрати й підібрати ціни</button></div>`:""}`:""}
       <div class="sum">Разом: <b>${money(t)}</b>${+st.disc?` · знижка ${st.disc}%: −${money(d)} · <b>до сплати ${money(n2(t-d))}</b>`:""}</div>
       ${miss?`<div class="banner">Без ціни: ${miss} поз. — впишіть ціну або виберіть роботу з прайсу.</div>`:""}
       <div class="field"><label>Примітка в КП</label><input id="kpNote" value="${esc(st.note)}"></div>
@@ -2039,6 +2040,25 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
     $("#kpAdd2").onclick=()=>$("#kpPick").click();
     $("#kpAddM")?.addEventListener("click",()=>{ const mc=matCat(); pickWork(mc.map(m=>({name:m.name,unit:m.unit,alt:m.alt,cat:m.cat,price:matPriceOf({name:m.name,unit:m.unit})?.price||0})),-1,v=>{ if(v<0) return; const m=mc[v], p=matPriceOf({name:m.name,unit:m.unit});
       st.rows.push({on:true,mat:true,name:m.name,qty:1,unit:m.unit,price:p?.price||0,p:-1,cat:"Матеріали"}); drawRows(); toast(p?"Додано з ціною "+money(p.price):"Додано — впишіть ціну") },"Скасувати") });
+    $("#kpML")?.addEventListener("click",()=>{ st.mlOpen=!st.mlOpen; drawRows(); setTimeout(()=>$("#kpMT")?.focus(),50) });
+    $("#kpMT")?.addEventListener("input",e=>st.mtext=e.target.value);
+    if($("#kpMT")&&typeof addMics==="function") addMics($("#kpRes"));
+    $("#kpMGo")?.addEventListener("click",()=>loadMatPrices(()=>matListToKp()));
+    async function matListToKp(){ const text=($("#kpMT")?.value||"").trim(); if(!text){toast("Впишіть або надиктуйте перелік");return}
+      if(!window.__fbAI){toast("ШІ недоступний");return}
+      const b=$("#kpMGo"); b.disabled=true; b.textContent="⏳ Розбираю перелік…"; const mc=matCat();
+      try{ const prompt=`Це перелік будівельних матеріалів (можливо надиктований голосом, з помилками розпізнавання). Випиши КОЖЕН матеріал окремо: name — коротка зрозуміла назва українською (якщо є такий у довіднику нижче — бери назву з довідника, бренд/модель зберігай, якщо названо); qty — кількість числом (не вказано — 1); unit — одиниця: рідини (ґрунтовка, фарба, бетоконтакт…) у «л», сухі суміші — «мішок» або «кг», листові — «лист», погонажні — «м» або «шт», рулонні — «рулон» або «м²»; якщо названо інакше — як сказано.
+Довідник (назва | од.):
+${mc.map(m=>m.name+" | "+m.unit).join("\n")}
+Відповідь — лише JSON {"items":[{"name":"","qty":1,"unit":""}]}.`;
+        const j=JSON.parse(String(await window.__fbAI([{text:"Перелік:\n"+text}],prompt)).replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1"));
+        const list=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty||1,unit:normUnit(x.unit||"шт")||"шт"}));
+        if(!list.length){ toast("Матеріалів не знайдено"); b.disabled=false; b.textContent="🤖 Розібрати й підібрати ціни"; return }
+        const miss=list.filter(x=>!matPriceOf(x)); let web=true;
+        if(miss.length&&window.__fbAIWeb){ b.textContent=`⏳ Шукаю ціни Епіцентру (${miss.length})…`; try{ const r=await epicentrPrices(miss); web=r.web }catch(_){ } }
+        let got=0; for(const x of list){ const p=matPriceOf(x); if(p) got++; st.rows.push({on:true,mat:true,name:x.name,qty:x.qty,unit:x.unit,price:p?.price||0,p:-1,cat:"Матеріали",priceSrc:p?.src||""}) }
+        st.mtext=""; st.mlOpen=false; drawRows(); toast(`Додано ${list.length} матеріалів, з ціною ${got}${web?"":" (ціни орієнтовні, без пошуку)"}${got<list.length?" — решті впишіть ціну":""}`);
+      }catch(e){ b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,60)) } }
     $("#kpAdd").onclick=()=>{st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"});drawRows()};
     $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"КП "+st.no);
     $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
