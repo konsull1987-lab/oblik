@@ -622,10 +622,13 @@ function needsHTML(s){
   const tools=l.map((n,i)=>[n,i]).filter(([n])=>!isMat(n)), mats=l.map((n,i)=>[n,i]).filter(([n])=>isMat(n));
   const cnt=g=>{ const m=g.filter(([n])=>haveOnSite(n,s.id)<(+n.qty||1)).length; return g.length?`бракує ${m} з ${g.length}`:"" };
   return `<datalist id="nUnits"><option value="шт"><option value="мішок"><option value="лист"><option value="відро"><option value="кг"><option value="л"><option value="м²"><option value="м.п."><option value="рулон"><option value="упак."></datalist>
-    <div class="section-t" style="display:flex;margin-top:4px">🧰 Потрібен інструмент<span class="count">${cnt(tools)}</span></div>
-    ${tools.map(([n,i])=>row(n,i)).join("")||(l.length?`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`:"")}
-    ${mats.length?`<div class="section-t" style="display:flex;margin-top:8px">🧱 Потрібні матеріали<span class="count">${cnt(mats)}</span></div>${mats.map(([n,i])=>row(n,i)).join("")}`:""}
-    ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" id="nAdd" style="flex:1">+ Додати потрібне</button>${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="flex:1">🔄 Перевірити наявність</button>`:""}</div>
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin:2px 0 8px">Один список на об'єкт: впишіть інструмент, матеріали або все разом — застосунок сам розкладе.</div>
+    ${S.canWrite?`<button class="btn" id="nAdd" style="width:100%;margin-bottom:10px">+ Додати інструмент / матеріали</button>`:""}
+    <div class="section-t" style="display:flex;margin-top:4px">🧰 Інструмент<span class="count">${cnt(tools)}</span></div>
+    ${tools.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`}
+    <div class="section-t" style="display:flex;margin-top:8px">🧱 Матеріали<span class="count">${cnt(mats)}</span></div>
+    ${mats.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`}
+    ${S.canWrite?`${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="width:100%;margin-bottom:8px">🔄 Перевірити наявність</button>`:""}
       ${missT.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібний інструмент</button>`:""}
       ${miss.length?`<button class="btn ghost sm" id="nBuy" style="width:100%;margin-bottom:8px">🛒 Список на закупівлю для менеджера</button>`:""}`:""}` }
 function bindNeeds(s){ loadToolCat(); loadMatCat();
@@ -647,7 +650,7 @@ function bindNeeds(s){ loadToolCat(); loadMatCat();
       if(res==="done"){ x.done=true } else if(res==="undo"){ x.done=false; x.match=[] } else { x.done=false; x.match=[...new Set([...(Array.isArray(x.match)?x.match:[]),normName(res.name)])] }
       save(l) }) });
   $("#nAdd")?.addEventListener("click",()=>{
-    box.insertAdjacentHTML("beforeend",`<div id="nForm"><textarea id="nTxt" rows="4" placeholder="Інструмент і матеріали — кожне з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
+    $("#nAdd").insertAdjacentHTML("afterend",`<div id="nForm" style="margin-bottom:10px"><textarea id="nTxt" rows="4" placeholder="Інструмент і матеріали — кожне з нового рядка, можна з кількістю:\nперфоратор 2\nрівень 2м\nболгарка 125 — 3 шт"></textarea>
       <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="nCancel" style="flex:1">Скасувати</button><button class="btn sm" id="nOk" style="flex:1">Додати</button></div></div>`);
     $("#nAdd").style.display="none"; $("#nTxt").focus();
     $("#nCancel").onclick=re;
@@ -1004,7 +1007,7 @@ function moveForm(ids){
 function siteForm(s){
   const isNew=!s; s=s||{type:"site"};
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
-  const isSite=s.type!=="warehouse", tabs=isNew?[]:(isSite?[["money","💰 Гроші"],["tools","🧰 Інструмент"],["needs","📝 Потрібне"],["works","📋 Роботи"],["data","⚙️ Дані"]]:[["tools","🧰 Інструмент"],["data","⚙️ Дані"]]);
+  const isSite=s.type!=="warehouse", tabs=isNew?[]:(isSite?[["money","💰 Гроші"],["tools","🧰 Інструмент"],["needs","📝 Потрібно"],["works","📋 Роботи"],["data","⚙️ Дані"]]:[["tools","🧰 Інструмент"],["data","⚙️ Дані"]]);
   let tab=isNew?"data":(tabs.some(t=>t[0]===S.siteTab)?S.siteTab:tabs[0][0]);
   const T=(k,html)=>`<div data-stab="${k}" style="display:${tab===k?"block":"none"}">${html}</div>`;
   const finHere=isNew?[]:[...S.fin.values()].filter(f=>f.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
@@ -2631,7 +2634,7 @@ function globalSearch(){
     const F=[...S.fin.values()].filter(f=>isNum?Math.abs((+f.amount||0)-num)<0.5:hit([f.note,f.kind,site(f.site)?.name,person(f.owner)?.name,person(f.worker)?.name,fmtDay(f.date)].join(" "))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
     if(F.length) out.push(`<div class="section-t">Платежі${F.length>15?` (${F.length}, показано 15)`:""}</div>`+F.slice(0,15).map(f=>row("f",f.id,f.type==="in"?"💰":f.type==="accrual"?"👷":"💸",esc(fmtDay(f.date))+" · "+esc(site(f.site)?.name||f.kind||""),esc([person(f.worker)?.name||person(f.owner)?.name,f.note].filter(Boolean).join(" · ").slice(0,80)),(f.type==="in"?"+":"")+money(f.amount))).join(""));
     const N=[]; for(const x of S.sites.values()) (x.needs||[]).forEach(n=>{ if(hit(n.name)) N.push({x,n}) });
-    if(N.length) out.push(`<div class="section-t">Потрібне на об'єктах</div>`+N.slice(0,8).map(({x,n})=>row("n",x.id,n.kind==="material"?"🧱":"📝",esc(n.name)+" ×"+(+n.qty||1),"🏗️ "+esc(x.name)+(n.done?" · ✅":""))).join(""));
+    if(N.length) out.push(`<div class="section-t">Потрібно на об'єкти (інструмент і матеріали)</div>`+N.slice(0,8).map(({x,n})=>row("n",x.id,n.kind==="material"?"🧱":"📝",esc(n.name)+" ×"+(+n.qty||1),"🏗️ "+esc(x.name)+(n.done?" · ✅":""))).join(""));
     $("#gsR").innerHTML=out.join("")||`<div class="empty">Нічого не знайдено</div>` };
   $("#gsQ").oninput=draw; draw(); setTimeout(()=>$("#gsQ")?.focus(),50);
   $("#gsR").onclick=e=>{ const d=e.target.closest("[data-gs]"); if(!d) return; const [k,id]=d.dataset.gs.split(":"); close();
@@ -2650,7 +2653,7 @@ function fabMenu(){
     ${it("out","💸","Витрата")}${it("rc","🧾","Витрата з чеком","сфотографуйте — сума зчитається сама")}${it("in","💰","Прихід від замовника")}
     ${it("acc","👷","Нарахування / виплата виконавцю")}${it("rep","📋","Звіт робіт від хлопців","перевірити, нарахувати, у смету")}
     ${!duo?`<div class="section-t">🧰 Інструмент і матеріали</div>
-    ${it("tlist","📝","Список інструменту (з Viber/Telegram)","перемістити, зареєструвати, «куплено»")}${it("tphoto","📷","Інструмент з фото","інвентаризація або переміщення")}${it("tnew","🔧","Новий інструмент вручну")}${it("need","🧱","Потрібне на об'єкт","інструмент і матеріали")}`:""}
+    ${it("tlist","📝","Список інструменту (з Viber/Telegram)","перемістити, зареєструвати, «куплено»")}${it("tphoto","📷","Інструмент з фото","інвентаризація або переміщення")}${it("tnew","🔧","Новий інструмент вручну")}${it("need","📝","Потрібно на об'єкт: інструмент і матеріали","одним списком — застосунок сам розкладе")}`:""}
     <div class="section-t">📁 Інше</div>
     ${it("site","🏗️","Новий об'єкт / склад")}${it("person","👤","Нова людина / бригада")}${!duo?it("kp","📄","Комерційна пропозиція","з переліку робіт замовника")+it("doc","🧾","Рахунок / акт"):""}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -2664,7 +2667,7 @@ function fabMenu(){
     else if(a==="tphoto") photoFlow();
     else if(a==="tnew") toolForm();
     else if(a==="need"){ const l=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort(byName);
-      openSheet(`<h2>🧱 Потрібне — на який об'єкт?</h2><div class="list">${l.map(x=>`<div class="card" data-ns="${x.id}"><div class="main"><div class="t">🏗️ ${esc(x.name)}</div></div></div>`).join("")}</div><div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+      openSheet(`<h2>📝 Інструмент і матеріали — на який об'єкт?</h2><div class="list">${l.map(x=>`<div class="card" data-ns="${x.id}"><div class="main"><div class="t">🏗️ ${esc(x.name)}</div></div></div>`).join("")}</div><div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
       $("#modal").onclick=e=>{ const c=e.target.closest("[data-ns]"); if(!c) return; S.siteTab="needs"; siteForm(S.sites.get(c.dataset.ns)); $("#nAdd")?.click() } }
     else if(a==="site") siteForm();
     else if(a==="person") personForm();
