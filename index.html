@@ -863,11 +863,14 @@ function personForm(p){
   $("#segR").onclick=e=>{const b=e.target.closest("button");if(!b)return;role=b.dataset.v;[...$("#segR").children].forEach(x=>x.classList.toggle("on",x===b));
     $("#crewTgl").style.display=role==="worker"?"flex":"none"; if(role!=="worker"){$("#isCrew").checked=false;$("#crewBox").style.display="none"}};
   $("#pickContact")?.addEventListener("click",async()=>{ try{
-      const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
-      const tels=[...new Set((c.tel||[]).map(t=>String(t).trim()).filter(Boolean))]; const tel=tels[0]||"";
+      // можна вибрати один або кілька контактів (якщо людина записана двічі) — беремо всі їхні номери
+      const r=await navigator.contacts.select(["name","tel"],{multiple:true}); const c=r&&r[0]; if(!c) return;
+      const seen=new Set(), tels=[]; for(const x of r) for(const t of (x.tel||[])){ const v=String(t||"").trim(), k=telNum(v); if(v&&!seen.has(k)){ seen.add(k); tels.push(v) } }
+      const tel=tels[0]||"";
       const F=n=>$("#pForm [name="+n+"]"); if(tel) F("phone").value=tel;
       const have=new Set([...document.querySelectorAll(".phT")].map(i=>telNum(i.value)));
-      for(const t of tels.slice(1)) if(!have.has(telNum(t))) $("#phList").insertAdjacentHTML("beforeend",phRow({tel:t})); const nm=(c.name||[])[0]; if(nm) F("name").value=nm.trim();
+      have.add(telNum(tel)); for(const t of tels.slice(1)) if(!have.has(telNum(t))) $("#phList").insertAdjacentHTML("beforeend",phRow({tel:t}));
+      toast(tels.length>1?`Додано номерів: ${tels.length}`:"Номер додано"); const nm=(c.name||[])[0]; if(nm) F("name").value=nm.trim();
     }catch(e){ if(e?.name!=="AbortError"&&e?.name!=="InvalidStateError") toast("Не вдалося відкрити контакти") } });
   $("#phAdd").onclick=()=>{ $("#phList").insertAdjacentHTML("beforeend",phRow({})); $("#phList").lastElementChild.querySelector(".phT").focus() };
   $("#phList").onclick=e=>{ if(e.target.classList.contains("phX")) e.target.closest(".phr").remove() };
