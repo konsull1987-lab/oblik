@@ -1152,6 +1152,27 @@ function moveForm(ids){
   });
 }
 
+function mergeSite(src){
+  const l=[...S.sites.values()].filter(x=>x.id!==src.id&&x.type!=="warehouse").sort((a,b)=>(b.active!==false)-(a.active!==false)||(a.order||0)-(b.order||0));
+  openSheet(`<h2>🔀 Об'єднати «${esc(src.name)}»</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Виберіть, КУДИ перенести все з «${esc(src.name)}» (платежі, документи, інструмент, «Потрібно», КП/смети). Потім «${esc(src.name)}» буде видалено.</div>
+    <div class="list">${l.map(x=>`<div class="card" data-mg="${x.id}"><div class="main"><div class="t">${esc(x.name)}${x.active===false?" · архів":""}</div>${x.customer?`<div class="m">${esc(x.customer)}</div>`:""}</div></div>`).join("")}</div>
+    <div class="actions"><button class="btn ghost" data-close>Скасувати</button></div>`);
+  document.querySelectorAll("[data-mg]").forEach(el=>el.onclick=async()=>{ const dst=site(el.dataset.mg); if(!dst) return;
+    const fins=[...S.fin.values()].filter(f=>f.site===src.id), docs=[...S.docs.values()].filter(d=>d.site===src.id), tools=isDuo()?[]:[...S.tools.values()].filter(t=>t.site===src.id);
+    let offs=[]; try{ const sn=await S.db.collection(R("offers")).get(); offs=sn.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.site===src.id) }catch(_){}
+    if(!confirm(`Перенести з «${src.name}» у «${dst.name}»:\n• платежів: ${fins.length}\n• рахунків/актів: ${docs.length}\n• інструменту: ${tools.length}\n• КП/смет: ${offs.length}\n• «Потрібно»: ${(src.needs||[]).length}\n\nі видалити «${src.name}»?`)) return;
+    el.style.opacity=".5"; toast("⏳ Переношу…");
+    const upd={}; if((src.needs||[]).length) upd.needs=[...(dst.needs||[]),...src.needs];
+    if(!(+dst.contract>0)&&+src.contract>0) upd.contract=src.contract; if(!dst.customer&&src.customer) upd.customer=src.customer; if(!dst.approved&&src.approved){ upd.approved=src.approved; upd.approvedDone=src.approvedDone||[] }
+    const ok=await write(async db=>{
+      for(const f of fins) await db.doc("fin/"+f.id).update({site:dst.id});
+      for(const d of docs) await db.doc("docs/"+d.id).update({site:dst.id});
+      for(const t of tools) await db.doc("tools/"+t.id).update({site:dst.id});
+      for(const o of offs) await db.doc(R("offers")+"/"+o.id).update({site:dst.id,object:dst.name});
+      if(Object.keys(upd).length) await db.doc("sites/"+dst.id).update(upd);
+      await db.doc("sites/"+src.id).delete() });
+    if(ok){ closeSheet(); toast(`✅ «${src.name}» об'єднано з «${dst.name}»`) } });
+}
 function siteForm(s){
   const isNew=!s; s=s||{type:"site"};
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
@@ -1182,7 +1203,7 @@ function siteForm(s){
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="active" style="width:22px;height:22px" ${s.active!==false?"checked":""}> Активний (знятий — йде в архів)</label></div>
       ${s.type!=="warehouse"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="perm" style="width:22px;height:22px" ${isPerm(s)?"checked":""}> ♾️ Постійний (як «Шабашка»): дрібні разові роботи, прибуток ділиться одразу, не закривається</label></div>
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="split" style="width:22px;height:22px" ${s.split||isPerm(s)?"checked":""}> Прибуток поділено між власниками</label></div>`:""}
-      ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delS">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
+      ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delS">Видалити</button>${s.type!=="warehouse"?`<button type="button" class="btn ghost" id="mrgS">🔀 Об'єднати</button>`:""}`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
     </form>`)}
     ${!isNew&&tab!=="data"?`<div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`:""}`);
   let type=s.type;
@@ -1208,6 +1229,7 @@ function siteForm(s){
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено")}
   });
+  $("#mrgS")?.addEventListener("click",()=>mergeSite(s));
   $("#delS")?.addEventListener("click",async()=>{
     if(cnt){toast("Спочатку перемістіть звідси інструмент ("+cnt+")");return}
     const nf=[...S.fin.values()].filter(f=>f.site===s.id).length+[...S.docs.values()].filter(d=>d.site===s.id).length;
