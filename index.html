@@ -3000,6 +3000,7 @@ function uploadDoc(s){
     <div class="row"><div class="field"><label>Дата</label><input type="date" id="udD" value="${st.date}"></div><div class="field"><label>Сума, ₴</label><input id="udS" inputmode="decimal" value="${st.total}"></div></div>
     ${st.parts.length&&window.__fbAI?`<button class="btn ghost" id="udAI" style="width:100%;margin-bottom:6px">🤖 Розібрати позиції з файлу${st.rows.length?` (вже ${st.rows.length})`:""}</button>`:""}
     ${st.rows.length?`<div class="card" style="display:block;cursor:default;max-height:220px;overflow:auto">${st.rows.map(r=>`<div style="display:flex;gap:6px;font-size:13px;padding:3px 0"><span style="flex:1">${esc(r.name)}</span><span>${r.qty} ${esc(r.unit)}</span><b>${money(Math.round(r.qty*r.price))}</b></div>`).join("")}</div>`:""}
+    ${st.parsed?`<div class="m" style="font-size:12.5px;margin-top:6px">${st.rows.length?`Знайдено позицій: ${st.rows.length}. Після збереження можна одразу зробити це кошторисом об'єкта.`:"Таблиці робіт не знайдено — збережеться документ і сума."}${+String(st.total).replace(/\s/g,"").replace(",",".")>0?` Сума: <b>${money(+String(st.total).replace(/\s/g,"").replace(",","."))}</b>.`:""}</div>`:""}
     <button class="btn" id="udOk" style="width:100%;margin-top:8px">💾 Зберегти в об'єкті</button><div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     $("#udP").onchange=e=>$("#udF").onchange(e);
     $("#udF").onchange=async e=>{ const f=e.target.files[0]; if(!f) return; st.file=f; st.parts=[];
@@ -3009,13 +3010,23 @@ function uploadDoc(s){
         else if(/^image\//.test(f.type)) st.parts=[await shrinkImage(f,1800)]; else if(/^text\//.test(f.type)) st.parts=[{text:(await f.text()).slice(0,40000)}] }catch(_){ toast("Файл не прочитався — збережу як є") } draw() };
     const sv=()=>{ st.kind=$("#udK").value; st.no=$("#udN").value; st.date=$("#udD").value; st.total=$("#udS").value };
     $("#udAI")?.addEventListener("click",async()=>{ sv(); const b=$("#udAI"); b.disabled=true; b.textContent="⏳ Розбираю…";
-      try{ const j=JSON.parse(String(await window.__fbAI(st.parts,`Це погоджений з замовником документ (смета/КП/акт). Випиши всі позиції: name, qty, unit, price (ціна за одиницю), mat — true для матеріалів, false для робіт. Також total — підсумок документа і no — номер документа, якщо є. Числа — точно як у документі. Відповідь — лише JSON {"no":"","total":0,"items":[{"name":"","qty":0,"unit":"","price":0,"mat":false}]}`)).replace(/^```(json)?|```$/g,"").trim());
+      try{ const j=JSON.parse(String(await window.__fbAI(st.parts,`Це документ, погоджений з замовником будівельних робіт: смета, КП, акт, рахунок або ДОГОВІР (договір може містити таблицю/додаток-кошторис, а може бути лише текст).
+1) kind — що це: «Смета», «КП», «Акт», «Рахунок», «Договір» або «Інше».
+2) items — ЛИШЕ позиції з кошторисної таблиці чи переліку робіт/матеріалів з цінами: name, qty, unit, price (за одиницю), mat (true — матеріал, false — робота). НЕ бери пункти договору, умови, терміни, графік оплат, аванс, гарантії, реквізити, підписи — це не позиції. Якщо таблиці робіт немає — items порожній.
+3) total — ЦІНА ДОГОВОРУ / загальна сума документа (для договору — «загальна вартість робіт за Договором»; не аванс і не окремий етап). Якщо є таблиця, але суми договору немає — підсумок таблиці.
+4) no — номер документа, date — дата у форматі РРРР-ММ-ДД, customer — замовник (ПІБ або назва), якщо є.
+Числа — точно як у документі. Відповідь — лише JSON {"kind":"","no":"","date":"","customer":"","total":0,"items":[{"name":"","qty":0,"unit":"","price":0,"mat":false}]}`)).replace(/^```(json)?|```$/g,"").trim());
         st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty||1,unit:String(x.unit||""),price:+x.price||0,mat:!!x.mat})); if(!st.no&&j.no) st.no=String(j.no); if(!st.total&&+j.total) st.total=String(j.total);
+        if(["Смета","КП","Акт","Рахунок","Договір","Інше"].includes(j.kind)) st.kind=j.kind; if(/^\d{4}-\d\d-\d\d$/.test(j.date||"")) st.date=j.date; if(j.customer) st.customer=String(j.customer).trim(); st.parsed=true;
         if(!st.total&&st.rows.length) st.total=String(Math.round(st.rows.reduce((a,r)=>a+r.qty*r.price,0)*100)/100) }catch(e){ toast("Не вдалося розібрати: "+String(e?.message||e).slice(0,60)) } draw() });
     $("#udOk").onclick=async()=>{ sv(); if(!st.file){ toast("Виберіть файл"); return } const b=$("#udOk"); b.disabled=true; b.textContent="Зберігаю…";
       let fid=""; try{ fid=(await saveFile(st.file)).id }catch(e){ toast(String(e?.message)==="big"?"Файл більший за 8 МБ":"Файл не збережено"); b.disabled=false; b.textContent="💾 Зберегти в об'єкті"; return }
       const data={kind:"file",sub:st.kind,site:s.id,no:st.no,date:st.date,total:parseFloat(String(st.total).replace(/\s/g,"").replace(",","."))||0,fileId:fid,fileName:st.file.name,fileType:st.file.type,rows:st.rows,createdAt:Date.now()};
-      if(await write(db=>db.collection(R("offers")).add(data))){ toast("Збережено в об'єкті"); sheetStack.length?sheetBack():closeSheet(); setTimeout(()=>loadSiteDocs(s),300) } else { b.disabled=false; b.textContent="💾 Зберегти в об'єкті" } };
+      let nid=""; if(await write(async db=>{ const r=await db.collection(R("offers")).add(data); nid=r.id })){ toast("Збережено в об'єкті"); sheetStack.length?sheetBack():closeSheet(); setTimeout(()=>loadSiteDocs(s),300);
+        const st0=site(s.id)||s;
+        if(nid&&data.rows.length&&confirm(`Зробити ${data.sub.toLowerCase()} № ${data.no||""} погодженим кошторисом об'єкта?\n(ставки людям рахуватимуться від цих цін)`)) approveOffer({id:nid,...data},st0);
+        else if(data.total>0&&+st0.contract!==data.total&&confirm(`Записати ${money(data.total)} як суму договору з замовником${+st0.contract>0?` (зараз ${money(st0.contract)})`:""}?`)){
+          const u={contract:data.total}; if(st.customer&&!st0.customer) u.customer=st.customer; if(await write(db=>db.doc("sites/"+st0.id).update(u))){ Object.assign(st0,u); toast("Суму договору записано") } } } else { b.disabled=false; b.textContent="💾 Зберегти в об'єкті" } };
   }; draw() }
 function fileOfferView(o){
   openSheet(`<h2>📎 ${esc(o.sub||"Документ")} ${o.no?"№ "+esc(o.no):""}</h2><div class="m" style="color:var(--muted);margin-bottom:8px">${esc(site(o.site)?.name||"")} · ${fmtDay(o.date)} · ${esc(o.fileName||"")}</div>
