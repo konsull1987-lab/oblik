@@ -2217,7 +2217,7 @@ function finForm(f,preset){
     const other=Object.entries(by).filter(([k,v])=>k!==sid&&Math.round(v)!==0).map(([k,v])=>`${k?"«"+esc(site(k)?.name||"?")+"»":"без об'єкта"} ${v>0?"":"переплата "}${money(Math.abs(v))}`);
     return {debt:Math.round(acc-paid),sa,sp,other} };
   const debtInfo=()=>{ const box=$("#wDebt"); if(!box) return; const wid=$("#finForm [name=worker]")?.value, sid=$("#finForm [name=site]")?.value||"", p=person(wid);
-    if(!wid||!p||p.helper||(mode!=="accrual"&&!(mode==="out"&&$("#finForm [name=kind]")?.value==="Зарплата"))){ box.innerHTML=""; return }
+    if(!wid||!p||p.helper||(mode!=="accrual"&&mode!=="out")){ box.innerHTML=""; return }
     const d=wDebt(wid,sid), a=sumExpr($("#finForm [name=amount]").value)||0, st=site(sid);
     const line=`${esc(p.name)} — ${d.debt>0?`борг: <b>${money(d.debt)}</b>`:d.debt<0?`переплата: <b>${money(-d.debt)}</b>`:"розраховані"}${st&&(d.sa||d.sp)?`<br>на «${esc(st.name)}»: робіт на ${money(d.sa)}, оплачено ${money(d.sp)}`:""}${d.other.length?`<br>решта боргу: ${d.other.join(", ")}`:""}`;
     if(mode==="accrual"){ const pay=$("#accPay")?.checked;
@@ -2225,6 +2225,7 @@ function finForm(f,preset){
         ${d.debt>0?`<br>⚠️ Якщо ви <b>віддаєте гроші за вже нараховане</b> — це не нарахування. <a href="#" id="toPay" onclick="return false"><b>💵 Записати як виплату боргу →</b></a>`:""}</div>` }
     else box.innerHTML=`<div class="banner" style="margin-bottom:8px">${line}${a>0?`<br>Після оплати ${money(a)}: ${d.debt-a>0?`борг <b>${money(d.debt-a)}</b>`:d.debt-a<0?`<b>переплата ${money(a-d.debt)}</b> (аванс наперед)`:"розраховані повністю ✅"}`:""}</div>`;
     $("#toPay")?.addEventListener("click",()=>{ setMode("out"); const k=$("#finForm [name=kind]"); if(k) k.value="Зарплата"; debtInfo() }) };
+  $("#finForm [name=worker]")?.addEventListener("change",e=>{ const k=$("#finForm [name=kind]"); if(mode==="out"&&e.target.value&&k&&k.value==="Матеріали"&&!person(e.target.value)?.helper) k.value="Зарплата" });
   ["worker","site","kind"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",debtInfo)); $("#finForm [name=amount]").addEventListener("input",debtInfo);
   $("#segM").addEventListener("click",()=>setTimeout(debtInfo)); setTimeout(debtInfo);
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
