@@ -582,6 +582,13 @@ function uahWords(x){ const n=Math.floor(+x||0), kop=Math.round(((+x||0)-n)*100)
   for(const [d,f,fem] of sc){ const v=Math.floor(r/d); if(v){ w.push(tri(v,fem),form(v,f)); r%=d } }
   if(r||!w.length) w.push(r?tri(r,1):"нуль"); w.push(form(n,["гривня","гривні","гривень"]));
   const s=w.filter(Boolean).join(" "); return s.charAt(0).toUpperCase()+s.slice(1)+` ${String(kop).padStart(2,"0")} ${form(kop,["копійка","копійки","копійок"])}` }
+// «Аналогічний договір: ТОВ «Х» — що робили, 28 080 грн, 01.03.2023» → колонки довідки
+function anParse(title){ let t=String(title||""), kind="", who="", what=t, sum="", date="";
+  const m=t.match(/^([^:]{2,40}):\s*(.+)$/); if(m){ kind=m[1]; t=m[2] }
+  const d=t.match(/(\d{2}\.\d{2}\.\d{4})\s*$/); if(d){ date=d[1]; t=t.slice(0,d.index).replace(/[,\s]+$/,"") }
+  const sm=t.match(/,\s*([\d\s]+(?:[.,]\d{1,2})?)\s*грн\s*$/); if(sm){ sum=sm[1].trim(); t=t.slice(0,sm.index) }
+  const w=t.split(/\s+—\s+/); if(w.length>1){ who=w[0].trim(); what=w.slice(1).join(" — ").trim() } else what=t;
+  const no=kind.match(/№\s*\S+/); if(no) date=(no[0]+(date?" від "+date:"")); return {kind,who,what,sum,date} }
 function tzDocs(t){ const f=S.fops.get(t.fop); if(!f){ toast("Спершу виберіть учасника (ФОП) у тендері"); return }
   const fio=String(f.name||"").replace(/^ФОП\s*/i,"").trim(), fioShort=(()=>{ const p=fio.split(/\s+/); return p.length>=3?`${p[1][0]}. ${p[2][0]}. ${p[0]}`:fio })();
   const head=title=>[{p:`ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ ${fio.toUpperCase()}`,b:1,c:1,sz:22,after:0},{p:`РНОКПП ${f.edrpou||"__________"} · ${f.address||""}${f.phone?" · тел. "+f.phone:""}${f.email?" · "+f.email:""}`,c:1,sz:20,after:200},
@@ -622,8 +629,8 @@ function tzDocs(t){ const f=S.fops.get(t.fop); if(!f){ toast("Спершу ви�
       {table:[["№","Найменування","Кількість, шт","Власне / орендоване"],...[...tools.entries()].sort((a,b)=>a[0].localeCompare(b[0],"uk")).map(([k,q],i)=>[String(i+1),k,String(q),"власне"])]},...sign]},
     analog:{n:"Довідка про аналогічні договори",b:()=>[...head("ДОВІДКА\nпро досвід виконання аналогічних договорів"),
       {p:"Учасник має досвід виконання аналогічних за предметом закупівлі договорів, а саме:",j:1,ind:1},
-      {table:[["№","Контрагент (замовник)","Предмет договору","№ і дата договору","Сума, грн","Підтвердження"],...(contractsFd.length?contractsFd:[{title:""}]).map((d,i)=>[String(i+1),"",d.title||"","","",d.title?"копія договору, акти":""])]},
-      {p:"До довідки додаються копії договорів та документи, що підтверджують їх виконання (акти, відгуки). ⚠ Заповніть контрагентів і суми з договорів.",sz:20,j:1},...sign]},
+      {table:[["№","Контрагент (замовник)","Предмет договору","№ і дата договору","Сума, грн","Підтвердження"],...(contractsFd.length?contractsFd:[{title:""}]).map((d,i)=>{ const p=anParse(d.title||""); return [String(i+1),p.who,p.what,p.date,p.sum,d.title?(/акт/i.test(p.kind)?"акт виконаних робіт":"копія договору, акти"):""] })]},
+      {p:"До довідки додаються копії договорів та документи, що підтверджують їх виконання (акти, відгуки). ⚠ Перевірте: контрагент — ваш колишній замовник, сума — за тим договором (не цього тендера). Приберіть неаналогічні рядки.",sz:20,j:1},...sign]},
     price:{n:"Цінова пропозиція",b:()=>[...head("ЦІНОВА ПРОПОЗИЦІЯ"),
       {p:`Ми, фізична особа — підприємець ${fio}, уважно вивчивши тендерну документацію, маємо можливість та погоджуємося виконати роботи (надати послуги) за предметом закупівлі «${t.title||""}» на загальну суму:`,j:1,ind:1},
       {p:price?`${money(price).replace(/\s?₴/,"")} грн (${uahWords(price)}) ${vat?"з ПДВ":"без ПДВ"}${!vat?" (учасник не є платником ПДВ)":""}.`:"__________ грн (_______________________) без ПДВ.",b:1,j:1},
