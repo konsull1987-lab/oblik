@@ -549,6 +549,100 @@ function tzAddForm(pre){
         if(d.manual) toast(d.title?"Дані знайдено через пошук — перевірте суму й строки":"Дані не знайшлись автоматично — впишіть вручну") }
       else { b.disabled=false; b.textContent="Додати" } }catch(e){ b.disabled=false; b.textContent="Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,80)) } } }
 async function tzSave(t,upd){ upd.updatedAt=Date.now(); if(await write(db=>db.doc("tenders/"+t.id).update(upd))){ Object.assign(t,upd); return true } return false }
+// 📄 Довідки для тендера у Word (.docx) — шаблони з реквізитів ФОП, людей, інструменту, документів
+const _crcT=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; t[n]=c>>>0 } return t })();
+const crc32=b=>{ let c=0xFFFFFFFF; for(let i=0;i<b.length;i++) c=_crcT[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0 };
+function zipStore(files){ const enc=new TextEncoder(), parts=[], cen=[]; let off=0;
+  for(const [name,str] of files){ const nb=enc.encode(name), db=enc.encode(str), crc=crc32(db), h=new DataView(new ArrayBuffer(30));
+    h.setUint32(0,0x04034b50,true); h.setUint16(4,20,true); h.setUint16(6,0x0800,true); h.setUint32(14,crc,true); h.setUint32(18,db.length,true); h.setUint32(22,db.length,true); h.setUint16(26,nb.length,true);
+    parts.push(new Uint8Array(h.buffer),nb,db); const c=new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint32(16,crc,true); c.setUint32(20,db.length,true); c.setUint32(24,db.length,true); c.setUint16(28,nb.length,true); c.setUint32(42,off,true);
+    cen.push(new Uint8Array(c.buffer),nb); off+=30+nb.length+db.length }
+  const cs=cen.reduce((a,x)=>a+x.length,0), e=new DataView(new ArrayBuffer(22)); e.setUint32(0,0x06054b50,true); e.setUint16(8,files.length,true); e.setUint16(10,files.length,true); e.setUint32(12,cs,true); e.setUint32(16,off,true);
+  return new Blob([...parts,...cen,new Uint8Array(e.buffer)],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}) }
+const xq=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function docxBlob(blocks){
+  const run=(t,o={})=>`<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${o.b?"<w:b/>":""}<w:sz w:val="${o.sz||24}"/></w:rPr><w:t xml:space="preserve">${xq(t)}</w:t></w:r>`;
+  const para=(t,o={})=>`<w:p><w:pPr><w:spacing w:after="${o.after??80}"/>${o.c?'<w:jc w:val="center"/>':o.r?'<w:jc w:val="right"/>':o.j?'<w:jc w:val="both"/>':""}${o.ind?'<w:ind w:firstLine="567"/>':""}</w:pPr>${String(t).split("\n").map((l,i)=>(i?"<w:r><w:br/></w:r>":"")+run(l,o)).join("")}</w:p>`;
+  const cell=(t,o={})=>`<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${para(t,{...o,after:0,sz:22})}</w:tc>`;
+  const table=rows=>`<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>${["top","left","bottom","right","insideH","insideV"].map(s=>`<w:${s} w:val="single" w:sz="4" w:space="0" w:color="000000"/>`).join("")}</w:tblBorders></w:tblPr>${rows.map((r,i)=>`<w:tr>${r.map(c=>cell(c,{b:i===0,c:i===0})).join("")}</w:tr>`).join("")}</w:tbl>${para("",{after:0})}`;
+  const body=blocks.map(b=>b.table?table(b.table):para(b.p||"",b)).join("");
+  const doc=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1418" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  return zipStore([["[Content_Types].xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`],
+    ["_rels/.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`],
+    ["word/document.xml",doc]]) }
+// сума прописом (гривні, копійки)
+function uahWords(x){ const n=Math.floor(+x||0), kop=Math.round(((+x||0)-n)*100);
+  const u=[["","один","два","три","чотири","п'ять","шість","сім","вісім","дев'ять"],["","одна","дві","три","чотири","п'ять","шість","сім","вісім","дев'ять"]];
+  const teen=["десять","одинадцять","дванадцять","тринадцять","чотирнадцять","п'ятнадцять","шістнадцять","сімнадцять","вісімнадцять","дев'ятнадцять"];
+  const ten=["","","двадцять","тридцять","сорок","п'ятдесят","шістдесят","сімдесят","вісімдесят","дев'яносто"], hun=["","сто","двісті","триста","чотириста","п'ятсот","шістсот","сімсот","вісімсот","дев'ятсот"];
+  const form=(v,f)=>{ const a=v%100,b=v%10; return a>10&&a<20?f[2]:b===1?f[0]:b>=2&&b<=4?f[1]:f[2] };
+  const tri=(v,fem)=>{ const h=Math.floor(v/100),t=Math.floor(v%100/10),o=v%10, w=[hun[h]]; if(t===1) w.push(teen[o]); else { w.push(ten[t]); w.push(u[fem?1:0][o]) } return w.filter(Boolean).join(" ") };
+  const sc=[[1e9,["мільярд","мільярди","мільярдів"],0],[1e6,["мільйон","мільйони","мільйонів"],0],[1e3,["тисяча","тисячі","тисяч"],1]]; let r=n, w=[];
+  for(const [d,f,fem] of sc){ const v=Math.floor(r/d); if(v){ w.push(tri(v,fem),form(v,f)); r%=d } }
+  if(r||!w.length) w.push(r?tri(r,1):"нуль"); w.push(form(n,["гривня","гривні","гривень"]));
+  const s=w.filter(Boolean).join(" "); return s.charAt(0).toUpperCase()+s.slice(1)+` ${String(kop).padStart(2,"0")} ${form(kop,["копійка","копійки","копійок"])}` }
+function tzDocs(t){ const f=S.fops.get(t.fop); if(!f){ toast("Спершу виберіть учасника (ФОП) у тендері"); return }
+  const fio=String(f.name||"").replace(/^ФОП\s*/i,"").trim(), fioShort=(()=>{ const p=fio.split(/\s+/); return p.length>=3?`${p[1][0]}. ${p[2][0]}. ${p[0]}`:fio })();
+  const head=title=>[{p:`ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ ${fio.toUpperCase()}`,b:1,c:1,sz:22,after:0},{p:`РНОКПП ${f.edrpou||"__________"} · ${f.address||""}${f.phone?" · тел. "+f.phone:""}${f.email?" · "+f.email:""}`,c:1,sz:20,after:200},
+    {p:`Вих. № ____ від «___» ____________ ${new Date().getFullYear()} р.`,sz:22},{p:`Замовнику: ${t.buyer||"________________"}`,r:1,sz:22,after:200},
+    {p:title,b:1,c:1,sz:26,after:120},{p:`до тендерної пропозиції у закупівлі ${t.tid||""} «${t.title||""}»`,c:1,sz:22,after:200}];
+  const sign=[{p:"",after:200},{p:`Фізична особа — підприємець                    ____________                    ${fioShort}`,sz:24},{p:"(документ підписується кваліфікованим електронним підписом)",sz:18,c:1}];
+  const owners=[...S.people.values()].filter(p=>p.role==="owner"), workers=[...S.people.values()].filter(p=>p.role==="worker"&&!p.helper&&p.active!==false).sort(byName);
+  const tools=new Map(); for(const x of S.tools.values()){ if(x.status==="lost"||x.status==="written"||x.status==="off") continue; const k=[x.name,x.brand].filter(Boolean).join(" ").trim(); if(k) tools.set(k,(tools.get(k)||0)+qtyOf(x)) }
+  const contractsFd=[...(S.fd||new Map()).values()].filter(d=>(!d.fop||d.fop===t.fop)&&/догов|акт|аналог|відгук/i.test(d.title||""));
+  const price=+t.ourPrice||+t.kpTotal||0, vat=/пдв/i.test(f.taxGroup||"")&&!/без/i.test(f.taxGroup||"");
+  const D={
+    st17:{n:"Довідка ст. 17 (відсутність підстав)",b:()=>[...head("ДОВІДКА\nпро відсутність підстав для відмови в участі у процедурі закупівлі"),
+      {p:`Фізична особа — підприємець ${fio} (РНОКПП ${f.edrpou||"_____"}) повідомляє про відсутність підстав, визначених статтею 17 Закону України «Про публічні закупівлі» та пунктом 47 Особливостей, затверджених постановою КМУ від 12.10.2022 № 1178, а саме:`,j:1,ind:1},
+      ...[ "1) учасник не пропонує, не дає і не погоджується дати прямо чи опосередковано будь-якій службовій (посадовій) особі замовника чи іншого державного органу винагороду в будь-якій формі (пропозиція щодо найму на роботу, цінна річ, послуга тощо) з метою вплинути на рішення замовника;",
+        "2) підстава щодо внесення відомостей про юридичну особу до Єдиного державного реєстру осіб, які вчинили корупційні або пов'язані з корупцією правопорушення, — не застосовується (учасник є фізичною особою — підприємцем); відомості про учасника до такого реєстру не внесено;",
+        "3) учасника — фізичну особу не було притягнуто згідно із законом до відповідальності за вчинення корупційного правопорушення або правопорушення, пов'язаного з корупцією;",
+        "4) учасник протягом останніх трьох років не притягувався до відповідальності за порушення у вигляді вчинення антиконкурентних узгоджених дій, що стосуються спотворення результатів тендерів;",
+        "5) учасник — фізична особа не був засуджений за кримінальне правопорушення, вчинене з корисливих мотивів (зокрема, пов'язане з хабарництвом, шахрайством та відмиванням коштів), судимість з якого не знято або не погашено у встановленому законом порядку;",
+        "6) учасник є одночасно керівником власної діяльності; його не було засуджено за кримінальне правопорушення, вчинене з корисливих мотивів, судимість з якого не знято або не погашено;",
+        "7) тендерна пропозиція подана учасником, який не є пов'язаною особою з іншими учасниками процедури та/або з уповноваженою особою (особами), та/або з керівником замовника;",
+        "8) учасник не визнаний у встановленому законом порядку банкрутом, стосовно нього не відкрита ліквідаційна процедура;",
+        "9) підстава щодо відсутності в ЄДР інформації про кінцевого бенефіціарного власника — не застосовується (учасник є фізичною особою — підприємцем);",
+        "10) підстава щодо відсутності антикорупційної програми юридичної особи — не застосовується (учасник є фізичною особою — підприємцем);",
+        "11) учасник не є особою, до якої застосовано санкцію у вигляді заборони на здійснення у неї публічних закупівель товарів, робіт і послуг згідно із Законом України «Про санкції»;",
+        "12) учасника — фізичну особу не було притягнуто згідно із законом до відповідальності за вчинення правопорушення, пов'язаного з використанням дитячої праці чи будь-якими формами торгівлі людьми;",
+        "13) учасник не має заборгованості зі сплати податків і зборів (обов'язкових платежів);",
+        "частина друга статті 17: учасник не має невиконаних зобов'язань за раніше укладеним договором про закупівлю з цим замовником, що призвело б до його дострокового розірвання із застосуванням санкцій протягом останніх трьох років;",
+        "пункт 47 Особливостей: учасник не є громадянином Російської Федерації / Республіки Білорусь, не є особою, пов'язаною з державою-агресором, і не пропонує в тендерній пропозиції товари походженням з Російської Федерації / Республіки Білорусь." ].map(x=>({p:x,j:1,sz:22})),
+      {p:"Учасник ознайомлений з тим, що документальне підтвердження відсутності підстав подає переможець у строки, визначені тендерною документацією.",j:1,ind:1,sz:22},...sign]},
+    staff:{n:"Довідка про працівників",b:()=>[...head("ДОВІДКА\nпро наявність працівників відповідної кваліфікації"),
+      {p:`Для виконання робіт за предметом закупівлі учасник залучає таких працівників:`,j:1,ind:1},
+      {table:[["№","ПІБ","Посада / спеціальність","Досвід, років","Підстава залучення"],
+        ["1",fio,"Керівник, ФОП",f.regDate?String(new Date().getFullYear()-(+String(f.regDate).slice(-4)||new Date().getFullYear())):"","—"],
+        ...workers.map((p,i)=>[String(i+2),p.name,p.trade||"Робітник (загальнобудівельні роботи)",p.since?String(Math.max(1,new Date().getFullYear()-new Date(p.since).getFullYear())):"","цивільно-правовий договір"])]},
+      {p:"Учасник гарантує залучення зазначених працівників на весь строк виконання договору. ⚠ Перевірте посади й досвід, приберіть зайвих.",sz:20,j:1},...sign]},
+    equip:{n:"Довідка про обладнання і техніку",b:()=>[...head("ДОВІДКА\nпро наявність обладнання та матеріально-технічної бази"),
+      {p:"Учасник має в наявності таке обладнання та інструмент, необхідні для виконання робіт за предметом закупівлі:",j:1,ind:1},
+      {table:[["№","Найменування","Кількість, шт","Власне / орендоване"],...[...tools.entries()].sort((a,b)=>a[0].localeCompare(b[0],"uk")).map(([k,q],i)=>[String(i+1),k,String(q),"власне"])]},...sign]},
+    analog:{n:"Довідка про аналогічні договори",b:()=>[...head("ДОВІДКА\nпро досвід виконання аналогічних договорів"),
+      {p:"Учасник має досвід виконання аналогічних за предметом закупівлі договорів, а саме:",j:1,ind:1},
+      {table:[["№","Контрагент (замовник)","Предмет договору","№ і дата договору","Сума, грн","Підтвердження"],...(contractsFd.length?contractsFd:[{title:""}]).map((d,i)=>[String(i+1),"",d.title||"","","",d.title?"копія договору, акти":""])]},
+      {p:"До довідки додаються копії договорів та документи, що підтверджують їх виконання (акти, відгуки). ⚠ Заповніть контрагентів і суми з договорів.",sz:20,j:1},...sign]},
+    price:{n:"Цінова пропозиція",b:()=>[...head("ЦІНОВА ПРОПОЗИЦІЯ"),
+      {p:`Ми, фізична особа — підприємець ${fio}, уважно вивчивши тендерну документацію, маємо можливість та погоджуємося виконати роботи (надати послуги) за предметом закупівлі «${t.title||""}» на загальну суму:`,j:1,ind:1},
+      {p:price?`${money(price).replace(/\s?₴/,"")} грн (${uahWords(price)}) ${vat?"з ПДВ":"без ПДВ"}${!vat?" (учасник не є платником ПДВ)":""}.`:"__________ грн (_______________________) без ПДВ.",b:1,j:1},
+      {p:"Ціна включає всі витрати, податки та збори, що мають бути сплачені учасником. Ми погоджуємося дотримуватися умов цієї пропозиції протягом строку, визначеного тендерною документацією, та укласти договір на умовах проєкту договору в разі визначення нас переможцем.",j:1,ind:1,sz:22},...sign]},
+    info:{n:"Інформація про учасника (реквізити)",b:()=>[...head("ІНФОРМАЦІЙНА ДОВІДКА ПРО УЧАСНИКА"),
+      {table:[["Показник","Значення"],["Повне найменування",`Фізична особа — підприємець ${fio}`],["РНОКПП",f.edrpou||""],["Дата державної реєстрації",f.regDate||""],["Номер запису в ЄДР",f.edrNo||""],["Місцезнаходження",f.address||""],
+        ["Банківські реквізити",[f.iban&&"IBAN "+f.iban,f.bank,f.mfo&&"МФО "+f.mfo].filter(Boolean).join(", ")],["Система оподаткування",f.taxGroup||"________"],["Види діяльності (КВЕД)",f.kved||""],["Телефон",[f.phone,f.phone2].filter(Boolean).join(", ")],["E-mail",f.email||""],["Особа, уповноважена підписувати договір",`${fio}, фізична особа — підприємець, діє на підставі виписки з ЄДР`]]},...sign]} };
+  const fname=k=>`${D[k].n} — ${t.tid||"тендер"}.docx`.replace(/[\\/:*?"<>|]/g,"");
+  const fileOf=k=>new File([docxBlob(D[k].b())],fname(k),{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+  const dl=f=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(f); a.download=f.name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove() },3000) };
+  openSheet(`<h2>📄 Довідки (Word)</h2><div class="m" style="margin-bottom:8px">Учасник: <b>${esc(f.name)}</b>. Застосунок заповнить шаблони реквізитами, людьми, інструментом і документами з бази. Відкрийте у Word / Google Docs, перевірте ⚠-місця і підпишіть КЕП.</div>
+    ${!f.edrpou||!f.address||!f.iban?`<div class="banner" style="margin-bottom:8px">⚠️ У ФОП бракує ${[!f.edrpou&&"ІПН",!f.address&&"адреси",!f.iban&&"IBAN"].filter(Boolean).join(", ")} — допишіть у «Гроші → Рахунки → ФОПи».</div>`:""}
+    <div class="list">${Object.entries(D).map(([k,d])=>`<div class="card" data-tdk="${k}"><div class="main"><div class="t">📄 ${esc(d.n)}</div>${k==="price"&&!price?`<div class="m">ціни ще немає — впишіть «Наша ціна» або складіть кошторис</div>`:""}</div><span class="count">⬇️</span></div>`).join("")}</div>
+    <div class="actions"><button class="btn ghost" id="tdBack">Назад</button>${navigator.canShare?`<button class="btn ghost" id="tdShare">📤 Надіслати всі</button>`:""}<button class="btn" id="tdAll">⬇️ Усі</button></div>
+    <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Шаблони — чернетка. Звіряйте з вимогами документації конкретного тендера.</div>`);
+  $("#tdBack").onclick=()=>tzView(t);
+  $("#modal").querySelectorAll("[data-tdk]").forEach(c=>c.onclick=()=>{ try{ dl(fileOf(c.dataset.tdk)); toast("Завантажено") }catch(e){ toast("Помилка: "+String(e?.message||e).slice(0,60)) } });
+  $("#tdAll").onclick=async()=>{ for(const k of Object.keys(D)){ dl(fileOf(k)); await new Promise(r=>setTimeout(r,400)) } toast("Завантажено 6 файлів") };
+  $("#tdShare")?.addEventListener("click",async()=>{ const fl=Object.keys(D).map(fileOf); try{ if(navigator.canShare({files:fl})) await navigator.share({files:fl,title:"Довідки "+(t.tid||"")}); else toast("Телефон не підтримує надсилання кількох файлів") }catch(e){ if(e?.name!=="AbortError") toast("Не вдалося: "+e.message) } }) }
 const tzFops=()=>[...S.fops.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name),"uk"));
 const fopShort=id=>{ const f=S.fops.get(id); return f?(f.short||String(f.name||"").replace(/^ФОП\s*/i,"").split(/\s+/)[0]):"" };
 function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map()).values()].filter(f=>!f.fop||!t.fop||f.fop===t.fop);
@@ -579,6 +673,7 @@ function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map())
     ${need.length?`<div class="section-t">✅ Чекліст документів</div><div class="list">${need.map((n,i)=>{ const f=haveFd(n), ok=!!(t.checks||{})[i];
       return `<label class="card" style="display:flex;gap:10px;align-items:center;padding:8px 12px"><input type="checkbox" data-tzc="${i}" ${ok?"checked":""} style="width:20px;height:20px;flex:0 0 auto"><span style="flex:1;font-size:13.5px">${esc(n)}${f?`<div class="m" style="color:var(--green,#3fb950)">📁 є: ${esc(f.title)}${f.until&&tzDays(f.until+"T23:59")<0?" — ⚠️ прострочений":""}</div>`:""}</span></label>` }).join("")}</div>
       <div class="m" style="margin:4px 0 8px">Готово: ${need.filter((n,i)=>(t.checks||{})[i]).length} з ${need.length}</div>`:""}
+    <button class="btn ghost" id="tzDocs" style="width:100%;margin-bottom:8px">📄 Згенерувати довідки (Word): ст. 17, працівники, техніка, аналогічні, цінова, реквізити</button>
     <div class="section-t">💰 Кошторис і ціна</div>
     ${t.kpId?`<div class="card" style="display:block;cursor:default;margin-bottom:6px"><div style="display:flex"><span style="flex:1">Наш кошторис (КП)</span><b>${money(t.kpTotal||0)}</b></div>
       ${cost!=null?`<div class="m">собівартість ≈ ${money(cost)} (роботи людям −40% + матеріали) · прибуток ≈ <b>${money((price||t.kpTotal)-cost)}</b></div>`:""}
@@ -590,6 +685,7 @@ function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map())
     <div class="actions">${S.canWrite?`<button class="btn danger" id="tzDel">Видалити</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
   $("#tzCopy").onclick=()=>{ try{ navigator.clipboard.writeText(t.tid||""); toast("Номер скопійовано — вставте в пошук SmartTender") }catch(_){ toast(t.tid) } };
   $("#tzEd")?.addEventListener("click",()=>tzEdit(t));
+  $("#tzDocs")?.addEventListener("click",()=>tzDocs(t));
   $("#tzFop")?.addEventListener("change",async e=>{ if(await tzSave(t,{fop:e.target.value})){ closeSheet(); tzView(t); renderTenders() } });
   $("#tzStage").onclick=async e=>{ const b=e.target.closest("[data-tzs]"); if(!b||!S.canWrite) return; if(await tzSave(t,{stage:b.dataset.tzs})){ closeSheet(); tzView(t); renderTenders() } };
   document.querySelectorAll("[data-tzc]").forEach(c=>c.onchange=async()=>{ const ch={...(t.checks||{})}; ch[c.dataset.tzc]=c.checked; await tzSave(t,{checks:ch}); });
