@@ -861,9 +861,9 @@ function whereIs(rec,exceptSite){ // схожий інструмент по вс
   for(const t of S.tools.values()){ if(exceptSite&&t.site===exceptSite) continue; if(t.status&&t.status!=="ok") continue;
     if(Array.isArray(rec.match)||rec.need){ if(!needHit(rec,t)) continue } else if(toolScore({name:rec.name,cat:rec.cat||"",brand:rec.brand||""},t)<(rec.cat?3:2)) continue;
     const k=t.site?"s:"+t.site:"p:"+(t.holder||""); const lbl=t.site?((site(t.site)?.type==="warehouse"?"🏬 ":"🏗️ ")+(site(t.site)?.name||"?")):("👤 "+(person(t.holder)?.name||"без місця"));
-    const o=m.get(k)||{lbl,qty:0,names:new Set()}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); m.set(k,o) }
+    const o=m.get(k)||{lbl,qty:0,names:new Set(),ids:[]}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); o.ids.push(t.id); m.set(k,o) }
   return [...m.values()].sort((a,b)=>b.qty-a.qty) }
-function whereHTML(l){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:2px 0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
+function whereHTML(l,to){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:3px 0;display:flex;gap:6px;align-items:center"><span style="flex:1;min-width:0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></span>${to&&S.canWrite?`<button type="button" class="btn sm" data-wmv="${o.ids.join(",")}" data-wto="${to}" style="white-space:nowrap">🚚 Сюди</button>`:""}</div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
 function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } if(n.kind==="material"){ n._here=[]; return +n.got||0 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
 // ШІ: розібрати список потрібного і зіставити з назвами інструменту, які є в базі
 // одиниці — до одного вигляду (10 Л → 10 л, мешків → мішок…)
@@ -922,7 +922,7 @@ function needsHTML(s){
         <span class="m" style="font-size:12px;flex:1">${mat?(()=>{const p=matPriceOf(n);return p?`<span style="color:var(--muted)">≈ ${money(p.price)}/${esc(n.unit||"шт")} · ${money(Math.round(p.price*(+n.qty||1)))}${p.src==="орієнтовно"?" (орієнт.)":p.avg?(p.mode==="max"?" (макс.)":" (середня)"):""}</span>${p.title?`<div style="font-size:11px;color:var(--muted)">${esc(p.title)}</div>`:""} `:""})()+(n.done||have>=(+n.qty||1)?"привезено все":`${S.canWrite?`привезено <input data-ngot="${i}" inputmode="decimal" value="${+n.got||0}" style="width:52px;text-align:center;padding:4px">`:`привезено ${+n.got||0}`} · <b>бракує ${Math.round(((+n.qty||1)-have)*100)/100} ${esc(n.unit||"шт")}</b>${n.ordered?" · 🛒":""}`):(have?`є тут: ${have}`:n.ordered?"🛒 замовлено":"тут немає")}</span>
         ${S.canWrite?`${mat?"":`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button>`}<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
       ${here.length&&!mat?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
-      ${ok||mat?"":`<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id))}</details>`}</div>` };
+      ${ok||mat?"":`<details style="margin-top:4px" open><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id),s.id)}</details>`}</div>` };
   const tools=l.map((n,i)=>[n,i]).filter(([n])=>!isMat(n)), mats=l.map((n,i)=>[n,i]).filter(([n])=>isMat(n));
   const cnt=g=>{ const m=g.filter(([n])=>haveOnSite(n,s.id)<(+n.qty||1)).length; return g.length?`бракує ${m} з ${g.length}`:"" };
   return `<datalist id="nUnits"><option value="шт"><option value="мішок"><option value="лист"><option value="відро"><option value="кг"><option value="л"><option value="м²"><option value="м.п."><option value="рулон"><option value="упак."></datalist>
@@ -939,6 +939,7 @@ function needsHTML(s){
 function bindNeeds(s){ loadToolCat(); loadMatCat(); loadMatPrices(()=>{ if(!S._mpDrawn){ S._mpDrawn=1; const b=$("#needsBox"); if(b&&s.needs?.some(n=>n.kind==="material")){ b.innerHTML=needsHTML(s); bindNeeds(s) } } });
   const box=$("#needsBox"); if(!box) return; const re=()=>{ box.innerHTML=needsHTML(s); bindNeeds(s) };
   const save=async l=>{ l=l.map(({_here,...x})=>x); if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
+  box.querySelectorAll("[data-wmv]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const ids=b.dataset.wmv.split(","); moveForm([ids[0]],{site:b.dataset.wto,back:()=>{ const st=S.sites.get(s.id); if(st){ S.siteTab="needs"; siteForm(st) } }}) });
   box.querySelectorAll("[data-ndel]").forEach(b=>b.onclick=()=>save((s.needs||[]).filter((_,i)=>i!==+b.dataset.ndel)));
   box.querySelectorAll("[data-nq]").forEach(el=>el.onchange=()=>{ const v=parseFloat(String(el.value).replace(",",".")); if(!(v>0)){ el.value=s.needs[+el.dataset.nq].qty||1; return } const l=s.needs.map(x=>({...x})); l[+el.dataset.nq].qty=v; save(l) });
   box.querySelectorAll("[data-npr]").forEach(el=>el.onchange=()=>{ const l=s.needs.map(x=>({...x})), x=l[+el.dataset.npr], v=parseFloat(String(el.value).replace(",","."))||0; x.price=v; x.priceSrc=v?"вручну":""; save(l) });
@@ -1356,7 +1357,7 @@ function toolCard(id){
   $("#moveT")?.addEventListener("click",()=>moveForm([id]));
 }
 
-function moveForm(ids){
+function moveForm(ids,opt){ opt=opt||{};
   const tools=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!tools.length)return;
   const one=tools.length===1?tools[0]:null;
   openSheet(`<h2>Перемістити ${one?"«"+esc(one.name)+"»":tools.length+" од."}</h2>
@@ -1364,7 +1365,7 @@ function moveForm(ids){
     <form id="mvForm">
       ${one&&qtyOf(one)>1?`<div class="field"><label>Скільки перемістити (з ${qtyOf(one)})</label><input name="qty" inputmode="numeric" value="${qtyOf(one)}"></div>`:""}
       <div class="field"><label>Кому передати *</label><select name="holder" required>${personOptions(one?.holder||"","— виберіть")}</select></div>
-      <div class="field"><label>Куди (склад / об'єкт)</label><select name="site">${siteOptions(one?.site||"","— не вказано")}</select></div>
+      <div class="field"><label>Куди (склад / об'єкт)</label><select name="site">${siteOptions(opt.site||one?.site||"","— не вказано")}</select></div>
       <div class="field"><label>Коментар</label><input name="note" placeholder="необов'язково"></div>
       <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Перемістити</button></div>
     </form>`);
@@ -1380,7 +1381,7 @@ function moveForm(ids){
       if(!ok)break; done++;
     }
     closeSheet(); S.select=false; S.selected.clear(); render();
-    toast(done===tools.length?"Переміщено":"Переміщено "+done+" з "+tools.length);
+    toast(done===tools.length?"Переміщено":"Переміщено "+done+" з "+tools.length); if(opt.back&&done) setTimeout(opt.back,150);
   });
 }
 
