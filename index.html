@@ -926,17 +926,19 @@ function needsHTML(s){
       ${here.length&&!mat?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
       ${ok||mat?"":`<details style="margin-top:4px" open><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id),s.id)}</details>`}</div>` };
   const me=meId(), wf=S.needWho||"all", wOk=n=>wf==="all"||(wf==="me"?n.who===me:wf==="none"?!n.who:n.who===wf);
-  const tools=l.map((n,i)=>[n,i]).filter(([n])=>!isMat(n)&&wOk(n)), mats=l.map((n,i)=>[n,i]).filter(([n])=>isMat(n)&&wOk(n));
+  const okN=n=>haveOnSite(n,s.id)>=(+n.qty||1), doneL=l.map((n,i)=>[n,i]).filter(([n])=>okN(n));
+  const tools=l.map((n,i)=>[n,i]).filter(([n])=>!isMat(n)&&wOk(n)&&!okN(n)), mats=l.map((n,i)=>[n,i]).filter(([n])=>isMat(n)&&wOk(n)&&!okN(n));
   const anyWho=l.some(n=>n.who), whoSeg=anyWho||wf!=="all"?`<div class="seg" style="margin-bottom:8px;flex-wrap:wrap">${[["all","Усі"],...(me?[["me","✋ Мої ("+l.filter(n=>n.who===me&&haveOnSite(n,s.id)<(+n.qty||1)).length+")"]]:[]),...[...new Set(l.map(n=>n.who).filter(w=>w&&w!==me&&person(w)))].map(w=>[w,"🙋 "+person(w).name]),["none","Нічиї ("+l.filter(n=>!n.who&&haveOnSite(n,s.id)<(+n.qty||1)).length+")"]].map(([k,t])=>`<button type="button" data-nwf="${k}" class="${wf===k?"on":""}">${esc(t)}</button>`).join("")}</div>`:"";
-  const cnt=g=>{ const m=g.filter(([n])=>haveOnSite(n,s.id)<(+n.qty||1)).length; return g.length?`бракує ${m} з ${g.length}`:"" };
+  const cnt=g=>g.length?`ще ${g.length}`:"";
   return `<datalist id="nUnits"><option value="шт"><option value="мішок"><option value="лист"><option value="відро"><option value="кг"><option value="л"><option value="м²"><option value="м.п."><option value="рулон"><option value="упак."></datalist>
     <div class="m" style="color:var(--muted);font-size:12.5px;margin:2px 0 8px">Один список на об'єкт: впишіть інструмент, матеріали або все разом — застосунок сам розкладе.</div>
     ${S.canWrite?`<button class="btn" id="nAdd" style="width:100%;margin-bottom:10px">+ Додати інструмент / матеріали</button>`:""}
     ${whoSeg}<div class="section-t" style="display:flex;margin-top:4px">🧰 Інструмент<span class="count">${cnt(tools)}</span></div>
-    ${tools.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`}
+    ${tools.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">${l.some(n=>!isMat(n))?"Усе привезено ✅":"—"}</div>`}
     <div class="section-t" style="display:flex;margin-top:8px">🧱 Матеріали<span class="count">${cnt(mats)}</span></div>
-    ${mats.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">—</div>`}
-    ${mats.length?`<button class="btn ghost sm" id="nMatDoc" style="width:100%;margin-bottom:8px">📄 Список матеріалів (замовнику / менеджеру, з цінами)</button>`:""}
+    ${mats.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">${l.some(isMat)?"Усе привезено ✅":"—"}</div>`}
+    ${doneL.length?`<details style="margin:4px 0 10px"><summary class="m" style="cursor:pointer;font-size:13px">✅ Уже привезено (${doneL.length}) — історія</summary><div style="margin-top:6px">${doneL.map(([n,i])=>row(n,i)).join("")}</div></details>`:""}
+    ${l.some(isMat)?`<button class="btn ghost sm" id="nMatDoc" style="width:100%;margin-bottom:8px">📄 Список матеріалів (замовнику / менеджеру, з цінами)</button>`:""}
     ${S.canWrite?`${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="width:100%;margin-bottom:8px">🔄 Перевірити наявність</button>`:""}
       ${missT.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібний інструмент</button>`:""}
       ${miss.length?`<button class="btn ghost sm" id="nBuy" style="width:100%;margin-bottom:8px">🛒 Список на закупівлю для менеджера</button>`:""}`:""}` }
