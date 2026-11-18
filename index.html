@@ -460,6 +460,7 @@ function bindTenders(){
     for(const f of fl){ try{ const sv=await saveFile(f); const data={title:f.name.replace(/\.[^.]+$/,""),fop:S.fdFop==="*"?"":S.fdFop,until:"",note:"",fileId:sv.id,fileName:f.name,updatedAt:Date.now()}; let id="";
       if(await write(async db=>{ const r=await db.collection("firmdocs").add(data); id=r.id })&&id){ S.fd.set(id,{id,...data}); n++ } }catch(_){} }
     toast(`Додано документів: ${n}. Натисніть на документ, щоб вказати строк дії`); renderTenders() });
+  $("#fdImp")?.addEventListener("change",e=>{ const f=e.target.files[0]; if(f) importPack(f) });
   $("#fdSeg")?.addEventListener("click",e=>{ const b=e.target.closest("[data-fdf]"); if(b){ S.fdFop=b.dataset.fdf; renderTenders() } });
   $("#view").querySelectorAll("[data-fd]").forEach(el=>el.addEventListener("click",e=>{ if(e.target.closest("[data-fdo]")) return; firmDocForm(S.fd.get(el.dataset.fd)) }));
   $("#view").querySelectorAll("[data-fdo]").forEach(el=>el.addEventListener("click",e=>{ e.stopPropagation(); openFile(el.dataset.fdo) }));
@@ -560,14 +561,27 @@ works — обсяги з кошторису / відомості обсягів
     if(await tzSave(t,{analysis:an,checks:{}})){ toast(`Аналіз готовий${fromPz?` (документів Prozorro: ${fromPz})`:""}${fail?` · не відкрилось: ${fail}`:""}`); closeSheet(); tzView(t) }
   }catch(e){ clearInterval(tk); const x=$("#tzAn"); if(x){ x.disabled=false; x.textContent="🤖 Спробувати ще раз" } toast("Не вдалося: "+String(e?.message||e).slice(0,100)) } }
 // 📁 Документи фірми (для всіх тендерів)
+// 📥 імпорт підготовленого пакета (ФОПи, замовники, аналогічні договори) з JSON-файлу
+async function importPack(file){ let d; try{ d=JSON.parse(await file.text()) }catch(_){ toast("Це не файл імпорту"); return } if(!d||!d.oblikImport){ toast("Це не файл імпорту «Облік»"); return }
+  await loadTenders(); const fopBy=m=>[...S.fops.values()].find(f=>String(f.name||"").includes(m)||String(f.short||"").includes(m));
+  const nF=(d.fops||[]).length, nC=(d.clients||[]).filter(c=>![...S.clients.values()].some(x=>(c.edrpou&&x.edrpou===c.edrpou)||normW(x.name)===normW(c.name))).length, nD=(d.firmdocs||[]).filter(f=>![...S.fd.values()].some(x=>x.title===f.title)).length;
+  if(!confirm(`Імпорт з «${d.source||file.name}»:\n• ФОПи (реквізити): ${nF} — оновити/додати\n• нових замовників: ${nC}\n• нових документів для тендерів: ${nD}\n\nПродовжити?`)) return;
+  let ok=0; const F=(o,k)=>Object.fromEntries(Object.entries(o).filter(([key,v])=>!["match","check","fop","drive"].includes(key)&&v!==""));
+  await write(async db=>{
+    for(const f of d.fops||[]){ const ex=fopBy(f.match||f.short||f.name), data=F(f); if(ex){ await db.doc("fops/"+ex.id).update(data); Object.assign(ex,data) } else { const r=await db.collection("fops").add({...data,createdAt:Date.now()}); S.fops.set(r.id,{id:r.id,...data}) } ok++ }
+    for(const c of d.clients||[]){ const ex=[...S.clients.values()].find(x=>(c.edrpou&&x.edrpou===c.edrpou)||normW(x.name)===normW(c.name)); const data=F(c);
+      if(ex){ const add=Object.fromEntries(Object.entries(data).filter(([k])=>!ex[k])); if(Object.keys(add).length){ await db.doc("clients/"+ex.id).update(add); Object.assign(ex,add) } } else { const r=await db.collection("clients").add({...data,createdAt:Date.now()}); S.clients.set(r.id,{id:r.id,...data}) } ok++ }
+    for(const f of d.firmdocs||[]){ if([...S.fd.values()].some(x=>x.title===f.title)) continue; const fo=f.fop?fopBy(f.fop):null;
+      const data={title:f.title,fop:fo?.id||"",until:f.until||"",note:[f.note,f.drive].filter(Boolean).join(" · "),fileId:"",updatedAt:Date.now()}; const r=await db.collection("firmdocs").add(data); S.fd.set(r.id,{id:r.id,...data}); ok++ } });
+  toast(`Імпортовано: ${ok}`); if(S.tab==="sites") renderTenders(); render() }
 function firmDocsHTML(){ const fl=tzFops(); if(S.fdFop===undefined) S.fdFop=fl[0]?.id||"";
   const l=[...S.fd.values()].filter(f=>S.fdFop==="*"?!f.fop:(f.fop===S.fdFop)).sort((a,b)=>String(a.title).localeCompare(String(b.title),"uk")), warn=id=>[...S.fd.values()].filter(f=>(id==="*"?!f.fop:f.fop===id)&&f.until&&tzDays(f.until+"T23:59")<=14).length;
   return `<div class="seg" id="fdSeg" style="margin-bottom:8px;flex-wrap:wrap">${fl.map(f=>`<button type="button" data-fdf="${f.id}" class="${S.fdFop===f.id?"on":""}">👤 ${esc(fopShort(f.id))}${warn(f.id)?` ⚠️${warn(f.id)}`:""}</button>`).join("")}<button type="button" data-fdf="*" class="${S.fdFop==="*"?"on":""}">🗂 Спільні${warn("*")?` ⚠️${warn("*")}`:""}</button></div>
     ${!fl.length?`<div class="banner" style="margin-bottom:8px">Додайте учасників-ФОПів: «Гроші» → «Рахунки» → «ФОПи» (Андрій, Сергій).</div>`:""}
-    ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn" id="fdAdd" style="flex:1">➕ Документ ${S.fdFop==="*"?"(спільний)":"— "+esc(fopShort(S.fdFop))}</button><label class="btn ghost" style="flex:1;text-align:center">📚 Кілька файлів<input type="file" id="fdMulti" multiple accept="application/*,text/*,image/*" style="display:none"></label></div>`:""}
+    ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn" id="fdAdd" style="flex:1">➕ Документ ${S.fdFop==="*"?"(спільний)":"— "+esc(fopShort(S.fdFop))}</button><label class="btn ghost" style="flex:1;text-align:center">📚 Кілька файлів<input type="file" id="fdMulti" multiple accept="application/*,text/*,image/*" style="display:none"></label></div><label class="m" style="display:block;text-align:center;font-size:12.5px;margin:-2px 0 8px;text-decoration:underline">📥 Імпорт пакета даних (.json)<input type="file" id="fdImp" accept="application/json,.json,text/*" style="display:none"></label>`:""}
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Документи кожного учасника: виписка, довідки, аналогічні договори з відгуками, техніка, працівники. «Спільні» — те, що підходить обом (техніка, кошториси-зразки). Чекліст тендера звіряється з документами вибраного учасника; за 14 днів до кінця строку — попередження.</div>
     ${l.length?`<div class="list">${l.map(f=>{ const d=f.until?tzDays(f.until+"T23:59"):null;
-      return `<div class="card" data-fd="${f.id}"><div class="main"><div class="t">${esc(f.title)}</div><div class="m">${f.until?(d<0?`<b style="color:var(--red,#e5534b)">⚠️ прострочений з ${fmtDay(f.until)}</b>`:d<=14?`<b style="color:var(--accent)">діє до ${fmtDay(f.until)} — ${d} дн.</b>`:`діє до ${fmtDay(f.until)}`):"безстроковий"}${f.note?" · "+esc(f.note):""}</div></div>${f.fileId?`<button class="btn ghost sm" data-fdo="${f.fileId}">📂</button>`:""}</div>` }).join("")}</div>`:`<div class="empty">Документів ще немає.</div>`}` }
+      return `<div class="card" data-fd="${f.id}"><div class="main"><div class="t">${esc(f.title)}</div><div class="m">${f.until?(d<0?`<b style="color:var(--red,#e5534b)">⚠️ прострочений з ${fmtDay(f.until)}</b>`:d<=14?`<b style="color:var(--accent)">діє до ${fmtDay(f.until)} — ${d} дн.</b>`:`діє до ${fmtDay(f.until)}`):"безстроковий"}${f.note?" · "+esc(f.note.replace(/\s*·?\s*https?:\/\/\S+/g,"")):""}</div></div>${f.fileId?`<button class="btn ghost sm" data-fdo="${f.fileId}">📂</button>`:(String(f.note||"").match(/https?:\/\/\S+/)?`<a class="btn ghost sm" href="${esc(String(f.note).match(/https?:\/\/\S+/)[0])}" target="_blank" onclick="event.stopPropagation()">☁️</a>`:"")}</div>` }).join("")}</div>`:`<div class="empty">Документів ще немає.</div>`}` }
 function firmDocForm(f){ f=f||{}; let file=null; const fl=tzFops();
   openSheet(`<h2>📁 ${f.id?"Документ фірми":"Новий документ фірми"}</h2><div class="field"><label>Назва</label><input id="fdT" value="${esc(f.title||"")}" placeholder="Довідка про відсутність заборгованості з податків"></div>
     <div class="row"><div class="field"><label>Учасник</label><select id="fdP">${fl.map(x=>`<option value="${x.id}" ${f.fop===x.id?"selected":""}>${esc(fopShort(x.id))}</option>`).join("")}<option value="" ${!f.fop?"selected":""}>🗂 Спільний</option></select></div><div class="field"><label>Діє до (необов'язково)</label><input id="fdU" type="date" value="${f.until||""}"></div></div>
@@ -3431,7 +3445,7 @@ async function handleShare(){ if(!/[?&]share=1/.test(location.search)) return; t
     else { const q=await c.match("shared-text"); if(q){ text=await q.text(); await c.delete("shared-text") } } }catch(_){}
   if(!file&&!text){ toast("Файл не отримано"); return }
   shareSheet(file,text) }
-function shareSheet(file,text){
+function shareSheet(file,text){ if(file&&/\.json$/i.test(file.name)){ importPack(file); return }
   const img=file&&/^image\//.test(file.type);
   const T=[["kp","📄","Нова смета / КП","без об'єкта: тендер, пропозиція — ШІ розбере роботи"],
     ["doc:Договір","🤝","Договір","в об'єкт: сума договору, таблиця робіт якщо є"],["doc:Смета","📋","Погоджена смета","в об'єкт: позиції → кошторис"],["doc:КП","📄","КП в об'єкт",""],
