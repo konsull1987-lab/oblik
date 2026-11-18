@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>Облік — повідомлення з об'єкта</title>
+<link rel="icon" href="icon-192.png">
+<style>
+*{box-sizing:border-box}body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1115;color:#e8eaed;padding:16px;max-width:560px;margin:0 auto}
+h1{font-size:20px;margin:4px 0 2px}.m{color:#9aa0a6;font-size:14px}
+.btn{display:inline-block;border:0;border-radius:12px;padding:13px 16px;font-size:16px;font-weight:600;background:#2f7d5a;color:#fff;cursor:pointer;text-align:center}
+.btn.ghost{background:#1e232c;color:#e8eaed;border:1px solid #2c323d}.btn:disabled{opacity:.5}
+input,textarea{width:100%;background:#171b22;color:#e8eaed;border:1px solid #2c323d;border-radius:10px;padding:12px;font-size:16px;font-family:inherit}
+label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.seg button{padding:12px 6px;border-radius:10px;border:1px solid #2c323d;background:#171b22;color:#e8eaed;font-size:15px}
+.seg button.on{background:#2f7d5a;border-color:#2f7d5a;color:#fff}
+#th{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}#th div{position:relative}#th img{width:76px;height:76px;object-fit:cover;border-radius:10px}
+#th button{position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:24px;height:24px;background:#e11d48;color:#fff}
+.card{background:#171b22;border:1px solid #2c323d;border-radius:14px;padding:14px;margin-top:14px}
+.ok{background:#16352a;border-color:#2f7d5a}
+</style>
+</head>
+<body>
+<div id="login" style="display:none" class="card">
+  <h1>📨 Повідомлення з об'єкта</h1>
+  <p class="m">Увійдіть через Google, щоб надсилати списки і фото власникам. Робиться один раз.</p>
+  <button class="btn" id="go" style="width:100%">Увійти через Google</button>
+  <p class="m" id="err"></p>
+</div>
+<div id="app" style="display:none">
+  <h1>📨 Повідомлення</h1>
+  <div class="m" id="obj"></div>
+  <label>Ваше ім'я</label><input id="nm" placeholder="напр. Іван, бригада Петра" autocomplete="name">
+  <label>Що надсилаєте</label>
+  <div class="seg" id="kind">
+    <button type="button" data-v="need" class="on">🧱 Що привезти</button>
+    <button type="button" data-v="tools">🧰 Інструмент тут</button>
+    <button type="button" data-v="done">📋 Що зроблено</button>
+    <button type="button" data-v="other">💬 Інше</button>
+  </div>
+  <label>Текст (можна голосом — мікрофон на клавіатурі)</label>
+  <textarea id="tx" rows="6" placeholder="Напр.:&#10;цемент 10 мішків&#10;клей для плитки 5&#10;болгарка"></textarea>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <label class="btn ghost" style="flex:1;margin:0">📷 Камера<input type="file" id="cam" accept="image/*" capture="environment" style="display:none"></label>
+    <label class="btn ghost" style="flex:1;margin:0">🖼️ Галерея<input type="file" id="gal" accept="image/*" multiple style="display:none"></label>
+  </div>
+  <div id="th"></div>
+  <button class="btn" id="send" style="width:100%;margin-top:16px">Надіслати</button>
+  <div id="res"></div>
+  <p class="m" style="margin-top:18px">Повідомлення бачать лише власники. Нічого не додається в облік без їхньої перевірки.</p>
+  <p class="m"><a href="#" id="out" style="color:#9aa0a6">Вийти з акаунта</a></p>
+</div>
+<script type="module">
+import * as CFG from "./firebase-config.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
+import {getFirestore, collection, addDoc} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+const $=s=>document.querySelector(s);
+const app=initializeApp(CFG.firebaseConfig);
+if(CFG.RECAPTCHA_KEY){ try{ initializeAppCheck(app,{provider:new ReCaptchaEnterpriseProvider(CFG.RECAPTCHA_KEY),isTokenAutoRefreshEnabled:true}) }catch(e){} }
+const fs=getFirestore(app), auth=getAuth(app); auth.languageCode="uk";
+const q=new URLSearchParams(location.search), site=q.get("o")||"", siteName=q.get("n")||"";
+$("#obj").textContent=siteName?"Об'єкт: "+siteName:"Об'єкт не вказано — напишіть його в тексті";
+try{ $("#nm").value=localStorage.getItem("wName")||"" }catch(_){}
+let kind="need", imgs=[], user=null;
+$("#kind").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; kind=b.dataset.v; [...$("#kind").children].forEach(x=>x.classList.toggle("on",x===b)) };
+const shrink=(file,max,qual)=>new Promise((ok,bad)=>{ const u=URL.createObjectURL(file), i=new Image(); i.onload=()=>{ const k=Math.min(1,max/Math.max(i.width,i.height)), c=document.createElement("canvas"); c.width=Math.round(i.width*k); c.height=Math.round(i.height*k); c.getContext("2d").drawImage(i,0,0,c.width,c.height); URL.revokeObjectURL(u); ok(c.toDataURL("image/jpeg",qual)) }; i.onerror=bad; i.src=u });
+const draw=()=>{ $("#th").innerHTML=imgs.map((x,i)=>`<div><img src="${x.d}"><button data-i="${i}">×</button></div>`).join("") };
+const add=async fl=>{ for(const f of fl){ if(imgs.length>=5) break; try{ imgs.push({f,d:await shrink(f,1280,.6)}) }catch(_){} } draw() };
+$("#cam").onchange=e=>{ add(e.target.files); e.target.value="" }; $("#gal").onchange=e=>{ add(e.target.files); e.target.value="" };
+$("#th").onclick=e=>{ const i=e.target.dataset.i; if(i!=null){ imgs.splice(+i,1); draw() } };
+$("#send").onclick=async()=>{
+  const text=$("#tx").value.trim(), from=$("#nm").value.trim();
+  if(!from){ $("#nm").focus(); alert("Вкажіть ваше ім'я"); return }
+  if(!text&&!imgs.length){ alert("Напишіть текст або додайте фото"); return }
+  try{ localStorage.setItem("wName",from) }catch(_){}
+  const b=$("#send"); b.disabled=true; b.textContent="Надсилаю…";
+  // документ Firestore до 1 МБ: стискаємо фото, поки загальний розмір не влізе
+  let photos=imgs.map(x=>x.d), max=1280, qual=.6;
+  while(photos.join("").length>850000&&max>500){ max-=200; qual=Math.max(.4,qual-.05); photos=[]; for(const x of imgs) photos.push(await shrink(x.f,max,qual)) }
+  try{
+    await addDoc(collection(fs,"inbox"),{site,siteName,kind,text:text.slice(0,4000),photos,from:from.slice(0,80),email:user?.email||"",at:Date.now(),status:"new"});
+    $("#res").innerHTML=`<div class="card ok">✅ Надіслано. Власники побачать це в застосунку.</div>`;
+    $("#tx").value=""; imgs=[]; draw();
+  }catch(e){ $("#res").innerHTML=`<div class="card">❌ Не вдалося надіслати (${e.code||e.message}). Перевірте інтернет і спробуйте ще раз.</div>` }
+  b.disabled=false; b.textContent="Надіслати";
+};
+$("#go").onclick=async()=>{ const p=new GoogleAuthProvider(); p.setCustomParameters({prompt:"select_account"}); try{ await signInWithPopup(auth,p) }catch(e){ if(e.code==="auth/popup-blocked"||e.code==="auth/operation-not-supported-in-this-environment") await signInWithRedirect(auth,p); else if(e.code!=="auth/popup-closed-by-user") $("#err").textContent="Не вдалося увійти: "+e.code } };
+$("#out").onclick=e=>{ e.preventDefault(); signOut(auth).then(()=>location.reload()) };
+getRedirectResult(auth).catch(e=>{ $("#err").textContent="Не вдалося увійти: "+(e.code||e.message) });
+onAuthStateChanged(auth,u=>{ user=u; $("#login").style.display=u?"none":"block"; $("#app").style.display=u?"block":"none"; if(u&&!$("#nm").value) $("#nm").value=(u.displayName||"").split(" ")[0] });
+</script>
+</body>
+</html>
