@@ -2129,9 +2129,9 @@ total — загальна сума, якщо виконавець її напи
       ${st.their?`<div class="m" style="${Math.abs(st.their-tot)>0.5?"color:var(--bad,#e57373)":""}">Виконавець написав разом: <b>${money(st.their)}</b>${Math.abs(st.their-tot)>0.5?` — різниця ${money(n2(st.their-tot))}`:" ✅ збігається"}${on.every(r=>r.price>0||r.sum>0)&&Math.abs(st.their-theirSum)>0.5?` · сума його ж рядків ${money(theirSum)}`:""}</div>`:""}
       ${errs?`<div class="banner">❗ Помилок у рахунках виконавця: ${errs}. До нарахування взято правильну суму (обсяг × ціна).</div>`:""}
       ${need?`<div class="banner">Без ціни: ${need} поз. — впишіть ціну або виберіть рядок кошторису.</div>`:""}
-      <label class="m" style="display:flex;gap:8px;align-items:center;margin:8px 0;font-size:14px"><input type="checkbox" id="wrPay" style="width:20px;height:20px"> і одразу записати виплату</label>
-      <div class="field" id="wrOwnBox" style="display:none"><label>Хто платить</label><select id="wrOwn">${owners().map(o=>`<option value="${o.id}" ${o.id===myOwner()?"selected":""}>${esc(o.name)}</option>`).join("")}</select></div>
-      ${S.canWrite?`<button class="btn" id="wrSave" style="width:100%" ${tot>0?"":"disabled"}>✅ Нарахувати ${money(tot)}</button>`:""}`;
+      <label class="m" style="display:flex;gap:8px;align-items:center;margin:8px 0;font-size:14px"><input type="checkbox" id="wrPay" checked style="width:20px;height:20px"> 💵 і одразу виплатити (зніміть, якщо платите пізніше)</label>
+      <div class="field" id="wrOwnBox"><label>Хто платить</label><select id="wrOwn">${owners().map(o=>`<option value="${o.id}" ${o.id===myOwner()?"selected":""}>${esc(o.name)}</option>`).join("")}</select></div>
+      ${S.canWrite?`<button class="btn" id="wrSave" style="width:100%" ${tot>0?"":"disabled"}>✅ Нарахувати й виплатити ${money(tot)}</button>`:""}`;
     $("#wrRes").onchange=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;
       if(e.target.id==="wrPay"){$("#wrOwnBox").style.display=e.target.checked?"":"none";$("#wrSave").textContent=(e.target.checked?"✅ Нарахувати й виплатити ":"✅ Нарахувати ")+money(tot);return}
       if(i==null)return; const r=st.rows[i];
@@ -2201,13 +2201,15 @@ function finForm(f,preset){
       <div data-m="in out accrual"><div class="field"><label>Об'єкт</label><select name="site">${siteOptions(f.site||"","— без об'єкта")}</select></div></div>
       <div data-m="out accrual"><div class="row"><div class="field" data-m="out"><label>Вид</label><select name="kind">${KINDS.map(k=>`<option ${f.kind===k?"selected":""}>${k}</option>`).join("")}</select></div>
         <div class="field"><label id="wLbl">Виконавець</label><select name="worker"><option value="">—</option>${workers.map(p=>`<option value="${p.id}" ${f.worker===p.id?"selected":""}>${p.crew?"👥 ":""}${esc(p.name)}</option>`).join("")}</select></div></div></div>
+      ${isNew?`<div data-m="accrual"><label class="m" style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;font-size:14px"><input type="checkbox" id="accPay" checked style="width:20px;height:20px"> 💵 Одразу виплатити (зніміть, якщо платите пізніше)</label>
+        <div class="field" id="accPayOwn"><label>Хто платить</label><select id="accOwn">${ownOpts(myOwner()||owners()[0]?.id)}</select></div></div>`:""}
       <div data-m="xfer"><div class="row"><div class="field"><label>Від кого</label><select name="from">${ownOpts(from?.owner||myOwner()||owners()[0]?.id)}</select></div>
         <div class="field"><label>Кому</label><select name="to">${ownOpts(to?.owner||owners().find(o=>o.id!==(from?.owner||myOwner()||owners()[0]?.id))?.id)}</select></div></div></div>
       <div class="field"><label>Коментар</label><input name="note" value="${esc(f.note)}"></div>
       <div class="actions">${!isNew?`<button type="button" class="btn danger" id="delF">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>
     </form>`);
   const setMode=m=>{mode=m;[...$("#segM").children].forEach(x=>x.classList.toggle("on",x.dataset.v===m));document.querySelectorAll("#finForm [data-m]").forEach(el=>el.style.display=el.dataset.m.split(" ").includes(m)?"":"none");$("#ownLbl").textContent=m==="in"?"Хто отримав":"Хто заплатив";$("#wLbl").textContent=m==="accrual"?"Кому нараховано *":"Виконавець"};
-  setMode(mode);
+  setMode(mode); $("#accPay")?.addEventListener("change",e=>{ $("#accPayOwn").style.display=e.target.checked?"":"none" });
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
   // ✏️ редагування позицій нарахування зі звіту робіт
   let repItems=Array.isArray(f.report?.items)?f.report.items.map(x=>({...x})):null;
@@ -2280,10 +2282,12 @@ function finForm(f,preset){
       if(!v.worker){toast("Виберіть виконавця");btn.disabled=false;return}
       const data={...base,type:"accrual",owner:"",site:v.site||"",kind:"",worker:v.worker,createdAt:f.createdAt||now};
       if(f.report) data.report={...f.report,items:repItems?repItems.filter(it=>it.name):f.report.items}; if(f.receipt) data.receipt=f.receipt;
+      const payNow=isNew&&$("#accPay")?.checked&&!person(v.worker)?.helper, payOwn=$("#accOwn")?.value||myOwner()||owners()[0]?.id;
       ok=await write(async db=>{
-        if(isNew) await db.collection("fin").add(data);
+        if(isNew){ await db.collection("fin").add(data);
+          if(payNow) await db.collection("fin").add({...base,type:"out",owner:payOwn,site:v.site||"",kind:"Зарплата",worker:v.worker,note:(v.note.trim()?v.note.trim()+" · ":"")+"виплата одразу",createdAt:now+1}) }
         else { await db.doc("fin/"+f.id).set(data); if(pair) await db.doc("fin/"+pair.id).delete(); }
-      });
+      }); if(ok&&payNow) toast(`Нараховано і виплачено ${money(amount)}`);
     } else {
       const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"?(v.worker||""):"",createdAt:f.createdAt||now};
       if(mode==="out"||mode==="accrual"){ if(f.receipt&&!rcDrop&&!rcImg) data.receipt=f.receipt; if(f.report) data.report=f.report;
