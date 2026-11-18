@@ -1745,9 +1745,9 @@ function bindLost(){ $("#view").querySelectorAll("[data-tool]").forEach(c=>c.onc
 function toolsLeftPrompt(siteId){ const st=site(siteId); const l=[...S.tools.values()].filter(t=>t.site===siteId&&t.status!=="lost"); if(!st||!l.length) return false;
   openSheet(`<h2>🧰 На «${esc(st.name)}» ще є інструмент</h2><div class="m" style="margin-bottom:8px">Об'єкт закрито, а за ним числиться ${l.reduce((a,t)=>a+qtyOf(t),0)} шт:</div>
     <div class="card" style="display:block;cursor:default;margin-bottom:8px">${l.slice(0,15).map(t=>`<div style="padding:2px 0">${esc(t.name)}${qtyOf(t)>1?" ×"+qtyOf(t):""} <span class="m">· ${esc(person(t.holder)?.name||"")}</span></div>`).join("")}${l.length>15?`<div class="m">… і ще ${l.length-15}</div>`:""}</div>
-    <div class="actions" style="flex-wrap:wrap"><button class="btn ghost" data-close>Пізніше</button><button class="btn ghost" id="tlLost">❌ Частину втрачено</button><button class="btn" id="tlMove">🚚 Забрати</button></div>`);
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Поки не заберете — це висітиме на «Сьогодні» як справа.</div>
+    <div class="actions"><button class="btn ghost" data-close>Пізніше</button><button class="btn" id="tlMove">🚚 Забрати</button></div>`);
   $("#tlMove").onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(siteId)) };
-  $("#tlLost").onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(siteId)); toast("Позначте галочками втрачене і натисніть «❌ Втрачено»") };
   return true }
 
 function moveForm(ids,opt){ opt=opt||{};
@@ -3740,7 +3740,8 @@ function renderToday(){
     if(l.length) deliver.push({st,l}) }
   const ibn=inboxNew().length;
   const tzn=suggNew().length;
-  let h=(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
+  const pick=[...S.sites.values()].filter(x=>x.active===false&&x.type!=="warehouse").map(x=>({x,n:[...S.tools.values()].filter(t=>t.site===x.id&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0)})).filter(o=>o.n);
+  let h=(pick.length&&!isDuo()?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
     ${dl.length?`<div class="list">${dl.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div></div><span class="amt out">${money(n2(v))}</span></div>`).join("")}</div>`:`<div class="empty" style="padding:10px">Боргів немає ✅</div>`}
     <div class="section-t" style="display:flex;margin-top:12px">📝 Потрібно на об'єкти<span class="count">${deliver.reduce((a,d)=>a+d.l.length,0)?deliver.reduce((a,d)=>a+d.l.length,0)+" поз.":""}</span></div>
     ${deliver.length?deliver.map(d=>{ const tag=x=>{ const c=x.how.startsWith("🛒")?"#22c55e":x.how==="купити"?"#f59e0b":"#38bdf8"; return `<span style="font-size:11.5px;padding:1px 7px;border-radius:9px;border:1px solid ${c};color:${c};white-space:nowrap">${esc(x.how)}</span>` };
@@ -3758,7 +3759,7 @@ function renderToday(){
   $("#view").innerHTML=h;
   $("#view").querySelectorAll("[data-ttz]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); tzView(S.tz.get(c.dataset.ttz)) });
   $("#view").querySelectorAll("[data-tfd]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); S.tab="sites"; S.sitesMode="tz"; S.tzMode="docs"; $("#headTools").dataset.b=""; render() });
-  $("#tBuy")?.addEventListener("click",()=>buyList()); $("#iamB")?.addEventListener("click",()=>whoAmISheet()); $("#ibB")?.addEventListener("click",()=>inboxSheet()); $("#tzsB")?.addEventListener("click",()=>{ S.tab="sites"; S.sitesMode="tz"; S.tzMode="sugg"; render() });
+  $("#tBuy")?.addEventListener("click",()=>buyList()); $("#iamB")?.addEventListener("click",()=>whoAmISheet()); $("#ibB")?.addEventListener("click",()=>inboxSheet()); $("#view").querySelectorAll("[data-pick]").forEach(c=>c.onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(c.dataset.pick)) }); $("#tzsB")?.addEventListener("click",()=>{ S.tab="sites"; S.sitesMode="tz"; S.tzMode="sugg"; render() });
   $("#view").querySelectorAll("[data-tneeds]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); S.siteTab="needs"; siteForm(S.sites.get(c.dataset.tneeds)) });
 }
 
