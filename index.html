@@ -257,7 +257,7 @@ async function init(){
   if(!db){ S.offline=true; render(); return; }
   try{ S.uid=await user?.id?.() }catch(e){}
   try{ const c=await user?.can?.("data.write"); if(c===false) S.canWrite=false }catch(e){}
-  try{ const me=await user?.me?.(); if(me?.name) $("#who").textContent=me.name }catch(e){}
+  try{ const me=await user?.me?.(); if(me?.name){ S.meName=me.name; $("#who").textContent=uaName(me.name) } }catch(e){}
   const timer=setTimeout(()=>{ if(!Object.values(S.loaded).every(Boolean)){ S.slow=true; render(); } },10000);
   const sub=(name,q,fn)=>q.onSnapshot(snap=>{fn(snap); if(!snap.metadata.fromCache){S.loaded[name]=true; if(Object.values(S.loaded).every(Boolean)){clearTimeout(timer);S.slow=false}} render();},
     err=>{S.loaded[name]=true; S.err=err?.code||"error"; render();});
@@ -295,6 +295,7 @@ async function write(fn){
 
 // ---------- Рендер ----------
 function render(){
+  if(S.meName){ const w=$("#who"), t=uaName(S.meName); if(w&&w.textContent!==t) w.textContent=t }
   if(isDuo()&&S.tab==="tools") S.tab="money";
   document.querySelectorAll("nav button").forEach(b=>{b.classList.toggle("on",b.dataset.tab===S.tab); if(b.dataset.tab==="tools") b.style.display=isDuo()?"none":""});
   document.body.classList.toggle("duo",isDuo());
@@ -563,6 +564,10 @@ works — обсяги з кошторису / відомості обсягів
   }catch(e){ clearInterval(tk); const x=$("#tzAn"); if(x){ x.disabled=false; x.textContent="🤖 Спробувати ще раз" } toast("Не вдалося: "+String(e?.message||e).slice(0,100)) } }
 // 📁 Документи фірми (для всіх тендерів)
 // 📥 імпорт підготовленого пакета (ФОПи, замовники, аналогічні договори) з JSON-файлу
+// ім'я з Google-акаунта (часто російською) → як записано в базі українською
+function uaName(n){ try{ const [fn,ln]=String(n||"").split(/\s+/); const own=[...S.people.values()].find(p=>p.role==="owner"&&String(p.name||"").slice(0,3).toLowerCase()===String(fn||"").slice(0,3).toLowerCase());
+  const fp=ln?[...S.fops.values()].find(f=>fopKey(f)===fopKey({name:ln})):null; const sur=fp?String(fp.name).replace(/^ФОП\s*/i,"").split(/\s+/)[0]:ln;
+  return [own?String(own.name).split(/\s+/)[0]:fn,sur].filter(Boolean).join(" ") }catch(_){ return n } }
 const fopKey=f=>{ const n=String(f.name||"").toLowerCase().replace(/фоп|«|»|"|'/g," ").replace(/ы/g,"и").replace(/[єё]/g,"е").replace(/і/g,"и").replace(/ї/g,"и").trim().split(/\s+/)[0]||""; return n.slice(0,5) };
 function fopDups(){ const l=[...S.fops.values()], g={}; for(const f of l){ const k=(f.edrpou&&String(f.edrpou).trim())||fopKey(f); if(!k) continue; (g[k]=g[k]||[]).push(f) }
   // ще й за прізвищем, якщо в одного є код, а в іншого нема
@@ -571,6 +576,8 @@ function fopDups(){ const l=[...S.fops.values()], g={}; for(const f of l){ const
 async function mergeFops(arr){ const score=f=>Object.values(f).filter(v=>v!==""&&v!=null).length; const keep=[...arr].sort((a,b)=>score(b)-score(a))[0], drop=arr.filter(f=>f.id!==keep.id);
   if(!confirm(`Об'єднати ${arr.length} записи «${keep.name}» в один?\nУсі документи, рахунки, договори й тендери перейдуть на нього.`)) return;
   const fill={}; for(const d of drop) for(const [k,v] of Object.entries(d)) if(k!=="id"&&v!==""&&v!=null&&(keep[k]===""||keep[k]==null)) fill[k]=v;
+  // правильний український варіант назви (Козирєв, а не Козырев)
+  const ua=n=>(/[єії]/i.test(n)?2:0)-(/[ыэё]/i.test(n)?3:0); const bestName=arr.map(f=>String(f.name||"")).sort((x,y)=>ua(y)-ua(x))[0]; if(bestName&&bestName!==keep.name) fill.name=bestName;
   await loadTenders(); let offs=[]; try{ const sn=await S.db.collection(R("offers")).get(); offs=sn.docs.map(d=>({id:d.id,...d.data()})) }catch(_){}
   const ids=new Set(drop.map(d=>d.id));
   await write(async db=>{ if(Object.keys(fill).length){ await db.doc("fops/"+keep.id).update(fill); Object.assign(keep,fill) }
