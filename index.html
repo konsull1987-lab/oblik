@@ -503,7 +503,7 @@ function renderTenders(){
       ${l.length?`<div class="list">${l.map(x=>`<div class="card" style="display:block;cursor:default"><div style="display:flex;gap:8px"><div class="t" style="flex:1">${["","🔴","🟡","🟢"][x.score||1]} ${esc(x.title||x.tid)}</div><b style="white-space:nowrap">${money(x.value)}</b></div>
         <div class="m">${esc(x.buyer||"")}${x.locality?` · ${esc(x.locality)}${x.km!=null?` (${x.km} км)`:""}`:""}</div>
         <div class="m">${x.tEnd?`подати до ${tzWhen(x.tEnd)} — ${tzLeft(x.tEnd)}`:""}${x.why?` · ${esc(x.why)}`:""}</div>
-        <div class="actions" style="margin-top:6px"><a class="btn ghost sm" href="https://prozorro.gov.ua/tender/${esc(x.tid||"")}" target="_blank">🔗</a>${S.canWrite?`<button class="btn ghost sm" data-sgno="${x.id}">✕ Не цікаво</button><button class="btn sm" data-sgadd="${x.id}">➕ В роботу</button>`:""}</div></div>`).join("")}</div>`
+        <div class="actions" style="margin-top:6px"><a class="btn ghost sm" href="https://prozorro.gov.ua/tender/${esc(x.tid||"")}" target="_blank">🔗 Prozorro</a>${S.canWrite?`<button class="btn ghost sm" data-sgno="${x.id}">✕ Не цікаво</button><button class="btn sm" data-sgadd="${x.id}">➕ В роботу</button>`:""}</div></div>`).join("")}</div>`
       :`<div class="empty">${sc?"Шукаю…":S.tzs?"Нових підходящих тендерів поки немає.":"Завантажую…"}</div>`}
       ${S.canWrite?`<div style="text-align:center;margin-top:10px"><a href="#" class="m" id="pzSet" onclick="return false">⚙️ ${S.cfg?.pzProxy?"Посередник Prozorro підключено — змінити":"Підключити автопошук (потрібно один раз)"}</a></div>`:""}`;
     $("#view").innerHTML=h; bindTenders();
