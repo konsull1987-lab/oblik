@@ -421,6 +421,24 @@ const TZ_GOOD=["ремонт","реконстр","капітальн","пото�
 const TZ_BAD=["доріг","дорожн","асфальт","мост","газопровод","теплотрас","проєктн","проектн","технагляд","технічний нагляд","експертиз","ліфт","свердловин"];
 function tzScore(t){ const txt=normW([t.title,...(t.items||[]).map(i=>i.d)].join(" ")); const good=TZ_GOOD.filter(w=>txt.includes(w)), bad=TZ_BAD.filter(w=>txt.includes(w));
   return {score:bad.length&&!good.length?1:good.length>=2&&!bad.length?3:good.length?2:1, why:good.slice(0,4).join(", ")+(bad.length?" · ⚠️ "+bad.slice(0,2).join(", "):"")} }
+async function loadCfg(){ if(S.cfg) return S.cfg; try{ const x=await S.db.doc("meta/config").get(); S.cfg=x.exists?x.data():{} }catch(_){ S.cfg={} } return S.cfg }
+function pzSetup(){ const raw="https://github.com/konsull1987-lab/oblik/blob/main/prozorro-proxy.gs";
+  openSheet(`<h2>⚙️ Підключити автопошук тендерів</h2>
+    <div class="m" style="margin-bottom:8px">Prozorro не дозволяє браузеру читати свої дані напряму, тому потрібен безкоштовний посередник у вашому Google-акаунті (5 хвилин, один раз для всіх трьох):</div>
+    <ol class="m" style="padding-left:20px;line-height:1.5">
+      <li>Відкрийте <a href="https://script.google.com/home/projects/create" target="_blank">script.google.com → Новий проєкт</a> (краще з комп'ютера).</li>
+      <li>Видаліть, що там є, і вставте код (кнопка нижче копіює його).</li>
+      <li><b>Розгорнути → Нове розгортання</b> → ⚙️ тип <b>«Вебзастосунок»</b> → «Виконувати як: <b>Я</b>», «Доступ: <b>Усі</b>» → Розгорнути → дозволити доступ.</li>
+      <li>Скопіюйте <b>URL вебзастосунку</b> (закінчується на /exec) і вставте сюди.</li></ol>
+    <button class="btn ghost" id="pzCode" style="width:100%;margin-bottom:8px">📋 Скопіювати код посередника</button>
+    <div class="field"><label>URL вебзастосунку</label><input id="pzUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(S.cfg?.pzProxy||"")}"></div>
+    <div class="actions"><button class="btn ghost" data-close>Скасувати</button><button class="btn" id="pzOk">Зберегти й перевірити</button></div>`);
+  $("#pzCode").onclick=async()=>{ try{ const t=await (await fetch("prozorro-proxy.gs",{cache:"no-cache"})).text(); await navigator.clipboard.writeText(t); toast("Код скопійовано") }catch(_){ window.open(raw,"_blank") } };
+  $("#pzOk").onclick=async()=>{ const u=$("#pzUrl").value.trim(); if(!/^https:\/\/script\.google(usercontent)?\.com\/.+/.test(u)){ toast("Вставте URL, що починається з https://script.google.com/"); return }
+    const b=$("#pzOk"); b.disabled=true; b.textContent="⏳ Перевіряю…";
+    try{ const j=await (await fetch(u)).json(); if(!j.ok&&!j.hint) throw new Error(j.error||"незрозуміла відповідь");
+      await loadCfg(); const c={...S.cfg,pzProxy:u}; if(await write(db=>db.doc("meta/config").set(c))){ S.cfg=c; closeSheet(); toast("✅ Підключено — шукаю тендери"); tzScan({force:true}); renderTenders() } }
+    catch(e){ b.disabled=false; b.textContent="Зберегти й перевірити"; toast("Не відповідає: "+String(e?.message||e).slice(0,60)+". Перевірте «Доступ: Усі»") } } }
 async function loadSugg(force){ if(S.tzs&&!force) return; try{ const a=await S.db.collection("tzsugg").get(); S.tzs=new Map(a.docs.map(d=>[d.id,{id:d.id,...d.data()}])) }catch(_){ S.tzs=S.tzs||new Map() } }
 const suggNew=()=>[...(S.tzs||new Map()).values()].filter(x=>x.state==="new"&&(!x.tEnd||tzDays(x.tEnd)>=0));
 async function tzScan(opts){ opts=opts||{}; if(S.tzScanning) return; if(!S.canWrite) return;
@@ -428,14 +446,17 @@ async function tzScan(opts){ opts=opts||{}; if(S.tzScanning) return; if(!S.canWr
   S.tzScanning={pages:0,found:0,checked:0}; const upd=()=>{ if(S.tab==="sites"&&S.sitesMode==="tz"&&S.tzMode==="sugg") renderTenders() };
   try{ await Promise.all([loadTenders(),loadSugg()]); let meta={}; try{ const x=await S.db.doc("meta/tzscan").get(); if(x.exists) meta=x.data() }catch(_){}
     if(!opts.force&&meta.at&&Date.now()-meta.at<3*3600e3){ S.tzScanning=null; return }
-    let offset=meta.offset||String(Math.floor(Date.now()/1000-3*86400)); const t0=Date.now(), cand=new Map();
-    for(let pg=0;pg<60&&Date.now()-t0<150e3;pg++){
+    let offset=meta.offset||String(Math.floor(Date.now()/1000-3*86400)); const t0=Date.now(), cand=new Map(), full=new Map();
+    await loadCfg(); if(!S.cfg.pzProxy){ S.tzScanning=null; if(opts.force) pzSetup(); render(); return }
+    if(S.cfg.pzProxy){ const j=await (await fetch(`${S.cfg.pzProxy}?a=scan&offset=${encodeURIComponent(offset)}`)).json(); if(j.error) throw new Error(j.error);
+      S.tzScanning.pages=j.pages||0; for(const d of j.tenders||[]){ cand.set(d.id,1); full.set(d.id,d) } S.tzScanning.found=cand.size; if(j.offset) offset=j.offset }
+    else for(let pg=0;pg<60&&Date.now()-t0<150e3;pg++){
       const r=await fetch(`${PZ_API}/tenders?limit=1000&opt_fields=status,procuringEntity&offset=${encodeURIComponent(offset)}`); if(!r.ok) throw new Error("Prozorro "+r.status);
       const j=await r.json(); S.tzScanning.pages++; for(const d of j.data||[]){ const reg=String(d.procuringEntity?.address?.region||""); if(!/полтав/i.test(reg)) continue; if(d.status&&d.status!=="active.tendering") continue; cand.set(d.id,1) }
       S.tzScanning.found=cand.size; upd(); if(!(j.data||[]).length||!j.next_page?.offset||j.next_page.offset===offset) break; offset=j.next_page.offset }
     const known=new Set([...S.tz.values()].map(t=>t.pid).filter(Boolean)); let added=0;
     for(const id of cand.keys()){ if(known.has(id)||S.tzs.has(id)) continue; S.tzScanning.checked++; upd();
-      let d; try{ const r=await fetch(`${PZ_API}/tenders/${id}`); if(!r.ok) continue; d=(await r.json()).data }catch(_){ continue }
+      let d=full.get(id); if(!d) try{ const r=await fetch(`${PZ_API}/tenders/${id}`); if(!r.ok) continue; d=(await r.json()).data }catch(_){ continue }
       if(d.status!=="active.tendering") continue; const works=d.mainProcurementCategory==="works"||(d.items||[]).some(i=>String(i.classification?.id||"").startsWith("45"));
       const t=tzFromApi(d); if(!works||t.value<TZ_RULES.min||t.value>TZ_RULES.max) continue; if(t.tEnd&&tzDays(t.tEnd)<TZ_RULES.days) continue;
       if(t.locality){ const g=await tzGeo(t.locality); t.km=tzKm(g); if(t.km!=null&&t.km>TZ_RULES.km) continue }
@@ -457,7 +478,7 @@ function tzKm(g){ if(!g) return null; const R=6371,a=49.5883,b=34.5514,toR=x=>x*
   const h=Math.sin(dLa/2)**2+Math.cos(toR(a))*Math.cos(toR(g.lat))*Math.sin(dLo/2)**2; return Math.round(2*R*Math.asin(Math.sqrt(h))) }
 // дані тендера з Prozorro (якщо в посиланні є внутрішній id) — інакше через ШІ з пошуком
 async function tzFetch(input){ const s=String(input||"").trim(), hex=(s.match(/[0-9a-f]{32}/i)||[])[0], uaid=(s.match(/UA-\d{4}-\d{2}-\d{2}-\d{6}-[a-z]/i)||[])[0];
-  if(hex){ const r=await fetch(`${PZ_API}/tenders/${hex}`); if(!r.ok) throw new Error("Prozorro: "+r.status); const d=(await r.json()).data; return tzFromApi(d) }
+  if(hex){ await loadCfg(); const r=await fetch(S.cfg.pzProxy?`${S.cfg.pzProxy}?a=t&id=${hex}`:`${PZ_API}/tenders/${hex}`); if(!r.ok) throw new Error("Prozorro: "+r.status); const d=(await r.json()).data; if(!d) throw new Error("Prozorro: немає даних"); return tzFromApi(d) }
   if(!uaid) throw new Error("Не бачу номера UA-… або посилання");
   if(!window.__fbAIWeb) return {tid:uaid,title:"",manual:true};
   const prompt=`Знайди на prozorro.gov.ua закупівлю ${uaid}. Відповідь — лише JSON: {"title":"предмет закупівлі","buyer":"замовник","locality":"населений пункт замовника","value":0,"tenderEnd":"РРРР-ММ-ДДTГГ:ХХ","enquiryEnd":"РРРР-ММ-ДДTГГ:ХХ","method":"вид процедури","status":"статус"}. Якщо чогось не знайшов — порожнє значення.`;
@@ -475,17 +496,18 @@ function renderTenders(){
   const fdWarn=[...S.fd.values()].filter(f=>f.until&&tzDays(f.until+"T23:59")<=14).length;
   let h=`<div class="seg" id="tzSeg" style="margin-bottom:8px"><button type="button" data-tzm="sugg" class="${mode==="sugg"?"on":""}">✨ Нові${suggNew().length?` (${suggNew().length})`:""}</button><button type="button" data-tzm="work" class="${mode==="work"?"on":""}">📋 В роботі${cnt("work")?` (${cnt("work")})`:""}</button><button type="button" data-tzm="res" class="${mode==="res"?"on":""}">🏆 Результати</button><button type="button" data-tzm="docs" class="${mode==="docs"?"on":""}">📁 Документи${fdWarn?` ⚠️${fdWarn}`:""}</button></div>`;
   if(mode==="docs"){ $("#view").innerHTML=h+firmDocsHTML(); bindTenders(); return }
-  if(mode==="sugg"){ if(!S.tzs){ loadSugg().then(()=>{ if(S.tzMode==="sugg") renderTenders() }) }
+  if(mode==="sugg"){ if(!S.cfg) loadCfg().then(()=>{ if(S.tzMode==="sugg") renderTenders() }); if(!S.tzs){ loadSugg().then(()=>{ if(S.tzMode==="sugg") renderTenders() }) }
     const sc=S.tzScanning, l=suggNew().sort((a,b)=>(b.score||0)-(a.score||0)||String(a.tEnd||"9").localeCompare(String(b.tEnd||"9")));
     h+=`<div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Застосунок сам переглядає нові закупівлі Prozorro (раз на 3 год, коли його відкривають): будівельні роботи · Полтавська обл. ≤${TZ_RULES.km} км · ${money(TZ_RULES.min)}–${money(TZ_RULES.max)} · подача ще триває. 🟢 — схоже на наші роботи.</div>
-      ${S.canWrite?`<button class="btn ${sc?"ghost ":""}" id="tzScanB" style="width:100%;margin-bottom:8px" ${sc?"disabled":""}>${sc?`⏳ Шукаю… переглянуто ${sc.pages*1000} змін, у Полтавській ${sc.found}${sc.checked?`, перевіряю ${sc.checked}`:""}`:"🔄 Шукати зараз"}</button>`:""}
+      ${S.canWrite?`<button class="btn ${sc?"ghost ":""}" id="tzScanB" style="width:100%;margin-bottom:8px" ${sc?"disabled":""}>${sc?`⏳ Шукаю… ${S.cfg?.pzProxy?"(до 3–5 хв при першому пошуку) ":""}переглянуто ${sc.pages*1000} змін, у Полтавській ${sc.found}${sc.checked?`, перевіряю ${sc.checked}`:""}`:"🔄 Шукати зараз"}</button>`:""}
       ${l.length?`<div class="list">${l.map(x=>`<div class="card" style="display:block;cursor:default"><div style="display:flex;gap:8px"><div class="t" style="flex:1">${["","🔴","🟡","🟢"][x.score||1]} ${esc(x.title||x.tid)}</div><b style="white-space:nowrap">${money(x.value)}</b></div>
         <div class="m">${esc(x.buyer||"")}${x.locality?` · ${esc(x.locality)}${x.km!=null?` (${x.km} км)`:""}`:""}</div>
         <div class="m">${x.tEnd?`подати до ${tzWhen(x.tEnd)} — ${tzLeft(x.tEnd)}`:""}${x.why?` · ${esc(x.why)}`:""}</div>
         <div class="actions" style="margin-top:6px"><a class="btn ghost sm" href="https://prozorro.gov.ua/tender/${esc(x.tid||"")}" target="_blank">🔗</a>${S.canWrite?`<button class="btn ghost sm" data-sgno="${x.id}">✕ Не цікаво</button><button class="btn sm" data-sgadd="${x.id}">➕ В роботу</button>`:""}</div></div>`).join("")}</div>`
-      :`<div class="empty">${sc?"Шукаю…":S.tzs?"Нових підходящих тендерів поки немає.":"Завантажую…"}</div>`}`;
+      :`<div class="empty">${sc?"Шукаю…":S.tzs?"Нових підходящих тендерів поки немає.":"Завантажую…"}</div>`}
+      ${S.canWrite?`<div style="text-align:center;margin-top:10px"><a href="#" class="m" id="pzSet" onclick="return false">⚙️ ${S.cfg?.pzProxy?"Посередник Prozorro підключено — змінити":"Підключити автопошук (потрібно один раз)"}</a></div>`:""}`;
     $("#view").innerHTML=h; bindTenders();
-    $("#tzScanB")?.addEventListener("click",()=>{ tzScan({force:true}); renderTenders() });
+    $("#tzScanB")?.addEventListener("click",()=>{ tzScan({force:true}); renderTenders() }); $("#pzSet")?.addEventListener("click",pzSetup);
     $("#view").querySelectorAll("[data-sgadd]").forEach(b=>b.onclick=()=>{ const x=S.tzs.get(b.dataset.sgadd); if(x) suggAdd(x) });
     $("#view").querySelectorAll("[data-sgno]").forEach(b=>b.onclick=async()=>{ const x=S.tzs.get(b.dataset.sgno); if(x&&await write(db=>db.doc("tzsugg/"+x.id).update({state:"no"}))){ x.state="no"; renderTenders() } }); return }
   if(mode==="work") h+=`${S.canWrite?`<button class="btn" id="tzAdd" style="width:100%;margin-bottom:8px">➕ Додати тендер (номер UA-… або посилання)</button>`:""}
