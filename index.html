@@ -322,7 +322,8 @@ function filteredTools(){
   return [...S.tools.values()].filter(t=>{
     if(S.holderType==="owner"&&roleOf(t)!=="owner")return false;
     if(S.holderType==="worker"&&roleOf(t)!=="worker")return false;
-    if(S.holderType==="repair"&&!(t.status&&t.status!=="ok"))return false;
+    if(S.holderType==="repair"&&!(t.status&&t.status!=="ok"&&t.status!=="lost"))return false;
+    if(t.status==="lost")return false;
     if(S.cat&&t.cat!==S.cat&&CAT_GROUP[t.cat]!==S.cat&&S.cat!==("g:"+CAT_GROUP[t.cat]))return false;
     if(S.site&&t.site!==S.site)return false;
     if(S.person&&t.holder!==S.person)return false;
@@ -365,10 +366,10 @@ function personOptions(sel,emptyLabel){
 function renderTools(){
   const all=[...S.tools.values()];
   const sq=l=>l.reduce((a,t)=>a+qtyOf(t),0);
-  const nOwn=sq(all.filter(t=>roleOf(t)==="owner")), nW=sq(all.filter(t=>roleOf(t)==="worker")), nR=sq(all.filter(t=>t.status&&t.status!=="ok"));
+  const nOwn=sq(all.filter(t=>roleOf(t)==="owner")), nW=sq(all.filter(t=>roleOf(t)==="worker")), nR=sq(all.filter(t=>t.status&&t.status!=="ok"&&t.status!=="lost")), nL=sq(all.filter(t=>t.status==="lost"));
   const st=(k,cls,n,l)=>`<div class="stat ${cls} ${S.holderType===k?"on":""}" data-ht="${k}"><b>${n}</b><span>${l}</span></div>`;
   if(document.activeElement?.id!=="q") $("#headTools").innerHTML=`
-    <div class="stats">${st("all","",sq(all),"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}</div>
+    <div class="stats">${st("all","",sq(all),"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}${nL?st("lost","bad",nL,"❌ Втрачено"):""}</div>
     <div class="search"><input id="q" type="search" placeholder="Пошук: назва, номер, людина, об'єкт…" value="${esc(S.q)}">
       <button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
     <div style="display:flex;gap:6px;margin:6px 0"><button class="btn ghost sm" id="catBtn" style="flex:1">📚 Довідник</button><button class="btn ghost sm" id="buyBtn" style="flex:1">🛒 Закупівля</button></div>
@@ -377,6 +378,7 @@ function renderTools(){
       <select id="fSite">${siteOptions(S.site,"Усі місця")}</select>
       <select id="fPerson">${personOptions(S.person,"Усі люди")}</select>
     </div>`;
+  if(S.holderType==="lost"){ $("#view").innerHTML=lostHTML(); bindLost(); return }
   const list=filteredTools();
   if(!S.tools.size){
     $("#view").innerHTML=`<div class="empty">Інструменту ще немає.<br><br>${S.people.size<2||!S.sites.size?"Спочатку додайте <b>людей</b> і <b>об'єкти/склади</b> на відповідних вкладках, потім — інструмент кнопкою «+».":"Натисніть «+», щоб додати перший інструмент."}</div>`;
@@ -1077,7 +1079,7 @@ function whereIs(rec,exceptSite){ // схожий інструмент по вс
     const o=m.get(k)||{lbl,qty:0,names:new Set(),ids:[]}; o.qty+=qtyOf(t); o.names.add(t.name+(t.brand?" "+t.brand:"")); o.ids.push(t.id); m.set(k,o) }
   return [...m.values()].sort((a,b)=>b.qty-a.qty) }
 function whereHTML(l,to){ return l.length?l.map(o=>`<div style="font-size:12.5px;padding:3px 0;display:flex;gap:6px;align-items:center"><span style="flex:1;min-width:0">${esc(o.lbl)} — <b>${o.qty} шт</b> <span style="color:var(--muted)">(${esc([...o.names].slice(0,3).join(", "))})</span></span>${to&&S.canWrite?`<button type="button" class="btn sm" data-wmv="${o.ids.join(",")}" data-wto="${to}" style="white-space:nowrap">🚚 Сюди</button>`:""}</div>`).join(""):`<div style="font-size:12.5px;color:var(--muted)">Ніде немає — треба купувати</div>` }
-function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } if(n.kind==="material"){ n._here=[]; return +n.got||0 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
+function haveOnSite(n,siteId){ if(n.done){ n._here=["позначено вручну"]; return +n.qty||1 } if(n.kind==="material"){ n._here=[]; return +n.got||0 } let q=0; const names=new Set(); for(const t of S.tools.values()) if(t.site===siteId&&t.status!=="lost"&&needHit({...n,need:1},t)){ q+=qtyOf(t); names.add(t.name) } n._here=[...names]; return q }
 // ШІ: розібрати список потрібного і зіставити з назвами інструменту, які є в базі
 // одиниці — до одного вигляду (10 Л → 10 л, мешків → мішок…)
 function normUnit(u){ const x=String(u||"").toLowerCase().replace(/\.$/,"").trim();
@@ -1696,12 +1698,57 @@ function toolCard(id){
       ${t.brand||t.model?`<dt>Марка/модель</dt><dd>${esc([t.brand,t.model].filter(Boolean).join(" "))}</dd>`:""}
       ${t.serial?`<dt>Серійний №</dt><dd>${esc(t.serial)}</dd>`:""}
       ${t.note?`<dt>Примітка</dt><dd>${esc(t.note)}</dd>`:""}</dl>
-    ${S.canWrite?`<div class="actions" style="margin-top:0"><button class="btn ghost" id="editT">Редагувати</button><button class="btn" id="moveT">Перемістити</button></div>`:""}
+    ${t.status==="lost"&&t.lost?`<div class="banner" style="margin:8px 0">❌ ${esc(LOST_R[t.lost.reason]||"Втрачено")} ${t.lost.date?fmtDay(t.lost.date):""}${t.lost.site?" · "+esc(site(t.lost.site)?.name||""):""}${t.lost.holder?" · відповідальний "+esc(person(t.lost.holder)?.name||""):""}${t.lost.cost?" · ≈"+money(t.lost.cost*qtyOf(t)):""}${t.lost.note?"<br>"+esc(t.lost.note):""}</div>`:""}
+    ${S.canWrite?`<div class="actions" style="margin-top:0"><button class="btn ghost" id="editT">Редагувати</button>${t.status==="lost"?`<button class="btn" id="foundT">↩️ Знайшовся</button>`:`<button class="btn ghost" id="lostT">❌ Втрачено</button><button class="btn" id="moveT">Перемістити</button>`}</div>`:""}
     <div class="section-t">Історія</div>${hist.length?hist.map(moveLine).join(""):`<div class="m" style="color:var(--muted)">Переміщень ще не було</div>`}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#editT")?.addEventListener("click",()=>toolForm(t));
   $("#moveT")?.addEventListener("click",()=>moveForm([id]));
+  $("#lostT")?.addEventListener("click",()=>lostForm([id]));
+  $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
+// ❌ Втрати інструменту: позначка + аналітика
+const LOST_R={lost:"Загубили",stolen:"Вкрали",broken:"Зламаний, не ремонтується",left:"Залишили на об'єкті / не повернули"};
+function lostForm(ids,opt){ opt=opt||{}; const tools=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!tools.length) return; const one=tools.length===1?tools[0]:null;
+  openSheet(`<h2>❌ Втрачено: ${one?"«"+esc(one.name)+"»":tools.length+" позицій"}</h2>
+    ${one?"":`<div class="m" style="margin-bottom:8px">${tools.map(t=>esc(t.name)+(qtyOf(t)>1?" ×"+qtyOf(t):"")).join(", ")}</div>`}
+    ${one&&qtyOf(one)>1?`<div class="field"><label>Скільки втрачено (з ${qtyOf(one)})</label><input id="lsQ" inputmode="numeric" value="${qtyOf(one)}"></div>`:""}
+    <div class="field"><label>Що сталося</label><select id="lsR">${Object.entries(LOST_R).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select></div>
+    <div class="row"><div class="field"><label>Дата</label><input id="lsD" type="date" value="${todayISO()}"></div>
+      <div class="field"><label>Ціна за шт, ₴ (≈)</label><input id="lsC" inputmode="decimal" placeholder="для аналітики" value="${one?.price||one?.lost?.cost||""}"></div></div>
+    <div class="field"><label>Де</label><select id="lsS">${siteOptions(opt.site||one?.site||"","— невідомо")}</select></div>
+    <div class="field"><label>Хто відповідав</label><select id="lsH">${personOptions(one?.holder||"","— невідомо")}</select></div>
+    <div class="field"><label>Коментар</label><input id="lsN" placeholder="напр. зник після вихідних"></div>
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Інструмент зникне зі списків, але лишиться в «❌ Втрачено» для аналітики. Якщо знайдеться — «↩️ Знайшовся».</div>
+    <div class="actions"><button class="btn ghost" id="lsX">Скасувати</button><button class="btn danger" id="lsOk">Позначити втраченим</button></div>`);
+  $("#lsX").onclick=()=>opt.back?opt.back():closeSheet();
+  $("#lsOk").onclick=async()=>{ const num=v=>+String(v||"").replace(",",".").replace(/\s/g,"")||0, now=Date.now();
+    const base={date:$("#lsD").value||todayISO(),reason:$("#lsR").value,site:$("#lsS").value,holder:$("#lsH").value,cost:num($("#lsC").value),note:$("#lsN").value.trim(),at:now,by:S.uid||"",byName:S.meName||""};
+    const ok=await write(async db=>{ for(const t of tools){ const lost={...base,site:one?base.site:(t.site||base.site),holder:one?base.holder:(t.holder||base.holder)};
+      const q=one&&$("#lsQ")?Math.max(1,Math.min(qtyOf(t),Math.round(num($("#lsQ").value)))):qtyOf(t);
+      if(q<qtyOf(t)){ await db.doc("tools/"+t.id).update({qty:qtyOf(t)-q,updatedAt:now}); const {id:_,...rest}=t; await db.collection("tools").add({...rest,qty:q,status:"lost",lost,createdAt:now,updatedAt:now}) }
+      else await db.doc("tools/"+t.id).update({status:"lost",lost,updatedAt:now});
+      await db.collection("moves").add({tool:t.id,toolName:t.name,toolInv:t.inv||"",qty:q,fromHolder:t.holder||"",toHolder:"",fromSite:t.site||"",toSite:"",note:"❌ "+(LOST_R[base.reason]||"втрачено")+(base.note?": "+base.note:""),at:now,by:S.uid||"",byName:S.meName||""}) } });
+    if(ok){ toast("Позначено втраченим"); if(opt.back) opt.back(); else closeSheet() } } }
+function lostHTML(){ const l=[...S.tools.values()].filter(t=>t.status==="lost").sort((a,b)=>(b.lost?.date||"").localeCompare(a.lost?.date||""));
+  if(!l.length) return `<div class="empty">Втрат немає 👍</div>`;
+  const val=t=>(+t.lost?.cost||0)*qtyOf(t), grp=f=>{ const m=new Map(); for(const t of l){ const k=f(t)||"—"; const x=m.get(k)||{n:0,v:0}; x.n+=qtyOf(t); x.v+=val(t); m.set(k,x) } return [...m.entries()].sort((a,b)=>b[1].v-a[1].v||b[1].n-a[1].n) };
+  const yr=new Date().getFullYear()+"", tot=l.reduce((a,t)=>a+qtyOf(t),0), totV=l.reduce((a,t)=>a+val(t),0), yN=l.filter(t=>(t.lost?.date||"").startsWith(yr)).reduce((a,t)=>a+qtyOf(t),0), yV=l.filter(t=>(t.lost?.date||"").startsWith(yr)).reduce((a,t)=>a+val(t),0);
+  const tbl=(title,rows)=>`<div class="section-t">${title}</div><div class="card" style="display:block;cursor:default;margin-bottom:8px">${rows.slice(0,8).map(([k,x])=>`<div style="display:flex;gap:8px;padding:2px 0"><span style="flex:1">${esc(/^\d{4}-\d{2}$/.test(k)?k.slice(5)+"."+k.slice(0,4):k)}</span><span class="m">${x.n} шт</span><b style="min-width:80px;text-align:right">${x.v?money(x.v):"—"}</b></div>`).join("")}</div>`;
+  const noCost=l.filter(t=>!t.lost?.cost).length;
+  return `<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div style="display:flex"><span style="flex:1">Усього втрачено</span><b>${tot} шт · ${money(totV)}</b></div><div style="display:flex" class="m"><span style="flex:1">з них у ${yr}</span><span>${yN} шт · ${money(yV)}</span></div>${noCost?`<div class="m" style="color:var(--muted);font-size:12px">${noCost} поз. без ціни — відкрийте і впишіть, щоб сума була точною</div>`:""}</div>
+    ${tbl("📂 За категоріями",grp(t=>t.cat))}${tbl("🏗️ Де втратили",grp(t=>site(t.lost?.site)?.name||"невідомо"))}${tbl("👤 Хто відповідав",grp(t=>person(t.lost?.holder)?.name||"невідомо"))}${tbl("❓ Причини",grp(t=>LOST_R[t.lost?.reason]||"—"))}
+    ${tbl("📅 По місяцях",grp(t=>(t.lost?.date||"").slice(0,7)).sort((a,b)=>b[0].localeCompare(a[0])))}
+    <div class="section-t">Список<span class="count">${l.length}</span></div><div class="list">${l.map(t=>`<div class="card" data-tool="${t.id}"><div class="main"><div class="t">${esc(t.name)}${qtyOf(t)>1?" ×"+qtyOf(t):""}</div><div class="m">${esc(t.cat||"")} · ${t.lost?.date?fmtDay(t.lost.date):""} · ${esc(LOST_R[t.lost?.reason]||"")}${t.lost?.site?" · "+esc(site(t.lost.site)?.name||""):""}</div></div>${val(t)?`<span class="count">${money(val(t))}</span>`:""}</div>`).join("")}</div>` }
+function bindLost(){ $("#view").querySelectorAll("[data-tool]").forEach(c=>c.onclick=()=>toolCard(c.dataset.tool)) }
+// 🧰 об'єкт закривається — нагадати забрати інструмент
+function toolsLeftPrompt(siteId){ const st=site(siteId); const l=[...S.tools.values()].filter(t=>t.site===siteId&&t.status!=="lost"); if(!st||!l.length) return false;
+  openSheet(`<h2>🧰 На «${esc(st.name)}» ще є інструмент</h2><div class="m" style="margin-bottom:8px">Об'єкт закрито, а за ним числиться ${l.reduce((a,t)=>a+qtyOf(t),0)} шт:</div>
+    <div class="card" style="display:block;cursor:default;margin-bottom:8px">${l.slice(0,15).map(t=>`<div style="padding:2px 0">${esc(t.name)}${qtyOf(t)>1?" ×"+qtyOf(t):""} <span class="m">· ${esc(person(t.holder)?.name||"")}</span></div>`).join("")}${l.length>15?`<div class="m">… і ще ${l.length-15}</div>`:""}</div>
+    <div class="actions" style="flex-wrap:wrap"><button class="btn ghost" data-close>Пізніше</button><button class="btn ghost" id="tlLost">❌ Частину втрачено</button><button class="btn" id="tlMove">🚚 Забрати</button></div>`);
+  $("#tlMove").onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(siteId)) };
+  $("#tlLost").onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(siteId)); toast("Позначте галочками втрачене і натисніть «❌ Втрачено»") };
+  return true }
 
 function moveForm(ids,opt){ opt=opt||{};
   const tools=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!tools.length)return;
@@ -1759,7 +1806,7 @@ function siteForm(s){
   let tab=isNew?"data":(tabs.some(t=>t[0]===S.siteTab)?S.siteTab:tabs[0][0]);
   const T=(k,html)=>`<div data-stab="${k}" style="display:${tab===k?"block":"none"}">${html}</div>`;
   const finHere=isNew?[]:[...S.fin.values()].filter(f=>f.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
-  const toolsHere=isNew?[]:[...S.tools.values()].filter(t=>t.site===s.id).sort(byName);
+  const toolsHere=isNew?[]:[...S.tools.values()].filter(t=>t.site===s.id&&t.status!=="lost").sort(byName);
   const reps=finHere.filter(f=>f.type==="accrual"&&f.report);
   if(!isNew&&isSite){ const nl=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1)).length, ap=s.approved?.items?.length||0, apd=(()=>{ const d=new Set(s.approvedDone||[]), g=apProgress(s); (s.approved?.items||[]).forEach((r,i)=>{ if(g[i]&&g[i]>=(+r.qty||0)*0.999) d.add(i) }); return d.size })();
     for(const t of tabs){ if(t[0]==="tools"&&toolsHere.length) t[1]+=" "+toolsHere.length; if(t[0]==="needs"&&nl) t[1]+=" "+nl; if(t[0]==="works"&&ap) t[1]+=` ${apd}/${ap}` } }
@@ -1770,7 +1817,7 @@ function siteForm(s){
       ${finHere.slice(0,8).map(f=>finLine(f)).join("")||`<div class="empty">Платежів ще немає</div>`}
       ${finHere.length>8?`<button class="btn ghost" id="showSiteFin" style="width:100%;margin:8px 0">Усі платежі (${finHere.length})</button>`:""}`})()):""}
     ${!isNew?T("tools",`<div class="actions" style="margin:0 0 8px">${S.canWrite?`<button class="btn ghost sm" id="toolListS">📋 Завезти списком</button><button class="btn ghost sm" id="toolPhotoS">📷 З фото</button>`:""}${toolsHere.length?`<button class="btn ghost sm" id="hoS">🧰 Список / повернути</button>`:""}</div>
-      ${toolsHere.length&&S.canWrite?`<div style="display:flex;gap:6px;align-items:center;margin:0 0 6px"><label class="m" style="display:flex;gap:6px;align-items:center;flex:1;cursor:pointer"><input type="checkbox" id="stAll" style="width:20px;height:20px"> Вибрати все (${toolsHere.length})</label><button class="btn sm" id="stMv" disabled>🚚 Перемістити</button></div>`:""}
+      ${toolsHere.length&&S.canWrite?`<div style="display:flex;gap:6px;align-items:center;margin:0 0 6px"><label class="m" style="display:flex;gap:6px;align-items:center;flex:1;cursor:pointer"><input type="checkbox" id="stAll" style="width:20px;height:20px"> Вибрати все (${toolsHere.length})</label><button class="btn ghost sm" id="stLost" disabled>❌ Втрачено</button><button class="btn sm" id="stMv" disabled>🚚 Перемістити</button></div>`:""}
       ${toolsHere.length?`<div class="list">${toolsHere.map(t=>`<div class="hist" data-tool="${t.id}" style="display:flex;gap:8px;cursor:pointer;align-items:center">${S.canWrite?`<input type="checkbox" data-stsel="${t.id}" style="width:20px;height:20px;flex:0 0 20px">`:""}<span style="flex:1">${esc(t.name)}${t.brand?" · "+esc(t.brand):""}${t.inv?` <span class="m">#${esc(t.inv)}</span>`:""}</span><span class="m">${qtyOf(t)} шт${t.holder?" · "+esc(person(t.holder)?.name||""):""}</span></div>`).join("")}</div>`:`<div class="empty">Інструменту тут немає</div>`}`):""}
     ${!isNew&&isSite?T("needs",`<div id="needsBox">${needsHTML(s)}</div>`):""}
     ${!isNew&&isSite?T("works",`<div id="apBox">${approvedHTML(s)}</div>${S.canWrite?`<button class="btn" id="sRep" style="width:100%;margin-bottom:6px">📋 Звіт робіт по цьому об'єкту</button>`:""}
@@ -1801,9 +1848,10 @@ function siteForm(s){
   $("#toolPhotoS")?.addEventListener("click",()=>photoFlow({mode:"move",to:s.id}));
   $("#modal").querySelectorAll("[data-fin]").forEach(el=>el.onclick=()=>{const f=S.fin.get(el.dataset.fin); if(f) finForm(f)});
   $("#modal").querySelectorAll("[data-tool]").forEach(el=>el.onclick=e=>{ if(e.target.matches("input")) return; const t=S.tools.get(el.dataset.tool); if(t) toolCard(t.id)});
-  const stUpd=()=>{ const n=$("#modal").querySelectorAll("[data-stsel]:checked").length, b=$("#stMv"); if(b){ b.disabled=!n; b.textContent=n?`🚚 Перемістити (${n})`:"🚚 Перемістити" } const a=$("#stAll"); if(a) a.checked=n&&n===toolsHere.length };
+  const stUpd=()=>{ const n=$("#modal").querySelectorAll("[data-stsel]:checked").length, b=$("#stMv"); if($("#stLost")) $("#stLost").disabled=!n; if(b){ b.disabled=!n; b.textContent=n?`🚚 Перемістити (${n})`:"🚚 Перемістити" } const a=$("#stAll"); if(a) a.checked=n&&n===toolsHere.length };
   $("#modal").querySelectorAll("[data-stsel]").forEach(c=>c.onchange=stUpd);
   $("#stAll")?.addEventListener("change",e=>{ $("#modal").querySelectorAll("[data-stsel]").forEach(c=>c.checked=e.target.checked); stUpd() });
+  $("#stLost")?.addEventListener("click",()=>{ const ids=[...$("#modal").querySelectorAll("[data-stsel]:checked")].map(c=>c.dataset.stsel); if(ids.length) lostForm(ids,{site:s.id,back:()=>{ const st=S.sites.get(s.id); if(st){ S.siteTab="tools"; siteForm(st) } }}) });
   $("#stMv")?.addEventListener("click",()=>{ const ids=[...$("#modal").querySelectorAll("[data-stsel]:checked")].map(c=>c.dataset.stsel); if(ids.length) moveForm(ids,{from:s.id,back:()=>{ const st=S.sites.get(s.id); if(st){ S.siteTab="tools"; siteForm(st) } }}) });
   $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
   $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
@@ -1813,7 +1861,7 @@ function siteForm(s){
   $("#siteForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
     if(!data.name)return;
-    if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено")}
+    if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено"); if(!isNew&&s.active!==false&&data.active===false) setTimeout(()=>toolsLeftPrompt(s.id),400)}
   });
   $("#mrgS")?.addEventListener("click",()=>mergeSite(s));
   $("#delS")?.addEventListener("click",async()=>{
@@ -2275,7 +2323,7 @@ function finForm(f,preset){
     const a=sumExpr($("#finForm [name=amount]").value)||0, r=$("#taxOn").checked?(parseFloat(String($("#taxRate").value).replace(",","."))||0):0, t=siteTotals()[sid]||{in:0,out:0};
     const old=!isNew&&f.site===sid&&f.type==="in"?(+f.amount||0)-((S.fin.get(f.id+"_tax")?.amount)||0):0;
     const p=t.in-t.out-old+a-Math.round(a*r)/100, n=owners().length||1;
-    $("#closeInfo").innerHTML=`Прибуток «${esc(st.name)}» з цим платежем: <b>${money(p)}</b> → кожному з ${n} по <b>${money(p/n)}</b>. Об'єкт піде в архів.${(+st.contract||0)>0&&(+st.contract)-(t.in-(old?+f.amount:0)+a)>0.5?`<br>⚠️ Замовник ще винен ${money((+st.contract)-(t.in-(old?+f.amount:0)+a))} за договором.`:""}` };
+    $("#closeInfo").innerHTML=`Прибуток «${esc(st.name)}» з цим платежем: <b>${money(p)}</b> → кожному з ${n} по <b>${money(p/n)}</b>. Об'єкт піде в архів.${(()=>{ const n=[...S.tools.values()].filter(t=>t.site===sid&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0); return n?`<br>🧰 На об'єкті ще ${n} шт інструменту — після збереження нагадаю забрати.`:"" })()}${(+st.contract||0)>0&&(+st.contract)-(t.in-(old?+f.amount:0)+a)>0.5?`<br>⚠️ Замовник ще винен ${money((+st.contract)-(t.in-(old?+f.amount:0)+a))} за договором.`:""}` };
   ["amount"].forEach(n=>$("#finForm [name="+n+"]").addEventListener("input",()=>{updAmt();updClose()})); $("#taxOn").onchange=()=>{updAmt();updClose()}; $("#taxRate").oninput=()=>{updAmt();updClose()}; updAmt();
   $("#finForm [name=site]").addEventListener("change",updClose); $("#closeSite").onchange=updClose; $("#segM").addEventListener("click",()=>setTimeout(updClose)); updClose();
   $("#finForm").addEventListener("submit",async e=>{
@@ -2326,7 +2374,7 @@ function finForm(f,preset){
         else if(had) await db.doc("fin/"+tid).delete();
         if(mode==="in"&&data.site&&$("#closeSite").checked) await db.doc("sites/"+data.site).update({active:false,split:true});
       });
-      if(ok&&mode==="in"&&data.site&&$("#closeSite")?.checked){ closeSheet(); toast(`Збережено. Об'єкт «${site(data.site)?.name||""}» закрито, прибуток поділено`); return }
+      if(ok&&mode==="in"&&data.site&&$("#closeSite")?.checked){ closeSheet(); toast(`Збережено. Об'єкт «${site(data.site)?.name||""}» закрито, прибуток поділено`); setTimeout(()=>toolsLeftPrompt(data.site),400); return }
       if(ok&&taxOn&&rate>0){ closeSheet(); toast(`Збережено: прихід ${money(amount)}, податок ${money(Math.round(amount*rate)/100)}`); return }
     }
     if(ok){closeSheet();toast("Збережено")} else btn.disabled=false;
