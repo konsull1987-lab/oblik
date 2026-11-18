@@ -552,14 +552,14 @@ async function tzSave(t,upd){ upd.updatedAt=Date.now(); if(await write(db=>db.do
 // 📄 Довідки для тендера у Word (.docx) — шаблони з реквізитів ФОП, людей, інструменту, документів
 const _crcT=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; t[n]=c>>>0 } return t })();
 const crc32=b=>{ let c=0xFFFFFFFF; for(let i=0;i<b.length;i++) c=_crcT[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0 };
-function zipStore(files){ const enc=new TextEncoder(), parts=[], cen=[]; let off=0;
-  for(const [name,str] of files){ const nb=enc.encode(name), db=enc.encode(str), crc=crc32(db), h=new DataView(new ArrayBuffer(30));
+function zipStore(files,type){ const enc=new TextEncoder(), parts=[], cen=[]; let off=0;
+  for(const [name,str] of files){ const nb=enc.encode(name), db=str instanceof Uint8Array?str:enc.encode(str), crc=crc32(db), h=new DataView(new ArrayBuffer(30));
     h.setUint32(0,0x04034b50,true); h.setUint16(4,20,true); h.setUint16(6,0x0800,true); h.setUint32(14,crc,true); h.setUint32(18,db.length,true); h.setUint32(22,db.length,true); h.setUint16(26,nb.length,true);
     parts.push(new Uint8Array(h.buffer),nb,db); const c=new DataView(new ArrayBuffer(46));
     c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint32(16,crc,true); c.setUint32(20,db.length,true); c.setUint32(24,db.length,true); c.setUint16(28,nb.length,true); c.setUint32(42,off,true);
     cen.push(new Uint8Array(c.buffer),nb); off+=30+nb.length+db.length }
   const cs=cen.reduce((a,x)=>a+x.length,0), e=new DataView(new ArrayBuffer(22)); e.setUint32(0,0x06054b50,true); e.setUint16(8,files.length,true); e.setUint16(10,files.length,true); e.setUint32(12,cs,true); e.setUint32(16,off,true);
-  return new Blob([...parts,...cen,new Uint8Array(e.buffer)],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}) }
+  return new Blob([...parts,...cen,new Uint8Array(e.buffer)],{type:type||"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}) }
 const xq=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 function docxBlob(blocks){
   const run=(t,o={})=>`<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${o.b?"<w:b/>":""}<w:sz w:val="${o.sz||24}"/></w:rPr><w:t xml:space="preserve">${xq(t)}</w:t></w:r>`;
@@ -582,6 +582,45 @@ function uahWords(x){ const n=Math.floor(+x||0), kop=Math.round(((+x||0)-n)*100)
   for(const [d,f,fem] of sc){ const v=Math.floor(r/d); if(v){ w.push(tri(v,fem),form(v,f)); r%=d } }
   if(r||!w.length) w.push(r?tri(r,1):"нуль"); w.push(form(n,["гривня","гривні","гривень"]));
   const s=w.filter(Boolean).join(" "); return s.charAt(0).toUpperCase()+s.slice(1)+` ${String(kop).padStart(2,"0")} ${form(kop,["копійка","копійки","копійок"])}` }
+// 📦 Повний пакет: ШІ/ключові слова підбирають аналогічні договори з бази, + реєстраційні документи, + 6 довідок → один ZIP
+function anCandidates(t){ const out=[], cli=id=>S.clients?.get(id)?.name||"";
+  for(const c of (S.contracts||new Map()).values()) if(!t.fop||c.fop===t.fop) out.push({src:"ct",id:c.id,who:cli(c.client),what:c.workDesc||"",sum:c.total?money(c.total).replace(/\s?₴/,""):"",date:`№ ${c.no||"—"}${c.date?" від "+fmtDay(c.date):""}`,kind:"договір",fileId:c.orig?.id||"",title:`Договір № ${c.no||""} — ${cli(c.client)}`});
+  for(const d of (S.fd||new Map()).values()){ if(d.fop&&t.fop&&d.fop!==t.fop) continue; if(!/догов|акт|аналог|відгук/i.test(d.title||"")) continue; const p=anParse(d.title);
+    out.push({src:"fd",id:d.id,...p,fileId:d.fileId||"",drive:(String(d.note||"").match(/https?:\/\/\S+/)||[])[0]||"",title:d.title}) }
+  return out }
+function anKeyScore(t,c){ const st=w=>w.slice(0,5), tw=new Set(normW([t.title,...(t.analysis?.works||[]).map(x=>x.name||x),...(t.items||[]).map(i=>i.d)].join(" ")).split(" ").filter(w=>w.length>4).map(st));
+  const cw=normW(c.what+" "+c.title).split(" ").filter(w=>w.length>4).map(st); let n=0; for(const w of new Set(cw)) if(tw.has(w)&&!["посл","робот","прими","примі","повед"].includes(w.slice(0,4))) n++; return n }
+async function tzPack(t){ const f=S.fops.get(t.fop); if(!f){ toast("Спершу виберіть учасника (ФОП) у тендері"); return }
+  const cands=anCandidates(t), regs=[...(S.fd||new Map()).values()].filter(d=>(!d.fop||d.fop===t.fop)&&/виписк|свідоцт|паспорт|реєстр|ЄДР|ліценз|сертиф|податк/i.test(d.title||""));
+  cands.forEach(c=>{ c.score=anKeyScore(t,c); c.on=c.score>0 });
+  openSheet(`<h2>📦 Пакет документів</h2><div class="empty">🤖 Підбираю аналогічні договори з бази…</div>`);
+  if(window.__fbAI&&cands.length) try{ const prompt=`Тендер: «${t.title}». ${t.analysis?.summary||""}\nЗамовник шукає досвід аналогічних робіт. Ось наші договори/акти:\n${cands.map((c,i)=>`${i}: ${c.who} — ${c.what||c.title}`).join("\n")}\nВибери ті, що реально схожі на предмет тендера (будівельні/ремонтні роботи того ж типу; поліграфія, техніка, сантехнічна чистка тощо — ні, якщо тендер не про це). Відповідь — лише JSON: {"ok":[номери],"why":{"номер":"коротко чому"}}`;
+    const r=await window.__fbAI([],prompt); const j=JSON.parse(String(r.text||r).replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1")); const ok=new Set((j.ok||[]).map(Number));
+    cands.forEach((c,i)=>{ c.on=ok.has(i); c.why=j.why?.[i]||j.why?.[String(i)]||"" }) }catch(_){}
+  cands.sort((a,b)=>(b.on-a.on)||(b.score-a.score)); regs.forEach(r=>r.on=true);
+  const draw=()=>{ openSheet(`<h2>📦 Пакет документів</h2><div class="m" style="margin-bottom:8px">${esc(t.tid||"")} · учасник <b>${esc(f.name)}</b>. Застосунок підібрав, що є в базі — зніміть зайве й натисніть «Зібрати».</div>
+    <div class="section-t">🤝 Аналогічні договори (${cands.filter(c=>c.on).length} з ${cands.length})</div>
+    ${cands.length?cands.map((c,i)=>`<label class="card" style="display:flex;gap:10px;align-items:flex-start;padding:8px 12px"><input type="checkbox" data-pkc="${i}" ${c.on?"checked":""} style="width:20px;height:20px;flex:0 0 auto;margin-top:2px"><span style="flex:1;font-size:13.5px"><b>${esc(c.who||"?")}</b> — ${esc(c.what||c.title)}<div class="m">${esc([c.date,c.sum&&c.sum+" грн"].filter(Boolean).join(" · "))}${c.fileId?" · 📎 файл":c.drive?" · ☁️ лише посилання":" · ⚠️ без файлу"}${c.why?` · 🤖 ${esc(c.why)}`:""}</div></span></label>`).join(""):`<div class="m">У базі немає договорів. Додайте в «📁 Документи» або «Гроші → Договори».</div>`}
+    <div class="section-t">🪪 Реєстраційні документи</div>
+    ${regs.length?regs.map((d,i)=>`<label class="card" style="display:flex;gap:10px;align-items:center;padding:8px 12px"><input type="checkbox" data-pkr="${i}" ${d.on?"checked":""} style="width:20px;height:20px;flex:0 0 auto"><span style="flex:1;font-size:13.5px">${esc(d.title)}${d.until&&tzDays(d.until+"T23:59")<0?` <span style="color:var(--red,#e5534b)">⚠️ прострочений</span>`:""}<div class="m">${d.fileId?"📎 файл":"☁️ лише посилання"}</div></span></label>`).join(""):`<div class="m">Немає — додайте виписку, свідоцтво, паспорт у «📁 Документи».</div>`}
+    <div class="section-t">📄 Довідки (згенеруються)</div><div class="m" style="margin-bottom:8px">ст. 17 · працівники · техніка · аналогічні (з вибраних вище) · цінова${(+t.ourPrice||+t.kpTotal)?"":" (⚠️ без ціни)"} · реквізити</div>
+    <div class="actions"><button class="btn ghost" id="pkBack">Назад</button><button class="btn" id="pkGo">📦 Зібрати пакет</button></div>`);
+    $("#modal").querySelectorAll("[data-pkc]").forEach(x=>x.onchange=()=>{ cands[+x.dataset.pkc].on=x.checked });
+    $("#modal").querySelectorAll("[data-pkr]").forEach(x=>x.onchange=()=>{ regs[+x.dataset.pkr].on=x.checked });
+    $("#pkBack").onclick=()=>tzView(t);
+    $("#pkGo").onclick=async()=>{ const b=$("#pkGo"); b.disabled=true; b.textContent="⏳ Збираю…";
+      try{ const sel=cands.filter(c=>c.on), {D,fname}=tzDocs(t,{build:1,analog:sel}), files=[], links=[], safe=x=>String(x).replace(/[\\/:*?"<>|]/g,"").slice(0,90);
+        for(const k of Object.keys(D)) files.push([`1 Довідки/${fname(k)}`,new Uint8Array(await docxBlob(D[k].b()).arrayBuffer())]);
+        let n=0; const add=async(dir,title,fileId,drive)=>{ if(fileId){ try{ const r=await fileBlob(fileId); if(r){ const ext=(r.meta.name||"").match(/\.[a-z0-9]{2,5}$/i)?.[0]||(/pdf/.test(r.meta.type)?".pdf":/jpe?g/.test(r.meta.type)?".jpg":""); files.push([`${dir}/${String(++n).padStart(2,"0")} ${safe(title)}${ext}`,new Uint8Array(await r.blob.arrayBuffer())]); return } }catch(_){} } links.push(`${title}: ${drive||"файлу немає в застосунку"}`) };
+        for(const d of regs.filter(d=>d.on)) await add("2 Реєстраційні",d.title,d.fileId,(String(d.note||"").match(/https?:\/\/\S+/)||[])[0]);
+        for(const c of sel) await add("3 Аналогічні договори",c.title||`${c.who} — ${c.what}`,c.fileId,c.drive);
+        if(links.length) files.push(["Що додати вручну.txt",new TextEncoder().encode("Цих файлів немає в застосунку — завантажте з Google Диска і додайте до пропозиції:\r\n\r\n"+links.join("\r\n"))]);
+        const zip=new File([zipStore(files,"application/zip")],`Пакет ${safe(t.tid||"тендер")}.zip`,{type:"application/zip"});
+        let shared=false; try{ if(navigator.canShare?.({files:[zip]})){ await navigator.share({files:[zip],title:zip.name}); shared=true } }catch(e){ if(e?.name==="AbortError") shared=true }
+        if(!shared){ const a=document.createElement("a"); a.href=URL.createObjectURL(zip); a.download=zip.name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove() },4000) }
+        toast(`📦 Пакет: ${files.length} файлів${links.length?` · ${links.length} треба додати з Диска`:""}`); b.disabled=false; b.textContent="📦 Зібрати пакет";
+      }catch(e){ b.disabled=false; b.textContent="📦 Зібрати пакет"; toast("Не вдалося: "+String(e?.message||e).slice(0,70)) } } };
+  draw() }
 // «Аналогічний договір: ТОВ «Х» — що робили, 28 080 грн, 01.03.2023» → колонки довідки
 function anParse(title){ let t=String(title||""), kind="", who="", what=t, sum="", date="";
   const m=t.match(/^([^:]{2,40}):\s*(.+)$/); if(m){ kind=m[1]; t=m[2] }
@@ -589,7 +628,7 @@ function anParse(title){ let t=String(title||""), kind="", who="", what=t, sum="
   const sm=t.match(/,\s*([\d\s]+(?:[.,]\d{1,2})?)\s*грн\s*$/); if(sm){ sum=sm[1].trim(); t=t.slice(0,sm.index) }
   const w=t.split(/\s+—\s+/); if(w.length>1){ who=w[0].trim(); what=w.slice(1).join(" — ").trim() } else what=t;
   const no=kind.match(/№\s*\S+/); if(no) date=(no[0]+(date?" від "+date:"")); return {kind,who,what,sum,date} }
-function tzDocs(t){ const f=S.fops.get(t.fop); if(!f){ toast("Спершу виберіть учасника (ФОП) у тендері"); return }
+function tzDocs(t,opts){ opts=opts||{}; const f=S.fops.get(t.fop); if(!f){ toast("Спершу виберіть учасника (ФОП) у тендері"); return }
   const fio=String(f.name||"").replace(/^ФОП\s*/i,"").trim(), fioShort=(()=>{ const p=fio.split(/\s+/); return p.length>=3?`${p[1][0]}. ${p[2][0]}. ${p[0]}`:fio })();
   const head=title=>[{p:`ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ ${fio.toUpperCase()}`,b:1,c:1,sz:22,after:0},{p:`РНОКПП ${f.edrpou||"__________"} · ${f.address||""}${f.phone?" · тел. "+f.phone:""}${f.email?" · "+f.email:""}`,c:1,sz:20,after:200},
     {p:`Вих. № ____ від «___» ____________ ${new Date().getFullYear()} р.`,sz:22},{p:`Замовнику: ${t.buyer||"________________"}`,r:1,sz:22,after:200},
@@ -629,7 +668,7 @@ function tzDocs(t){ const f=S.fops.get(t.fop); if(!f){ toast("Спершу ви�
       {table:[["№","Найменування","Кількість, шт","Власне / орендоване"],...[...tools.entries()].sort((a,b)=>a[0].localeCompare(b[0],"uk")).map(([k,q],i)=>[String(i+1),k,String(q),"власне"])]},...sign]},
     analog:{n:"Довідка про аналогічні договори",b:()=>[...head("ДОВІДКА\nпро досвід виконання аналогічних договорів"),
       {p:"Учасник має досвід виконання аналогічних за предметом закупівлі договорів, а саме:",j:1,ind:1},
-      {table:[["№","Контрагент (замовник)","Предмет договору","№ і дата договору","Сума, грн","Підтвердження"],...(contractsFd.length?contractsFd:[{title:""}]).map((d,i)=>{ const p=anParse(d.title||""); return [String(i+1),p.who,p.what,p.date,p.sum,d.title?(/акт/i.test(p.kind)?"акт виконаних робіт":"копія договору, акти"):""] })]},
+      {table:[["№","Контрагент (замовник)","Предмет договору","№ і дата договору","Сума, грн","Підтвердження"],...(()=>{ const rows=opts.analog||contractsFd.map(d=>anParse(d.title||"")); return (rows.length?rows:[{}]).map((p,i)=>[String(i+1),p.who||"",p.what||"",p.date||"",p.sum||"",p.what?(/акт/i.test(p.kind||"")?"акт виконаних робіт":"копія договору, акти"):""]) })()]},
       {p:"До довідки додаються копії договорів та документи, що підтверджують їх виконання (акти, відгуки). ⚠ Перевірте: контрагент — ваш колишній замовник, сума — за тим договором (не цього тендера). Приберіть неаналогічні рядки.",sz:20,j:1},...sign]},
     price:{n:"Цінова пропозиція",b:()=>[...head("ЦІНОВА ПРОПОЗИЦІЯ"),
       {p:`Ми, фізична особа — підприємець ${fio}, уважно вивчивши тендерну документацію, маємо можливість та погоджуємося виконати роботи (надати послуги) за предметом закупівлі «${t.title||""}» на загальну суму:`,j:1,ind:1},
@@ -640,6 +679,7 @@ function tzDocs(t){ const f=S.fops.get(t.fop); if(!f){ toast("Спершу ви�
         ["Банківські реквізити",[f.iban&&"IBAN "+f.iban,f.bank,f.mfo&&"МФО "+f.mfo].filter(Boolean).join(", ")],["Система оподаткування",f.taxGroup||"________"],["Види діяльності (КВЕД)",f.kved||""],["Телефон",[f.phone,f.phone2].filter(Boolean).join(", ")],["E-mail",f.email||""],["Особа, уповноважена підписувати договір",`${fio}, фізична особа — підприємець, діє на підставі виписки з ЄДР`]]},...sign]} };
   const fname=k=>`${D[k].n} — ${t.tid||"тендер"}.docx`.replace(/[\\/:*?"<>|]/g,"");
   const fileOf=k=>new File([docxBlob(D[k].b())],fname(k),{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+  if(opts.build) return {D,fileOf,fname};
   const dl=f=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(f); a.download=f.name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove() },3000) };
   openSheet(`<h2>📄 Довідки (Word)</h2><div class="m" style="margin-bottom:8px">Учасник: <b>${esc(f.name)}</b>. Застосунок заповнить шаблони реквізитами, людьми, інструментом і документами з бази. Відкрийте у Word / Google Docs, перевірте ⚠-місця і підпишіть КЕП.</div>
     ${!f.edrpou||!f.address||!f.iban?`<div class="banner" style="margin-bottom:8px">⚠️ У ФОП бракує ${[!f.edrpou&&"ІПН",!f.address&&"адреси",!f.iban&&"IBAN"].filter(Boolean).join(", ")} — допишіть у «Гроші → Рахунки → ФОПи».</div>`:""}
@@ -680,7 +720,8 @@ function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map())
     ${need.length?`<div class="section-t">✅ Чекліст документів</div><div class="list">${need.map((n,i)=>{ const f=haveFd(n), ok=!!(t.checks||{})[i];
       return `<label class="card" style="display:flex;gap:10px;align-items:center;padding:8px 12px"><input type="checkbox" data-tzc="${i}" ${ok?"checked":""} style="width:20px;height:20px;flex:0 0 auto"><span style="flex:1;font-size:13.5px">${esc(n)}${f?`<div class="m" style="color:var(--green,#3fb950)">📁 є: ${esc(f.title)}${f.until&&tzDays(f.until+"T23:59")<0?" — ⚠️ прострочений":""}</div>`:""}</span></label>` }).join("")}</div>
       <div class="m" style="margin:4px 0 8px">Готово: ${need.filter((n,i)=>(t.checks||{})[i]).length} з ${need.length}</div>`:""}
-    <button class="btn ghost" id="tzDocs" style="width:100%;margin-bottom:8px">📄 Згенерувати довідки (Word): ст. 17, працівники, техніка, аналогічні, цінова, реквізити</button>
+    <button class="btn" id="tzPack" style="width:100%;margin-bottom:6px">📦 Зібрати повний пакет документів (ШІ підбере договори)</button>
+    <button class="btn ghost" id="tzDocs" style="width:100%;margin-bottom:8px">📄 Лише довідки (Word)</button>
     <div class="section-t">💰 Кошторис і ціна</div>
     ${t.kpId?`<div class="card" style="display:block;cursor:default;margin-bottom:6px"><div style="display:flex"><span style="flex:1">Наш кошторис (КП)</span><b>${money(t.kpTotal||0)}</b></div>
       ${cost!=null?`<div class="m">собівартість ≈ ${money(cost)} (роботи людям −40% + матеріали) · прибуток ≈ <b>${money((price||t.kpTotal)-cost)}</b></div>`:""}
@@ -692,7 +733,7 @@ function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map())
     <div class="actions">${S.canWrite?`<button class="btn danger" id="tzDel">Видалити</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
   $("#tzCopy").onclick=()=>{ try{ navigator.clipboard.writeText(t.tid||""); toast("Номер скопійовано — вставте в пошук SmartTender") }catch(_){ toast(t.tid) } };
   $("#tzEd")?.addEventListener("click",()=>tzEdit(t));
-  $("#tzDocs")?.addEventListener("click",()=>tzDocs(t));
+  $("#tzDocs")?.addEventListener("click",()=>tzDocs(t)); $("#tzPack")?.addEventListener("click",()=>tzPack(t));
   $("#tzFop")?.addEventListener("change",async e=>{ if(await tzSave(t,{fop:e.target.value})){ closeSheet(); tzView(t); renderTenders() } });
   $("#tzStage").onclick=async e=>{ const b=e.target.closest("[data-tzs]"); if(!b||!S.canWrite) return; if(await tzSave(t,{stage:b.dataset.tzs})){ closeSheet(); tzView(t); renderTenders() } };
   document.querySelectorAll("[data-tzc]").forEach(c=>c.onchange=async()=>{ const ch={...(t.checks||{})}; ch[c.dataset.tzc]=c.checked; await tzSave(t,{checks:ch}); });
