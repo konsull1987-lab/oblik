@@ -449,29 +449,37 @@ function renderTenders(){
   h+=`<div class="list">`+l.map(t=>{ const st=TZ_STAGES.find(x=>x[0]===(t.stage||"work"));
     return `<div class="card" data-tz="${t.id}" style="display:block"><div style="display:flex;gap:8px"><div class="t" style="flex:1">${esc(t.title||t.tid)}</div><b style="white-space:nowrap">${t.value?money(t.value):""}</b></div>
       <div class="m">${esc(t.buyer||"")}${t.locality?` · ${esc(t.locality)}${t.km!=null?` (${t.km} км)`:""}`:""}</div>
-      <div class="m">${st?st[1]:""}${t.tEnd&&mode==="work"?` · подати до ${tzWhen(t.tEnd)} — ${tzLeft(t.tEnd)}`:""}${t.kpTotal?` · наша ціна ${money(+t.ourPrice||t.kpTotal)}`:""}${t.analysis?" · 🤖":""}</div></div>` }).join("")+`</div>`;
+      <div class="m">${t.fop?`👤 ${esc(fopShort(t.fop))} · `:""}${st?st[1]:""}${t.tEnd&&mode==="work"?` · подати до ${tzWhen(t.tEnd)} — ${tzLeft(t.tEnd)}`:""}${t.kpTotal?` · наша ціна ${money(+t.ourPrice||t.kpTotal)}`:""}${t.analysis?" · 🤖":""}</div></div>` }).join("")+`</div>`;
   $("#view").innerHTML=h; bindTenders() }
 function bindTenders(){
   $("#tzSeg")?.addEventListener("click",e=>{ const b=e.target.closest("[data-tzm]"); if(b){ S.tzMode=b.dataset.tzm; renderTenders() } });
   $("#tzAdd")?.addEventListener("click",()=>tzAddForm());
   $("#view").querySelectorAll("[data-tz]").forEach(el=>el.addEventListener("click",()=>tzView(S.tz.get(el.dataset.tz))));
-  $("#fdAdd")?.addEventListener("click",()=>firmDocForm());
+  $("#fdAdd")?.addEventListener("click",()=>firmDocForm({fop:S.fdFop==="*"?"":S.fdFop}));
+  $("#fdMulti")?.addEventListener("change",async e=>{ const fl=[...e.target.files]; if(!fl.length) return; toast(`⏳ Завантажую ${fl.length}…`); let n=0;
+    for(const f of fl){ try{ const sv=await saveFile(f); const data={title:f.name.replace(/\.[^.]+$/,""),fop:S.fdFop==="*"?"":S.fdFop,until:"",note:"",fileId:sv.id,fileName:f.name,updatedAt:Date.now()}; let id="";
+      if(await write(async db=>{ const r=await db.collection("firmdocs").add(data); id=r.id })&&id){ S.fd.set(id,{id,...data}); n++ } }catch(_){} }
+    toast(`Додано документів: ${n}. Натисніть на документ, щоб вказати строк дії`); renderTenders() });
+  $("#fdSeg")?.addEventListener("click",e=>{ const b=e.target.closest("[data-fdf]"); if(b){ S.fdFop=b.dataset.fdf; renderTenders() } });
   $("#view").querySelectorAll("[data-fd]").forEach(el=>el.addEventListener("click",e=>{ if(e.target.closest("[data-fdo]")) return; firmDocForm(S.fd.get(el.dataset.fd)) }));
   $("#view").querySelectorAll("[data-fdo]").forEach(el=>el.addEventListener("click",e=>{ e.stopPropagation(); openFile(el.dataset.fdo) }));
 }
 function tzAddForm(pre){
   openSheet(`<h2>➕ Тендер</h2><div class="field"><label>Номер UA-… або посилання з Prozorro / SmartTender</label><input id="tzIn" value="${esc(pre||"")}" placeholder="UA-2026-11-18-000123-a"></div>
+    ${tzFops().length?`<div class="field"><label>Учасник</label><select id="tzInF">${tzFops().map(f=>`<option value="${f.id}" ${S.tzLastFop===f.id?"selected":""}>${esc(f.name)}</option>`).join("")}</select></div>`:""}
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Застосунок підтягне назву, замовника, суму і строки. Документацію (ТЗ, кошторис, вимоги) додасте файлами з SmartTender — ШІ її розбере.</div>
     <button class="btn" id="tzGo" style="width:100%">Додати</button><div class="actions"><button class="btn ghost" data-close>Скасувати</button></div>`);
   $("#tzGo").onclick=async()=>{ const v=$("#tzIn").value.trim(); if(!v){ toast("Вставте номер або посилання"); return } const b=$("#tzGo"); b.disabled=true; b.textContent="⏳ Шукаю тендер…";
     try{ await loadTenders(); const d=await tzFetch(v); if([...S.tz.values()].some(t=>t.tid&&t.tid===d.tid)){ toast("Цей тендер уже є"); b.disabled=false; b.textContent="Додати"; return }
       if(d.locality){ const g=await tzGeo(d.locality); d.km=tzKm(g) }
-      const data={...d,stage:"work",createdAt:Date.now(),updatedAt:Date.now(),checks:{},note:"",by:window.__fbEmail||""}; let id="";
+      const fop=$("#tzInF")?.value||""; S.tzLastFop=fop; const data={...d,fop,stage:"work",createdAt:Date.now(),updatedAt:Date.now(),checks:{},note:"",by:window.__fbEmail||""}; let id="";
       if(await write(async db=>{ const r=await db.collection("tenders").add(data); id=r.id })&&id){ S.tz.set(id,{id,...data}); closeSheet(); renderTenders(); tzView(S.tz.get(id));
         if(d.manual) toast(d.title?"Дані знайдено через пошук — перевірте суму й строки":"Дані не знайшлись автоматично — впишіть вручну") }
       else { b.disabled=false; b.textContent="Додати" } }catch(e){ b.disabled=false; b.textContent="Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,80)) } } }
 async function tzSave(t,upd){ upd.updatedAt=Date.now(); if(await write(db=>db.doc("tenders/"+t.id).update(upd))){ Object.assign(t,upd); return true } return false }
-function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map()).values()];
+const tzFops=()=>[...S.fops.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name),"uk"));
+const fopShort=id=>{ const f=S.fops.get(id); return f?(f.short||String(f.name||"").replace(/^ФОП\s*/i,"").split(/\s+/)[0]):"" };
+function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map()).values()].filter(f=>!f.fop||!t.fop||f.fop===t.fop);
   const need=(a?.docsNeeded||[]), haveFd=n=>{ const w=normW(n).split(" ").filter(x=>x.length>3); return fds.find(f=>{ const ft=normW(f.title); return w.filter(x=>ft.includes(x.slice(0,6))).length>=Math.min(2,w.length) }) };
   const cost=t.kpWorks!=null?Math.round((+t.kpWorks||0)*0.6+(+t.kpMats||0)):null, price=+t.ourPrice||+t.kpTotal||0;
   openSheet(`<h2>🏛️ ${esc(t.tid||"Тендер")}</h2>
@@ -484,6 +492,7 @@ function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map())
       ${t.auction?`<div style="display:flex"><span style="flex:1">Аукціон</span><span>${tzWhen(t.auction)}</span></div>`:""}
       ${t.guarantee?`<div style="display:flex"><span style="flex:1">Забезпечення</span><span>${money(t.guarantee)}</span></div>`:""}
       <div class="row" style="margin-top:6px"><a class="btn ghost sm" style="flex:1;text-align:center" href="https://prozorro.gov.ua/tender/${esc(t.tid||"")}" target="_blank">🔗 Prozorro</a><button type="button" class="btn ghost sm" id="tzCopy" style="flex:1">📋 Копіювати номер</button>${S.canWrite?`<button type="button" class="btn ghost sm" id="tzEd" style="flex:1">✏️ Дані</button>`:""}</div></div>
+    <div class="field"><label>Учасник (від кого подаємось)</label>${tzFops().length?`<select id="tzFop" ${S.canWrite?"":"disabled"}><option value="">— не вибрано —</option>${tzFops().map(f=>`<option value="${f.id}" ${t.fop===f.id?"selected":""}>${esc(f.name)}</option>`).join("")}</select>`:`<div class="m">Додайте ФОПи: «Гроші» → «Рахунки» → «ФОПи».</div>`}</div>
     <div class="seg" id="tzStage" style="margin-bottom:8px;flex-wrap:wrap">${TZ_STAGES.map(([k,l])=>`<button type="button" data-tzs="${k}" class="${(t.stage||"work")===k?"on":""}">${l}</button>`).join("")}</div>
     <div class="section-t">🤖 Документація і аналіз</div>
     ${(t.docs||[]).length?`<div class="m" style="font-size:12.5px;margin-bottom:4px">Документів у Prozorro: ${t.docs.length}</div>`:""}
@@ -509,6 +518,7 @@ function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map())
     <div class="actions">${S.canWrite?`<button class="btn danger" id="tzDel">Видалити</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
   $("#tzCopy").onclick=()=>{ try{ navigator.clipboard.writeText(t.tid||""); toast("Номер скопійовано — вставте в пошук SmartTender") }catch(_){ toast(t.tid) } };
   $("#tzEd")?.addEventListener("click",()=>tzEdit(t));
+  $("#tzFop")?.addEventListener("change",async e=>{ if(await tzSave(t,{fop:e.target.value})){ closeSheet(); tzView(t); renderTenders() } });
   $("#tzStage").onclick=async e=>{ const b=e.target.closest("[data-tzs]"); if(!b||!S.canWrite) return; if(await tzSave(t,{stage:b.dataset.tzs})){ closeSheet(); tzView(t); renderTenders() } };
   document.querySelectorAll("[data-tzc]").forEach(c=>c.onchange=async()=>{ const ch={...(t.checks||{})}; ch[c.dataset.tzc]=c.checked; await tzSave(t,{checks:ch}); });
   document.querySelectorAll("[data-tzf]").forEach(el=>el.onclick=()=>openFile(el.dataset.tzf));
@@ -542,7 +552,7 @@ async function tzAnalyze(t){ if(!window.__fbAI){ toast("ШІ недоступн�
     for(const d of pzDocs){ try{ const r=await fetch(d.url); if(!r.ok) throw 0; const bl=await r.blob(); const p=await docParts(new File([bl],d.t||"doc",{type:d.f||bl.type})); parts.push({text:"=== Документ Prozorro: "+d.t}); parts.push(...p); fromPz++ }catch(_){ fail++ } }
     if(!parts.length&&!(t.items||[]).length) throw new Error(fail?"не вдалося завантажити документи з Prozorro — додайте файли вручну (📎)":"додайте файли документації (📎)");
     parts.unshift({text:`Тендер ${t.tid}: ${t.title}. Замовник: ${t.buyer}, ${t.locality}. Очікувана вартість ${t.value} грн.${(t.items||[]).length?"\nПозиції з Prozorro:\n"+t.items.map(i=>`${i.d} — ${i.q} ${i.u}`).join("\n"):""}`});
-    const prompt=`Ти — тендерний менеджер будівельної фірми (Полтава), учасник — ФОП Станкевич. Проаналізуй тендерну документацію Prozorro. Відповідь — лише JSON:
+    const prompt=`Ти — тендерний менеджер будівельної фірми (Полтава), учасник — ${S.fops.get(t.fop)?.name||"ФОП (фізична особа-підприємець)"}. Проаналізуй тендерну документацію Prozorro. Відповідь — лише JSON:
 {"summary":"2-3 речення: що треба зробити, де, обсяг","duration":"строк виконання","payment":"умови оплати (аванс/після актів)","works":[{"name":"робота або матеріал коротко","qty":0,"unit":"м²"}],"requirements":["кваліфікаційні вимоги: досвід, аналогічні договори, техніка, працівники, ліцензії, забезпечення"],"docsNeeded":["кожен документ, який треба завантажити учаснику (довідки, листи, кошторис, договір, гарантія тощо) — окремим пунктом, коротко"],"risks":["що може стати проблемою для ФОП, жорсткі штрафи, короткі строки, нереальні обсяги, вимоги під конкретного учасника"]}
 works — обсяги з кошторису / відомості обсягів / ТЗ (до 80 найважливіших позицій), назви як у будівельному прайсі. Якщо чогось немає в документах — порожній масив.`;
     const j=JSON.parse(String(await window.__fbAI(parts,prompt)).replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1")); clearInterval(tk);
@@ -550,20 +560,23 @@ works — обсяги з кошторису / відомості обсягів
     if(await tzSave(t,{analysis:an,checks:{}})){ toast(`Аналіз готовий${fromPz?` (документів Prozorro: ${fromPz})`:""}${fail?` · не відкрилось: ${fail}`:""}`); closeSheet(); tzView(t) }
   }catch(e){ clearInterval(tk); const x=$("#tzAn"); if(x){ x.disabled=false; x.textContent="🤖 Спробувати ще раз" } toast("Не вдалося: "+String(e?.message||e).slice(0,100)) } }
 // 📁 Документи фірми (для всіх тендерів)
-function firmDocsHTML(){ const l=[...S.fd.values()].sort((a,b)=>String(a.title).localeCompare(String(b.title),"uk"));
-  return `${S.canWrite?`<button class="btn" id="fdAdd" style="width:100%;margin-bottom:8px">➕ Документ фірми</button>`:""}
-    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Постійні документи ФОП Станкевич для тендерів: виписка, довідки, аналогічні договори з відгуками, техніка, працівники. З ними звіряється чекліст кожного тендера; за 14 днів до кінця строку дії — попередження.</div>
+function firmDocsHTML(){ const fl=tzFops(); if(S.fdFop===undefined) S.fdFop=fl[0]?.id||"";
+  const l=[...S.fd.values()].filter(f=>S.fdFop==="*"?!f.fop:(f.fop===S.fdFop)).sort((a,b)=>String(a.title).localeCompare(String(b.title),"uk")), warn=id=>[...S.fd.values()].filter(f=>(id==="*"?!f.fop:f.fop===id)&&f.until&&tzDays(f.until+"T23:59")<=14).length;
+  return `<div class="seg" id="fdSeg" style="margin-bottom:8px;flex-wrap:wrap">${fl.map(f=>`<button type="button" data-fdf="${f.id}" class="${S.fdFop===f.id?"on":""}">👤 ${esc(fopShort(f.id))}${warn(f.id)?` ⚠️${warn(f.id)}`:""}</button>`).join("")}<button type="button" data-fdf="*" class="${S.fdFop==="*"?"on":""}">🗂 Спільні${warn("*")?` ⚠️${warn("*")}`:""}</button></div>
+    ${!fl.length?`<div class="banner" style="margin-bottom:8px">Додайте учасників-ФОПів: «Гроші» → «Рахунки» → «ФОПи» (Андрій, Сергій).</div>`:""}
+    ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn" id="fdAdd" style="flex:1">➕ Документ ${S.fdFop==="*"?"(спільний)":"— "+esc(fopShort(S.fdFop))}</button><label class="btn ghost" style="flex:1;text-align:center">📚 Кілька файлів<input type="file" id="fdMulti" multiple accept="application/*,text/*,image/*" style="display:none"></label></div>`:""}
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Документи кожного учасника: виписка, довідки, аналогічні договори з відгуками, техніка, працівники. «Спільні» — те, що підходить обом (техніка, кошториси-зразки). Чекліст тендера звіряється з документами вибраного учасника; за 14 днів до кінця строку — попередження.</div>
     ${l.length?`<div class="list">${l.map(f=>{ const d=f.until?tzDays(f.until+"T23:59"):null;
       return `<div class="card" data-fd="${f.id}"><div class="main"><div class="t">${esc(f.title)}</div><div class="m">${f.until?(d<0?`<b style="color:var(--red,#e5534b)">⚠️ прострочений з ${fmtDay(f.until)}</b>`:d<=14?`<b style="color:var(--accent)">діє до ${fmtDay(f.until)} — ${d} дн.</b>`:`діє до ${fmtDay(f.until)}`):"безстроковий"}${f.note?" · "+esc(f.note):""}</div></div>${f.fileId?`<button class="btn ghost sm" data-fdo="${f.fileId}">📂</button>`:""}</div>` }).join("")}</div>`:`<div class="empty">Документів ще немає.</div>`}` }
-function firmDocForm(f){ f=f||{}; let file=null;
+function firmDocForm(f){ f=f||{}; let file=null; const fl=tzFops();
   openSheet(`<h2>📁 ${f.id?"Документ фірми":"Новий документ фірми"}</h2><div class="field"><label>Назва</label><input id="fdT" value="${esc(f.title||"")}" placeholder="Довідка про відсутність заборгованості з податків"></div>
-    <div class="row"><div class="field"><label>Діє до (необов'язково)</label><input id="fdU" type="date" value="${f.until||""}"></div></div>
+    <div class="row"><div class="field"><label>Учасник</label><select id="fdP">${fl.map(x=>`<option value="${x.id}" ${f.fop===x.id?"selected":""}>${esc(fopShort(x.id))}</option>`).join("")}<option value="" ${!f.fop?"selected":""}>🗂 Спільний</option></select></div><div class="field"><label>Діє до (необов'язково)</label><input id="fdU" type="date" value="${f.until||""}"></div></div>
     <div class="field"><label>Примітка</label><input id="fdN" value="${esc(f.note||"")}"></div>
     <label class="btn ghost" style="display:block;text-align:center;margin-bottom:8px"><span id="fdFl">${f.fileId?"📎 Замінити файл":"📎 Вибрати файл"}</span><input type="file" id="fdF" accept="application/*,text/*,image/*" style="display:none"></label>
     <div class="actions">${f.id?`<button class="btn danger" id="fdDel">Видалити</button>`:""}<button class="btn ghost" data-close>Скасувати</button><button class="btn" id="fdOk">Зберегти</button></div>`);
   $("#fdF").onchange=e=>{ file=e.target.files[0]; if(file){ $("#fdFl").textContent="📎 "+file.name; if(!$("#fdT").value) $("#fdT").value=file.name.replace(/\.[^.]+$/,"") } };
   $("#fdOk").onclick=async()=>{ const title=$("#fdT").value.trim(); if(!title){ toast("Вкажіть назву"); return } const b=$("#fdOk"); b.disabled=true;
-    const data={title,until:$("#fdU").value||"",note:$("#fdN").value.trim(),fileId:f.fileId||"",updatedAt:Date.now()};
+    const data={title,fop:$("#fdP").value||"",until:$("#fdU").value||"",note:$("#fdN").value.trim(),fileId:f.fileId||"",fileName:f.fileName||"",updatedAt:Date.now()};
     if(file){ try{ const sv=await saveFile(file); data.fileId=sv.id; data.fileName=file.name }catch(e){ toast("Файл не збережено"); b.disabled=false; return } }
     let id=f.id; if(await write(async db=>{ if(id) await db.doc("firmdocs/"+id).set(data); else { const r=await db.collection("firmdocs").add(data); id=r.id } })){ S.fd.set(id,{id,...data}); closeSheet(); renderTenders() } else b.disabled=false };
   $("#fdDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити документ?")) return; if(await write(db=>db.doc("firmdocs/"+f.id).delete())){ S.fd.delete(f.id); closeSheet(); renderTenders() } });
