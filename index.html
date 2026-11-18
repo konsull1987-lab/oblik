@@ -2212,13 +2212,14 @@ function finForm(f,preset){
   const setMode=m=>{mode=m;[...$("#segM").children].forEach(x=>x.classList.toggle("on",x.dataset.v===m));document.querySelectorAll("#finForm [data-m]").forEach(el=>el.style.display=el.dataset.m.split(" ").includes(m)?"":"none");$("#ownLbl").textContent=m==="in"?"Хто отримав":"Хто заплатив";$("#wLbl").textContent=m==="accrual"?"Кому нараховано *":"Виконавець"};
   setMode(mode); $("#accPay")?.addEventListener("change",e=>{ $("#accPayOwn").style.display=e.target.checked?"":"none"; debtInfo() });
   // 👷 борг перед людиною: щоб не нарахувати вдруге, коли хотіли просто заплатити
-  const wDebt=(wid,sid)=>{ let acc=0,paid=0,sa=0,sp=0; for(const x of S.fin.values()){ if(x.worker!==wid||x.id===f.id) continue; const a=+x.amount||0;
-      if(x.type==="accrual"){ acc+=a; if(sid&&x.site===sid) sa+=a } else if(x.type==="out"&&!isHelperPay(x)){ paid+=a; if(sid&&x.site===sid) sp+=a } }
-    return {debt:Math.round(acc-paid),sa,sp} };
+  const wDebt=(wid,sid)=>{ let acc=0,paid=0,sa=0,sp=0; const by={}; for(const x of S.fin.values()){ if(x.worker!==wid||x.id===f.id) continue; const a=+x.amount||0, k=x.site||"";
+      if(x.type==="accrual"){ acc+=a; by[k]=(by[k]||0)+a; if(sid&&x.site===sid) sa+=a } else if(x.type==="out"&&!isHelperPay(x)){ paid+=a; by[k]=(by[k]||0)-a; if(sid&&x.site===sid) sp+=a } }
+    const other=Object.entries(by).filter(([k,v])=>k!==sid&&Math.round(v)!==0).map(([k,v])=>`${k?"«"+esc(site(k)?.name||"?")+"»":"без об'єкта"} ${v>0?"":"переплата "}${money(Math.abs(v))}`);
+    return {debt:Math.round(acc-paid),sa,sp,other} };
   const debtInfo=()=>{ const box=$("#wDebt"); if(!box) return; const wid=$("#finForm [name=worker]")?.value, sid=$("#finForm [name=site]")?.value||"", p=person(wid);
     if(!wid||!p||p.helper||(mode!=="accrual"&&!(mode==="out"&&$("#finForm [name=kind]")?.value==="Зарплата"))){ box.innerHTML=""; return }
     const d=wDebt(wid,sid), a=sumExpr($("#finForm [name=amount]").value)||0, st=site(sid);
-    const line=`${esc(p.name)} — ${d.debt>0?`борг: <b>${money(d.debt)}</b>`:d.debt<0?`переплата: <b>${money(-d.debt)}</b>`:"розраховані"}${st&&(d.sa||d.sp)?`<br>на «${esc(st.name)}»: робіт на ${money(d.sa)}, оплачено ${money(d.sp)}`:""}`;
+    const line=`${esc(p.name)} — ${d.debt>0?`борг: <b>${money(d.debt)}</b>`:d.debt<0?`переплата: <b>${money(-d.debt)}</b>`:"розраховані"}${st&&(d.sa||d.sp)?`<br>на «${esc(st.name)}»: робіт на ${money(d.sa)}, оплачено ${money(d.sp)}`:""}${d.other.length?`<br>решта боргу: ${d.other.join(", ")}`:""}`;
     if(mode==="accrual"){ const pay=$("#accPay")?.checked;
       box.innerHTML=`<div class="banner" style="margin-bottom:8px;${d.debt>0?"background:#5a3b00;color:#ffd58a":""}">${line}${a>0?`<br>Після збереження: ${pay?`нова робота на ${money(a)} і одразу її оплата — борг <b>${money(d.debt)}</b> НЕ зменшиться`:`борг стане <b>${money(d.debt+a)}</b>`}`:""}
         ${d.debt>0?`<br>⚠️ Якщо ви <b>віддаєте гроші за вже нараховане</b> — це не нарахування. <a href="#" id="toPay" onclick="return false"><b>💵 Записати як виплату боргу →</b></a>`:""}</div>` }
