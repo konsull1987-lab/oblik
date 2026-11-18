@@ -2220,8 +2220,8 @@ function finForm(f,preset){
     const d=wDebt(wid,sid), a=sumExpr($("#finForm [name=amount]").value)||0, st=site(sid);
     const line=`${esc(p.name)}: ${d.debt>0?`ми винні <b>${money(d.debt)}</b>`:d.debt<0?`переплата <b>${money(-d.debt)}</b>`:"розраховані"}${st&&(d.sa||d.sp)?` · по «${esc(st.name)}» нараховано ${money(d.sa)}, виплачено ${money(d.sp)}`:""}`;
     if(mode==="accrual"){ const pay=$("#accPay")?.checked;
-      box.innerHTML=`<div class="banner" style="margin-bottom:8px;${d.debt>0&&!pay?"background:#5a3b00;color:#ffd58a":""}">${line}${a>0?`<br>Після збереження: ${pay?`нарахування і виплата ${money(a)} — борг не зміниться`:`борг стане <b>${money(d.debt+a)}</b>`}`:""}
-        ${d.debt>0&&!pay?`<br>⚠️ Якщо ви <b>платите</b> з уже нарахованого — це не нове нарахування. <a href="#" id="toPay" onclick="return false"><b>💵 Записати як виплату →</b></a>`:""}</div>` }
+      box.innerHTML=`<div class="banner" style="margin-bottom:8px;${d.debt>0?"background:#5a3b00;color:#ffd58a":""}">${line}${a>0?`<br>Після збереження: ${pay?`нова робота на ${money(a)} і одразу її оплата — борг <b>${money(d.debt)}</b> НЕ зменшиться`:`борг стане <b>${money(d.debt+a)}</b>`}`:""}
+        ${d.debt>0?`<br>⚠️ Якщо ви <b>віддаєте гроші за вже нараховане</b> — це не нарахування. <a href="#" id="toPay" onclick="return false"><b>💵 Записати як виплату боргу →</b></a>`:""}</div>` }
     else box.innerHTML=`<div class="banner" style="margin-bottom:8px">${line}${a>0?`<br>Після виплати ${money(a)}: ${d.debt-a>0?`залишимо винні <b>${money(d.debt-a)}</b>`:d.debt-a<0?`<b>переплата ${money(a-d.debt)}</b> (аванс наперед)`:"розраховані повністю ✅"}`:""}</div>`;
     $("#toPay")?.addEventListener("click",()=>{ setMode("out"); const k=$("#finForm [name=kind]"); if(k) k.value="Зарплата"; debtInfo() }) };
   ["worker","site","kind"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",debtInfo)); $("#finForm [name=amount]").addEventListener("input",debtInfo);
@@ -2298,7 +2298,7 @@ function finForm(f,preset){
       if(!v.worker){toast("Виберіть виконавця");btn.disabled=false;return}
       const data={...base,type:"accrual",owner:"",site:v.site||"",kind:"",worker:v.worker,createdAt:f.createdAt||now};
       if(f.report) data.report={...f.report,items:repItems?repItems.filter(it=>it.name):f.report.items}; if(f.receipt) data.receipt=f.receipt;
-      if(isNew&&!$("#accPay")?.checked){ const d=wDebt(v.worker,v.site||""); if(d.debt>0&&!confirm(`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота і борг має зрости до ${money(d.debt+amount)}?\n\n«Скасувати» — якщо ви хотіли просто заплатити (тоді натисніть «💵 Записати як виплату»).`)){ btn.disabled=false; return } }
+      if(isNew){ const d=wDebt(v.worker,v.site||""), pay=$("#accPay")?.checked; if(d.debt>0&&!confirm(pay?`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота на ${money(amount)}, яку ви одразу оплачуєте? Старий борг ${money(d.debt)} при цьому НЕ зменшиться.\n\n«Скасувати» — якщо ви віддаєте гроші за вже нараховане (натисніть «💵 Записати як виплату боргу»).`:`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота і борг має зрости до ${money(d.debt+amount)}?\n\n«Скасувати» — якщо ви хотіли просто заплатити (натисніть «💵 Записати як виплату боргу»).`)){ btn.disabled=false; return } }
       const payNow=isNew&&$("#accPay")?.checked&&!person(v.worker)?.helper, payOwn=$("#accOwn")?.value||myOwner()||owners()[0]?.id;
       ok=await write(async db=>{
         if(isNew){ await db.collection("fin").add(data);
