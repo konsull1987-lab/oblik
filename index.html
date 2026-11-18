@@ -1216,7 +1216,7 @@ function boughtSheet(groups,back){ if(!groups.length) return;
   let rcFile=null;
   const draw=()=>{ openSheet(`<h2>🧾 Купив</h2><div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Вкажіть скільки купили і <b>реальну ціну з чека</b> (сіра — лише орієнтир з прайсу, не рахується). Або впишіть одразу суму чека. По кожному об'єкту запишеться витрата «Матеріали», а позиції позначаться привезеними.</div>
     ${groups.map(g=>`<div class="section-t">📍 ${esc(g.site.name)}<span class="count" data-gs="${g.site.id}"></span></div><div class="row" style="align-items:center;margin-bottom:6px"><span class="m" style="flex:1">Сума чека по об'єкту, ₴</span><input data-gt="${g.site.id}" inputmode="decimal" placeholder="або по позиціях" style="width:130px;text-align:center"></div>${rows.map((r,ri)=>r.g!==g?"":`<div class="card" style="display:block;cursor:default;margin-bottom:6px"><div style="margin-bottom:4px">${esc(r.x.n.name)}${r.x.mat?"":` <span class="tag">інструмент</span>`}</div>
-      <div class="row" style="align-items:center;gap:6px"><input data-bq="${ri}" inputmode="decimal" value="${r.qty}" style="width:70px;text-align:center"><span class="m">${esc(r.x.mat?(r.x.n.unit||"шт"):"шт")} ×</span><input data-bp="${ri}" inputmode="decimal" placeholder="${r.hint?"≈"+r.hint:"ціна"}" value="${r.price}" style="width:90px;text-align:center" title="Реальна ціна з чека"><span class="m">₴ =</span><b data-bs="${ri}"></b></div></div>`).join("")}`).join("")}
+      <div class="row" style="align-items:center;gap:6px"><input data-bq="${ri}" inputmode="decimal" value="${r.qty}" style="width:70px;text-align:center"><span class="m">${esc(r.x.mat?(r.x.n.unit||"шт"):"шт")} ×</span><input data-bp="${ri}" inputmode="decimal" placeholder="${r.hint?"≈"+r.hint:"ціна"}" value="${r.price}" style="width:90px;text-align:center" title="Реальна ціна з чека"><span class="m">₴ =</span><b data-bs="${ri}"></b></div>${r.x.mat?`<button type="button" class="btn ${r.sync?"":"ghost "}sm" data-bsy="${ri}" style="margin-top:6px" title="Записати цю ціну з чека у ваш прайс матеріалів">${r.sync?"✅ Ціна піде в прайс":"📌 Ціну — у мій прайс"}${r.hint?` <span style="opacity:.7">(зараз ${money(r.hint)})</span>`:""}</button>`:""}</div>`).join("")}`).join("")}
     <div class="sum">Разом: <b id="bTot"></b></div>
     <div class="field"><label>Хто платив</label><select id="bOwn">${owners().map(o=>`<option value="${o.id}" ${o.id===(myOwner()||owners()[0]?.id)?"selected":""}>${esc(o.name)}</option>`).join("")}</select></div>
     <div class="field"><label>Магазин / примітка</label><input id="bNote" placeholder="напр. Епіцентр"></div>
@@ -1228,6 +1228,7 @@ function boughtSheet(groups,back){ if(!groups.length) return;
       $("#bTot").textContent=money(Math.round(tot)); for(const [k,v] of Object.entries(gs)){ const e=$(`[data-gs="${k}"]`); if(e) e.textContent=v?money(Math.round(v)):"" } };
     $("#modal").querySelectorAll("[data-bq]").forEach(i=>i.oninput=()=>{ rows[+i.dataset.bq].qty=i.value; upd() });
     $("#modal").querySelectorAll("[data-bp]").forEach(i=>i.oninput=()=>{ rows[+i.dataset.bp].price=i.value; upd() }); $("#modal").querySelectorAll("[data-gt]").forEach(i=>i.oninput=upd); upd();
+    $("#modal").querySelectorAll("[data-bsy]").forEach(b=>b.onclick=()=>{ const r=rows[+b.dataset.bsy]; r.sync=!r.sync; b.className="btn "+(r.sync?"":"ghost ")+"sm"; b.innerHTML=(r.sync?"✅ Ціна піде в прайс":"📌 Ціну — у мій прайс")+(r.hint?` <span style="opacity:.7">(зараз ${money(r.hint)})</span>`:"") });
     $("#bRc").onchange=e=>{ rcFile=e.target.files[0]||null; $("#bRcN").textContent=rcFile?"✅ "+rcFile.name:"" };
     $("#bBack").onclick=()=>back?back():closeSheet();
     $("#bSave").onclick=async()=>{ const num=v=>+String(v||"").replace(",",".")||0, by=new Map();
@@ -1249,7 +1250,14 @@ function boughtSheet(groups,back){ if(!groups.length) return;
             else { const t={name:n.name,cat:"Інше",brand:"",model:"",qty:Math.max(1,Math.round(num(r.qty))),holder:own,site:st.id,status:"ok",note:"Куплено "+fmtDay(date)+(num(r.price)?" за "+num(r.price)+" ₴":""),inv:"",serial:"",createdAt:now,updatedAt:now};
               await db.collection("tools").add(t); n.done=true } } }
         await db.doc("sites/"+st.id).update({needs:l}); st.needs=l } });
-      if(ok){ closeSheet(); toast(tot>0?"Витрату "+money(Math.round(tot))+" записано":"Позначено купленим"); render() } else { btn.disabled=false; btn.textContent="Записати витрату" } } };
+      let synced=0; if(ok){ const sy=rows.filter(r=>r.sync&&r.x.mat&&num(r.qty)>0).map(r=>{ const gr=by.get(r.g.site.id), gt=num($(`[data-gt="${r.g.site.id}"]`)?.value);
+          const pr=num(r.price)||(gt>0&&gr&&gr.l.length===1?gt/num(r.qty):0); return {r,pr:Math.round(pr*100)/100} }).filter(x=>x.pr>0);
+        if(sy.length){ await loadMatPricesP(); await new Promise(r=>loadMatCat(r)); const map={...(S.matprices||{})}, cat=[...matCat()]; let catCh=false;
+          for(const {r,pr} of sy){ const b=matBase(r.x.n.name), name=b?.name||r.x.n.name, unit=r.x.n.unit||b?.unit||"шт";
+            map[normName(name)]={price:pr,unit:normUnit(unit),src:"магазин "+fmtDay(todayISO()),at:Date.now(),title:note0||""};
+            if(!b){ cat.push({name,unit,cat:"Інше (додано з покупок)",alt:"",price:0}); catCh=true } synced++ }
+          if(await write(db=>db.doc("meta/matprices").set({map,updatedAt:Date.now()}))) S.matprices=map; if(catCh) await saveMatCat(cat) } }
+      if(ok){ closeSheet(); toast((tot>0?"Витрату "+money(Math.round(tot))+" записано":"Позначено купленим")+(synced?` · ${synced} цін → у прайс`:"")); render() } else { btn.disabled=false; btn.textContent="Записати витрату" } } };
   draw() }
 
 // ---------- 💲 Ціни матеріалів (Епіцентр) + 📄 список матеріалів ----------
@@ -2451,7 +2459,7 @@ function matPriceBadge(p){ if(!p) return `<span style="color:var(--red,#e5534b)"
 function renderMoneyMat(){
   if(!S.matcatLoaded||!S.mpLoaded){ $("#view").innerHTML=priceModeSeg()+`<div class="empty">Завантажую прайс матеріалів…</div>`; loadMatCat(()=>loadMatPrices(()=>{ if(S.mtab==="price"&&S.priceMode==="mat") renderMoneyMat() })); bindMatView(); return }
   const l=matCat().map((c,i)=>({...c,i,p:matPriceOf({name:c.name,unit:c.unit})})), q=(S.matQ||"").trim();
-  const web=l.filter(x=>x.p&&!x.p.base&&x.p.src!=="вручну").length, man=l.filter(x=>x.p&&x.p.src==="вручну").length;
+  const isMan=x=>x.p&&(x.p.src==="вручну"||String(x.p.src||"").startsWith("магазин")), web=l.filter(x=>x.p&&!x.p.base&&!isMan(x)).length, man=l.filter(isMan).length;
   const cats=[...new Set(l.map(x=>x.cat))]; const run=S.mpRun;
   let h=priceModeSeg()+`<input id="matQ" type="search" placeholder="Пошук матеріалу: клей, профіль, кабель…" value="${esc(S.matQ||"")}" style="margin-bottom:6px">
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">${l.length} матеріалів · 🌐 з інтернету: ${web} · ✏️ вручну: ${man} · решта ≈ орієнтовні (${MAT_BASE_DATE}). Натисніть на матеріал, щоб змінити ціну.</div>
