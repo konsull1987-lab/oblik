@@ -460,6 +460,7 @@ function bindTenders(){
     for(const f of fl){ try{ const sv=await saveFile(f); const data={title:f.name.replace(/\.[^.]+$/,""),fop:S.fdFop==="*"?"":S.fdFop,until:"",note:"",fileId:sv.id,fileName:f.name,updatedAt:Date.now()}; let id="";
       if(await write(async db=>{ const r=await db.collection("firmdocs").add(data); id=r.id })&&id){ S.fd.set(id,{id,...data}); n++ } }catch(_){} }
     toast(`Додано документів: ${n}. Натисніть на документ, щоб вказати строк дії`); renderTenders() });
+  $("#view").querySelectorAll("[data-fmerge]").forEach(a=>a.addEventListener("click",e=>{ e.preventDefault(); const arr=fopDups()[+a.dataset.fmerge]; if(arr) mergeFops(arr) }));
   $("#fdImp")?.addEventListener("change",e=>{ const f=e.target.files[0]; if(f) importPack(f) });
   $("#fdSeg")?.addEventListener("click",e=>{ const b=e.target.closest("[data-fdf]"); if(b){ S.fdFop=b.dataset.fdf; renderTenders() } });
   $("#view").querySelectorAll("[data-fd]").forEach(el=>el.addEventListener("click",e=>{ if(e.target.closest("[data-fdo]")) return; firmDocForm(S.fd.get(el.dataset.fd)) }));
@@ -562,13 +563,31 @@ works — обсяги з кошторису / відомості обсягів
   }catch(e){ clearInterval(tk); const x=$("#tzAn"); if(x){ x.disabled=false; x.textContent="🤖 Спробувати ще раз" } toast("Не вдалося: "+String(e?.message||e).slice(0,100)) } }
 // 📁 Документи фірми (для всіх тендерів)
 // 📥 імпорт підготовленого пакета (ФОПи, замовники, аналогічні договори) з JSON-файлу
+const fopKey=f=>{ const n=String(f.name||"").toLowerCase().replace(/фоп|«|»|"|'/g," ").replace(/ы/g,"и").replace(/[єё]/g,"е").replace(/і/g,"и").replace(/ї/g,"и").trim().split(/\s+/)[0]||""; return n.slice(0,5) };
+function fopDups(){ const l=[...S.fops.values()], g={}; for(const f of l){ const k=(f.edrpou&&String(f.edrpou).trim())||fopKey(f); if(!k) continue; (g[k]=g[k]||[]).push(f) }
+  // ще й за прізвищем, якщо в одного є код, а в іншого нема
+  const byName={}; for(const f of l){ const k=fopKey(f); if(k) (byName[k]=byName[k]||[]).push(f) }
+  const out=[]; const seen=new Set(); for(const arr of [...Object.values(g),...Object.values(byName)]) if(arr.length>1){ const key=arr.map(x=>x.id).sort().join(); if(!seen.has(key)){ seen.add(key); out.push(arr) } } return out }
+async function mergeFops(arr){ const score=f=>Object.values(f).filter(v=>v!==""&&v!=null).length; const keep=[...arr].sort((a,b)=>score(b)-score(a))[0], drop=arr.filter(f=>f.id!==keep.id);
+  if(!confirm(`Об'єднати ${arr.length} записи «${keep.name}» в один?\nУсі документи, рахунки, договори й тендери перейдуть на нього.`)) return;
+  const fill={}; for(const d of drop) for(const [k,v] of Object.entries(d)) if(k!=="id"&&v!==""&&v!=null&&(keep[k]===""||keep[k]==null)) fill[k]=v;
+  await loadTenders(); let offs=[]; try{ const sn=await S.db.collection(R("offers")).get(); offs=sn.docs.map(d=>({id:d.id,...d.data()})) }catch(_){}
+  const ids=new Set(drop.map(d=>d.id));
+  await write(async db=>{ if(Object.keys(fill).length){ await db.doc("fops/"+keep.id).update(fill); Object.assign(keep,fill) }
+    for(const x of S.docs.values()) if(ids.has(x.fop)){ await db.doc("docs/"+x.id).update({fop:keep.id}); x.fop=keep.id }
+    for(const x of S.contracts.values()) if(ids.has(x.fop)){ await db.doc("contracts/"+x.id).update({fop:keep.id}); x.fop=keep.id }
+    for(const x of S.fd.values()) if(ids.has(x.fop)){ await db.doc("firmdocs/"+x.id).update({fop:keep.id}); x.fop=keep.id }
+    for(const x of S.tz.values()) if(ids.has(x.fop)){ await db.doc("tenders/"+x.id).update({fop:keep.id}); x.fop=keep.id }
+    for(const x of offs) if(ids.has(x.fop)) await db.doc(R("offers")+"/"+x.id).update({fop:keep.id});
+    for(const d of drop){ await db.doc("fops/"+d.id).delete(); S.fops.delete(d.id) } });
+  if(S.fdFop&&ids.has(S.fdFop)) S.fdFop=keep.id; toast("✅ Об'єднано"); renderTenders() }
 async function importPack(file){ let d; try{ d=JSON.parse(await file.text()) }catch(_){ toast("Це не файл імпорту"); return } if(!d||!d.oblikImport){ toast("Це не файл імпорту «Облік»"); return }
-  await loadTenders(); const fopBy=m=>[...S.fops.values()].find(f=>String(f.name||"").includes(m)||String(f.short||"").includes(m));
+  await loadTenders(); const fopBy=(m,code)=>[...S.fops.values()].find(f=>(code&&String(f.edrpou||"").trim()===code)||fopKey(f)===fopKey({name:m})||String(f.name||"").includes(m)||String(f.short||"").includes(m));
   const nF=(d.fops||[]).length, nC=(d.clients||[]).filter(c=>![...S.clients.values()].some(x=>(c.edrpou&&x.edrpou===c.edrpou)||normW(x.name)===normW(c.name))).length, nD=(d.firmdocs||[]).filter(f=>![...S.fd.values()].some(x=>x.title===f.title)).length;
   if(!confirm(`Імпорт з «${d.source||file.name}»:\n• ФОПи (реквізити): ${nF} — оновити/додати\n• нових замовників: ${nC}\n• нових документів для тендерів: ${nD}\n\nПродовжити?`)) return;
   let ok=0; const F=(o,k)=>Object.fromEntries(Object.entries(o).filter(([key,v])=>!["match","check","fop","drive"].includes(key)&&v!==""));
   await write(async db=>{
-    for(const f of d.fops||[]){ const ex=fopBy(f.match||f.short||f.name), data=F(f); if(ex){ await db.doc("fops/"+ex.id).update(data); Object.assign(ex,data) } else { const r=await db.collection("fops").add({...data,createdAt:Date.now()}); S.fops.set(r.id,{id:r.id,...data}) } ok++ }
+    for(const f of d.fops||[]){ const ex=fopBy(f.match||f.short||f.name,f.edrpou), data=F(f); if(ex){ await db.doc("fops/"+ex.id).update(data); Object.assign(ex,data) } else { const r=await db.collection("fops").add({...data,createdAt:Date.now()}); S.fops.set(r.id,{id:r.id,...data}) } ok++ }
     for(const c of d.clients||[]){ const ex=[...S.clients.values()].find(x=>(c.edrpou&&x.edrpou===c.edrpou)||normW(x.name)===normW(c.name)); const data=F(c);
       if(ex){ const add=Object.fromEntries(Object.entries(data).filter(([k])=>!ex[k])); if(Object.keys(add).length){ await db.doc("clients/"+ex.id).update(add); Object.assign(ex,add) } } else { const r=await db.collection("clients").add({...data,createdAt:Date.now()}); S.clients.set(r.id,{id:r.id,...data}) } ok++ }
     for(const f of d.firmdocs||[]){ if([...S.fd.values()].some(x=>x.title===f.title)) continue; const fo=f.fop?fopBy(f.fop):null;
@@ -577,6 +596,7 @@ async function importPack(file){ let d; try{ d=JSON.parse(await file.text()) }ca
 function firmDocsHTML(){ const fl=tzFops(); if(S.fdFop===undefined) S.fdFop=fl[0]?.id||"";
   const l=[...S.fd.values()].filter(f=>S.fdFop==="*"?!f.fop:(f.fop===S.fdFop)).sort((a,b)=>String(a.title).localeCompare(String(b.title),"uk")), warn=id=>[...S.fd.values()].filter(f=>(id==="*"?!f.fop:f.fop===id)&&f.until&&tzDays(f.until+"T23:59")<=14).length;
   return `<div class="seg" id="fdSeg" style="margin-bottom:8px;flex-wrap:wrap">${fl.map(f=>`<button type="button" data-fdf="${f.id}" class="${S.fdFop===f.id?"on":""}">👤 ${esc(fopShort(f.id))}${warn(f.id)?` ⚠️${warn(f.id)}`:""}</button>`).join("")}<button type="button" data-fdf="*" class="${S.fdFop==="*"?"on":""}">🗂 Спільні${warn("*")?` ⚠️${warn("*")}`:""}</button></div>
+    ${fopDups().map((arr,i)=>`<div class="banner" style="margin-bottom:8px">⚠️ «${esc(arr[0].name)}» записаний ${arr.length} рази. <a href="#" data-fmerge="${i}" style="color:inherit;text-decoration:underline">Об'єднати</a></div>`).join("")}
     ${!fl.length?`<div class="banner" style="margin-bottom:8px">Додайте учасників-ФОПів: «Гроші» → «Рахунки» → «ФОПи» (Андрій, Сергій).</div>`:""}
     ${S.canWrite?`<div class="row" style="margin-bottom:8px"><button class="btn" id="fdAdd" style="flex:1">➕ Документ ${S.fdFop==="*"?"(спільний)":"— "+esc(fopShort(S.fdFop))}</button><label class="btn ghost" style="flex:1;text-align:center">📚 Кілька файлів<input type="file" id="fdMulti" multiple accept="application/*,text/*,image/*" style="display:none"></label></div><label class="m" style="display:block;text-align:center;font-size:12.5px;margin:-2px 0 8px;text-decoration:underline">📥 Імпорт пакета даних (.json)<input type="file" id="fdImp" accept="application/json,.json,text/*" style="display:none"></label>`:""}
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Документи кожного учасника: виписка, довідки, аналогічні договори з відгуками, техніка, працівники. «Спільні» — те, що підходить обом (техніка, кошториси-зразки). Чекліст тендера звіряється з документами вибраного учасника; за 14 днів до кінця строку — попередження.</div>
