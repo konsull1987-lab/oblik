@@ -921,7 +921,7 @@ function needsHTML(s){
         ${S.canWrite?`<button type="button" class="btn ghost sm" data-nkind="${i}" title="Змінити: інструмент / матеріал">${mat?"🧱 матеріал":"🧰 інструмент"} ⇄</button>`:""}
         ${mat&&S.canWrite?`<input data-npr="${i}" inputmode="decimal" placeholder="ціна ₴" value="${+n.price||""}" title="Ціна за ${esc(n.unit||"шт")} (вручну)" style="width:72px;text-align:center;padding:4px">`:""}
         <span class="m" style="font-size:12px;flex:1">${mat?(()=>{const p=matPriceOf(n);return p?`<span style="color:var(--muted)">≈ ${money(p.price)}/${esc(n.unit||"шт")} · ${money(Math.round(p.price*(+n.qty||1)))}${p.src==="орієнтовно"?" (орієнт.)":p.avg?(p.mode==="max"?" (макс.)":" (середня)"):""}</span>${p.title?`<div style="font-size:11px;color:var(--muted)">${esc(p.title)}</div>`:""} `:""})()+(n.done||have>=(+n.qty||1)?"привезено все":`${S.canWrite?`привезено <input data-ngot="${i}" inputmode="decimal" value="${+n.got||0}" style="width:52px;text-align:center;padding:4px">`:`привезено ${+n.got||0}`} · <b>бракує ${Math.round(((+n.qty||1)-have)*100)/100} ${esc(n.unit||"шт")}</b>${n.ordered?" · 🛒":""}`):(have?`є тут: ${have}`:n.ordered?"🛒 замовлено":"тут немає")}</span>
-        ${S.canWrite?`${mat?"":`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button>`}<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
+        ${S.canWrite?`${mat?(ok?"":`<button class="btn ghost sm" data-nbuy="${i}" title="Купив → витрата">🧾</button>`):`<button class="btn ghost sm" data-nlink="${i}" title="Вибрати з наявного тут">🔗</button>`}<button class="btn ghost sm" data-ndel="${i}" title="Прибрати">✕</button>`:""}</div>
       ${ok?(n.who&&person(n.who)?`<div class="m" style="font-size:12px;color:var(--muted)">🙋 віз: ${esc(person(n.who).name)}</div>`:""):`<div style="margin-top:4px">${n.who&&person(n.who)?`<button type="button" class="btn ${n.who===meId()?"":"ghost "}sm" data-nwho="${i}" title="Хто везе — змінити">🙋 Везе: ${esc(person(n.who).name)}</button>`:(S.canWrite?`<button type="button" class="btn ghost sm" data-nme="${i}" title="Я беру це на себе">✋ Я привезу</button> <button type="button" class="btn ghost sm" data-nwho="${i}" title="Призначити іншого">👤…</button>`:`<span class="m" style="font-size:12px;color:var(--muted)">ніхто не взявся</span>`)}</div>`}
       ${here.length&&!mat?`<div class="m" style="font-size:12px;color:var(--muted)">тут: ${esc(here.slice(0,3).join(", "))}</div>`:""}
       ${ok||mat?"":`<details style="margin-top:4px" open><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де взяти</summary>${whereHTML(whereIs({...n,need:1},s.id),s.id)}</details>`}</div>` };
@@ -938,6 +938,7 @@ function needsHTML(s){
     <div class="section-t" style="display:flex;margin-top:8px">🧱 Матеріали<span class="count">${cnt(mats)}</span></div>
     ${mats.map(([n,i])=>row(n,i)).join("")||`<div class="m" style="color:var(--muted);margin-bottom:6px">${l.some(isMat)?"Усе привезено ✅":"—"}</div>`}
     ${doneL.length?`<details style="margin:4px 0 10px"><summary class="m" style="cursor:pointer;font-size:13px">✅ Уже привезено (${doneL.length}) — історія</summary><div style="margin-top:6px">${doneL.map(([n,i])=>row(n,i)).join("")}</div></details>`:""}
+    ${S.canWrite&&(mats.length||tools.length)&&buyGroups(s.id).length?`<button class="btn sm" id="nBought" style="width:100%;margin-bottom:8px">🧾 Купив у магазині → витрата</button>`:""}
     ${l.some(isMat)?`<button class="btn ghost sm" id="nMatDoc" style="width:100%;margin-bottom:8px">📄 Список матеріалів (замовнику / менеджеру, з цінами)</button>`:""}
     ${S.canWrite?`${l.length&&window.__fbAI?`<button class="btn ghost sm" id="nAI" style="width:100%;margin-bottom:8px">🔄 Перевірити наявність</button>`:""}
       ${missT.length?`<button class="btn sm" id="nBring" style="width:100%;margin-bottom:8px">🚚 Завезти потрібний інструмент</button>`:""}
@@ -946,6 +947,8 @@ function bindNeeds(s){ loadToolCat(); loadMatCat(); loadMatPrices(()=>{ if(!S._m
   const box=$("#needsBox"); if(!box) return; const re=()=>{ box.innerHTML=needsHTML(s); bindNeeds(s) };
   const save=async l=>{ l=l.map(({_here,...x})=>x); if(await write(db=>db.doc("sites/"+s.id).update({needs:l}))){ s.needs=l; re() } };
   box.querySelectorAll("[data-wmv]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const ids=b.dataset.wmv.split(","); moveForm([ids[0]],{site:b.dataset.wto,back:()=>{ const st=S.sites.get(s.id); if(st){ S.siteTab="needs"; siteForm(st) } }}) });
+  $("#nBought")?.addEventListener("click",()=>buyList(s.id));
+  box.querySelectorAll("[data-nbuy]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.nbuy, g=buyGroups(s.id)[0], x=g?.l.find(x=>x.i===i); if(x) boughtSheet([{site:g.site,l:[x]}],()=>{ const st=S.sites.get(s.id); if(st){ S.siteTab="needs"; siteForm(st) } }) });
   box.querySelectorAll("[data-nwf]").forEach(b=>b.onclick=()=>{ S.needWho=b.dataset.nwf; re() });
   const setWho=(i,w)=>{ const l=s.needs.map(x=>({...x})); if(w) l[i].who=w; else delete l[i].who; save(l) };
   box.querySelectorAll("[data-nme]").forEach(b=>b.onclick=()=>{ const me=meId(); if(!me){ whoAmISheet(); return } setWho(+b.dataset.nme,me) });
@@ -1120,8 +1123,8 @@ function buyGroups(onlySite){
       const mat=n.kind==="material"; if(!mat&&whereIs({...n,need:1},st.id).length) return; // інструмент є десь — його везуть, а не купують
       l.push({site:st,i,n,mat,on:!n.ordered}) }); if(l.length) groups.push({site:st,l}) }
   return groups }
-function buyList(onlySite){
-  const groups=buyGroups(onlySite);
+function buyList(onlySite,onlyIdx){
+  const groups=buyGroups(onlySite); if(onlyIdx!=null) for(const g of groups) for(const x of g.l) x.on=x.i===onlyIdx;
   const text=()=>{ const g=groups.map(g=>({...g,l:g.l.filter(x=>x.on)})).filter(g=>g.l.length); if(!g.length) return "";
     return `Закупівля ${fmtDay(todayISO())}\n`+g.map(g=>`\n📍 ${g.site.name}:\n`+g.l.map(x=>`— ${x.n.name} — ${x.mat?Math.round(((+x.n.qty||1)-(+x.n.got||0))*100)/100:(+x.n.qty||1)} ${x.mat?(x.n.unit||"шт"):"шт"}${x.mat?"":" (інструмент)"}`).join("\n")).join("\n") };
   const draw=()=>{ const tot=groups.reduce((a,g)=>a+g.l.filter(x=>x.on).length,0);
@@ -1129,15 +1132,58 @@ function buyList(onlySite){
       <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Матеріали з «Потрібного» на об'єктах і інструмент, якого немає ніде в базі. Зніміть галочку з того, що не треба. Вже замовлене позначене 🛒.</div>
       ${groups.length?groups.map((g,gi)=>`<div class="section-t">📍 ${esc(g.site.name)}</div>${g.l.map((x,xi)=>`<label class="card" style="display:flex;gap:8px;align-items:center;margin-bottom:4px;${x.on?"":"opacity:.55"}"><input type="checkbox" data-b="${gi}_${xi}" ${x.on?"checked":""} style="width:20px;height:20px"><span style="flex:1">${esc(x.n.name)}${x.mat?"":` <span class="tag">інструмент</span>`}${x.n.ordered?` <span class="tag">🛒 замовлено</span>`:""}</span><b>${x.mat?Math.round(((+x.n.qty||1)-(+x.n.got||0))*100)/100:(+x.n.qty||1)} ${esc(x.mat?(x.n.unit||"шт"):"шт")}</b></label>`).join("")}`).join(""):`<div class="empty">Нічого купувати не треба ✅</div>`}
       ${tot?`<div class="actions"><button class="btn ghost" id="bCopy">📋 Скопіювати</button><button class="btn" id="bShare">📤 Надіслати</button></div>
-        ${S.canWrite?`<button class="btn ghost" id="bMark" style="width:100%;margin-top:6px">🛒 Позначити вибране як замовлене</button>`:""}`:""}
+        ${S.canWrite?`<button class="btn" id="bBought" style="width:100%;margin-top:6px">🧾 Купив вибране → записати витрату</button><button class="btn ghost" id="bMark" style="width:100%;margin-top:6px">🛒 Позначити вибране як замовлене</button>`:""}`:""}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     $("#modal").onchange=e=>{ const k=e.target.dataset.b; if(!k) return; const [g,x]=k.split("_").map(Number); groups[g].l[x].on=e.target.checked; draw() };
     $("#bCopy")?.addEventListener("click",async()=>{ try{ await navigator.clipboard.writeText(text()); toast("Скопійовано — вставте менеджеру") }catch(_){ toast("Не вдалося скопіювати") } });
     $("#bShare")?.addEventListener("click",async()=>{ const t=text(); try{ if(navigator.share){ await navigator.share({text:t}); return } }catch(e){ if(e?.name==="AbortError") return } location.href="https://t.me/share/url?url=%20&text="+encodeURIComponent(t) });
+    $("#bBought")?.addEventListener("click",()=>boughtSheet(groups.map(g=>({site:g.site,l:g.l.filter(x=>x.on)})).filter(g=>g.l.length),()=>buyList(onlySite)));
     $("#bMark")?.addEventListener("click",async()=>{ const by=new Map(); for(const g of groups) for(const x of g.l) if(x.on){ (by.get(g.site.id)||by.set(g.site.id,[]).get(g.site.id)).push(x.i) }
       const ok=await write(async db=>{ for(const [sid,idx] of by){ const st=S.sites.get(sid), l=(st.needs||[]).map(({_here,...n},i)=>idx.includes(i)?{...n,ordered:true}:n); await db.doc("sites/"+sid).update({needs:l}); st.needs=l } });
       if(ok){ toast("Позначено як замовлене"); for(const g of groups) for(const x of g.l) if(x.on) x.n.ordered=true; draw() } });
   }; draw() }
+
+// 🧾 Купив → витрата на об'єкт + позначка «привезено»
+function boughtSheet(groups,back){ if(!groups.length) return;
+  const rest=x=>x.mat?Math.max(0,Math.round(((+x.n.qty||1)-(+x.n.got||0))*100)/100):(+x.n.qty||1);
+  const rows=[]; for(const g of groups) for(const x of g.l){ const p=x.mat?matPriceOf(x.n):null; rows.push({g,x,qty:rest(x),price:p?Math.round(p.price):""}) }
+  let rcFile=null;
+  const draw=()=>{ openSheet(`<h2>🧾 Купив</h2><div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Вкажіть скільки купили і за скільки. По кожному об'єкту запишеться витрата «Матеріали», а позиції позначаться привезеними.</div>
+    ${groups.map(g=>`<div class="section-t">📍 ${esc(g.site.name)}<span class="count" data-gs="${g.site.id}"></span></div>${rows.map((r,ri)=>r.g!==g?"":`<div class="card" style="display:block;cursor:default;margin-bottom:6px"><div style="margin-bottom:4px">${esc(r.x.n.name)}${r.x.mat?"":` <span class="tag">інструмент</span>`}</div>
+      <div class="row" style="align-items:center;gap:6px"><input data-bq="${ri}" inputmode="decimal" value="${r.qty}" style="width:70px;text-align:center"><span class="m">${esc(r.x.mat?(r.x.n.unit||"шт"):"шт")} ×</span><input data-bp="${ri}" inputmode="decimal" placeholder="ціна" value="${r.price}" style="width:90px;text-align:center"><span class="m">₴ =</span><b data-bs="${ri}"></b></div></div>`).join("")}`).join("")}
+    <div class="sum">Разом: <b id="bTot"></b></div>
+    <div class="field"><label>Хто платив</label><select id="bOwn">${owners().map(o=>`<option value="${o.id}" ${o.id===(myOwner()||owners()[0]?.id)?"selected":""}>${esc(o.name)}</option>`).join("")}</select></div>
+    <div class="field"><label>Магазин / примітка</label><input id="bNote" placeholder="напр. Епіцентр"></div>
+    <label class="m" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="bDel" checked style="width:20px;height:20px"> Одразу позначити як привезене на об'єкт</label>
+    <div class="actions" style="margin-top:4px"><label class="btn ghost sm" style="cursor:pointer">📷 Фото чека<input type="file" id="bRc" accept="image/*,application/pdf" style="display:none"></label><span class="m" id="bRcN" style="align-self:center">${rcFile?"✅ "+esc(rcFile.name):""}</span></div>
+    <div class="actions"><button class="btn ghost" id="bBack">Назад</button><button class="btn" id="bSave">Записати витрату</button></div>`);
+    const upd=()=>{ let tot=0; const gs={}; rows.forEach((r,ri)=>{ const v=(+String(r.qty).replace(",","."))*(+String(r.price).replace(",",".")||0); const el=$(`[data-bs="${ri}"]`); if(el) el.textContent=v?money(Math.round(v)):"—"; tot+=v||0; gs[r.g.site.id]=(gs[r.g.site.id]||0)+(v||0) });
+      $("#bTot").textContent=money(Math.round(tot)); for(const [k,v] of Object.entries(gs)){ const e=$(`[data-gs="${k}"]`); if(e) e.textContent=v?money(Math.round(v)):"" } };
+    $("#modal").querySelectorAll("[data-bq]").forEach(i=>i.oninput=()=>{ rows[+i.dataset.bq].qty=i.value; upd() });
+    $("#modal").querySelectorAll("[data-bp]").forEach(i=>i.oninput=()=>{ rows[+i.dataset.bp].price=i.value; upd() }); upd();
+    $("#bRc").onchange=e=>{ rcFile=e.target.files[0]||null; $("#bRcN").textContent=rcFile?"✅ "+rcFile.name:"" };
+    $("#bBack").onclick=()=>back?back():closeSheet();
+    $("#bSave").onclick=async()=>{ const num=v=>+String(v||"").replace(",",".")||0, by=new Map();
+      for(const r of rows){ if(!(num(r.qty)>0)) continue; (by.get(r.g.site.id)||by.set(r.g.site.id,{site:r.g.site,l:[]}).get(r.g.site.id)).l.push(r) }
+      if(!by.size){ toast("Вкажіть кількість"); return }
+      const tot=[...by.values()].reduce((a,g)=>a+g.l.reduce((b,r)=>b+num(r.qty)*num(r.price),0),0);
+      if(!(tot>0)&&!confirm("Сума 0 ₴ — записати без витрати (лише позначити купленим)?")) return;
+      const btn=$("#bSave"); btn.disabled=true; btn.textContent="Зачекайте…";
+      let fileId=""; if(rcFile){ try{ fileId=(await saveFile(rcFile))?.id||"" }catch(_){} }
+      let byName=""; try{ byName=(await S.user?.me?.())?.name||"" }catch(_){}
+      const own=$("#bOwn").value, note0=$("#bNote").value.trim(), deliv=$("#bDel").checked, now=Date.now(), date=todayISO();
+      const ok=await write(async db=>{ let k=0; for(const g of by.values()){ const st=S.sites.get(g.site.id); if(!st) continue;
+        const sum=Math.round(g.l.reduce((a,r)=>a+num(r.qty)*num(r.price),0));
+        if(sum>0) await db.collection("fin").add({type:"out",kind:"Матеріали",site:st.id,owner:own,amount:sum,date,worker:"",createdAt:now+(k++),updatedAt:now,by:S.uid||"",byName,
+          note:((note0?note0+": ":"Купівля: ")+g.l.map(r=>`${r.x.n.name} ${num(r.qty)} ${r.x.mat?(r.x.n.unit||"шт"):"шт"}${num(r.price)?"×"+num(r.price):""}`).join("; ")).slice(0,900),...(fileId?{receipt:fileId}:{})});
+        const l=(st.needs||[]).map(({_here,...n})=>({...n}));
+        for(const r of g.l){ const n=l[r.x.i]; if(!n) continue; delete n.ordered; n.bought=(+n.bought||0)+num(r.qty); if(num(r.price)&&r.x.mat){ n.price=num(r.price); n.priceSrc="куплено "+fmtDay(date) }
+          if(deliv){ if(r.x.mat) n.got=Math.round(((+n.got||0)+num(r.qty))*100)/100;
+            else { const t={name:n.name,cat:"Інше",brand:"",model:"",qty:Math.max(1,Math.round(num(r.qty))),holder:own,site:st.id,status:"ok",note:"Куплено "+fmtDay(date)+(num(r.price)?" за "+num(r.price)+" ₴":""),inv:"",serial:"",createdAt:now,updatedAt:now};
+              await db.collection("tools").add(t); n.done=true } } }
+        await db.doc("sites/"+st.id).update({needs:l}); st.needs=l } });
+      if(ok){ closeSheet(); toast(tot>0?"Витрату "+money(Math.round(tot))+" записано":"Позначено купленим"); render() } else { btn.disabled=false; btn.textContent="Записати витрату" } } };
+  draw() }
 
 // ---------- 💲 Ціни матеріалів (Епіцентр) + 📄 список матеріалів ----------
 const loadMatPricesP=()=>new Promise(r=>loadMatPrices(r));
@@ -1378,8 +1424,8 @@ function moveForm(ids,opt){ opt=opt||{};
     ${one?`<p style="margin:0 0 10px;color:var(--muted)">Зараз: ${esc(person(one.holder)?.name||"—")}, ${esc(site(one.site)?.name||"—")}${qtyOf(one)>1?`, ${qtyOf(one)} шт`:""}</p>`:""}
     <form id="mvForm">
       ${one&&qtyOf(one)>1?`<div class="field"><label>Скільки перемістити (з ${qtyOf(one)})</label><input name="qty" inputmode="numeric" value="${qtyOf(one)}"></div>`:""}
-      <div class="field"><label>Кому передати *</label><select name="holder" required>${personOptions(one?.holder||"","— виберіть")}</select></div>
-      <div class="field"><label>Куди (склад / об'єкт)</label><select name="site">${siteOptions(opt.site||one?.site||"","— не вказано")}</select></div>
+      <div class="field"><label>Кому передати *</label><select name="holder" required>${personOptions(one?.holder||meId()||"","— виберіть")}</select></div>
+      <div class="field"><label>Куди (склад / об'єкт)</label><select name="site">${siteOptions(opt.site||(opt.from?"":one?.site)||"","— не вказано")}</select></div>
       <div class="field"><label>Коментар</label><input name="note" placeholder="необов'язково"></div>
       <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Перемістити</button></div>
     </form>`);
@@ -1429,6 +1475,8 @@ function siteForm(s){
   const finHere=isNew?[]:[...S.fin.values()].filter(f=>f.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
   const toolsHere=isNew?[]:[...S.tools.values()].filter(t=>t.site===s.id).sort(byName);
   const reps=finHere.filter(f=>f.type==="accrual"&&f.report);
+  if(!isNew&&isSite){ const nl=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1)).length, ap=s.approved?.items?.length||0, apd=(()=>{ const d=new Set(s.approvedDone||[]), g=apProgress(s); (s.approved?.items||[]).forEach((r,i)=>{ if(g[i]&&g[i]>=(+r.qty||0)*0.999) d.add(i) }); return d.size })();
+    for(const t of tabs){ if(t[0]==="tools"&&toolsHere.length) t[1]+=" "+toolsHere.length; if(t[0]==="needs"&&nl) t[1]+=" "+nl; if(t[0]==="works"&&ap) t[1]+=` ${apd}/${ap}` } }
   openSheet(`<h2>${isNew?"Новий склад / об'єкт":(isSite?"🏗️ ":"🏬 ")+esc(s.name)}</h2>
     ${tabs.length?`<div class="seg" id="segS" style="margin-bottom:10px;overflow-x:auto;flex-wrap:nowrap">${tabs.map(([k,l])=>`<button type="button" data-v="${k}" class="${tab===k?"on":""}" style="white-space:nowrap">${l}</button>`).join("")}</div>`:""}
     ${!isNew&&isSite?T("money",(()=>{const t=siteTotals()[s.id];return `<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}
@@ -1436,7 +1484,8 @@ function siteForm(s){
       ${finHere.slice(0,8).map(f=>finLine(f)).join("")||`<div class="empty">Платежів ще немає</div>`}
       ${finHere.length>8?`<button class="btn ghost" id="showSiteFin" style="width:100%;margin:8px 0">Усі платежі (${finHere.length})</button>`:""}`})()):""}
     ${!isNew?T("tools",`<div class="actions" style="margin:0 0 8px">${S.canWrite?`<button class="btn ghost sm" id="toolListS">📋 Завезти списком</button><button class="btn ghost sm" id="toolPhotoS">📷 З фото</button>`:""}${toolsHere.length?`<button class="btn ghost sm" id="hoS">🧰 Список / повернути</button>`:""}</div>
-      ${toolsHere.length?`<div class="list">${toolsHere.map(t=>`<div class="hist" data-tool="${t.id}" style="display:flex;gap:8px;cursor:pointer"><span style="flex:1">${esc(t.name)}${t.brand?" · "+esc(t.brand):""}${t.inv?` <span class="m">#${esc(t.inv)}</span>`:""}</span><span class="m">${qtyOf(t)} шт${t.holder?" · "+esc(person(t.holder)?.name||""):""}</span></div>`).join("")}</div>`:`<div class="empty">Інструменту тут немає</div>`}`):""}
+      ${toolsHere.length&&S.canWrite?`<div style="display:flex;gap:6px;align-items:center;margin:0 0 6px"><label class="m" style="display:flex;gap:6px;align-items:center;flex:1;cursor:pointer"><input type="checkbox" id="stAll" style="width:20px;height:20px"> Вибрати все (${toolsHere.length})</label><button class="btn sm" id="stMv" disabled>🚚 Перемістити</button></div>`:""}
+      ${toolsHere.length?`<div class="list">${toolsHere.map(t=>`<div class="hist" data-tool="${t.id}" style="display:flex;gap:8px;cursor:pointer;align-items:center">${S.canWrite?`<input type="checkbox" data-stsel="${t.id}" style="width:20px;height:20px;flex:0 0 20px">`:""}<span style="flex:1">${esc(t.name)}${t.brand?" · "+esc(t.brand):""}${t.inv?` <span class="m">#${esc(t.inv)}</span>`:""}</span><span class="m">${qtyOf(t)} шт${t.holder?" · "+esc(person(t.holder)?.name||""):""}</span></div>`).join("")}</div>`:`<div class="empty">Інструменту тут немає</div>`}`):""}
     ${!isNew&&isSite?T("needs",`<div id="needsBox">${needsHTML(s)}</div>`):""}
     ${!isNew&&isSite?T("works",`<div id="apBox">${approvedHTML(s)}</div>${S.canWrite?`<button class="btn" id="sRep" style="width:100%;margin-bottom:6px">📋 Звіт робіт по цьому об'єкту</button>`:""}
       ${reps.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)} · ${esc(person(f.worker)?.name||"")}</div><div class="m" style="font-size:12px">${(f.report.items||[]).slice(0,3).map(i=>esc(i.name)).join(", ")}${(f.report.items||[]).length>3?"…":""}</div></div><b>${money(f.amount)}</b></div>`).join("")||`<div class="empty">Звітів робіт ще немає. Роботи зі звітів збираються в смету для замовника («📁 Документи» → «📋 Смета»).</div>`}`):""}
@@ -1464,7 +1513,11 @@ function siteForm(s){
   $("#sRep")?.addEventListener("click",()=>workReport(null,{site:s.id}));
   $("#toolPhotoS")?.addEventListener("click",()=>photoFlow({mode:"move",to:s.id}));
   $("#modal").querySelectorAll("[data-fin]").forEach(el=>el.onclick=()=>{const f=S.fin.get(el.dataset.fin); if(f) finForm(f)});
-  $("#modal").querySelectorAll("[data-tool]").forEach(el=>el.onclick=()=>{const t=S.tools.get(el.dataset.tool); if(t) toolCard(t.id)});
+  $("#modal").querySelectorAll("[data-tool]").forEach(el=>el.onclick=e=>{ if(e.target.matches("input")) return; const t=S.tools.get(el.dataset.tool); if(t) toolCard(t.id)});
+  const stUpd=()=>{ const n=$("#modal").querySelectorAll("[data-stsel]:checked").length, b=$("#stMv"); if(b){ b.disabled=!n; b.textContent=n?`🚚 Перемістити (${n})`:"🚚 Перемістити" } const a=$("#stAll"); if(a) a.checked=n&&n===toolsHere.length };
+  $("#modal").querySelectorAll("[data-stsel]").forEach(c=>c.onchange=stUpd);
+  $("#stAll")?.addEventListener("change",e=>{ $("#modal").querySelectorAll("[data-stsel]").forEach(c=>c.checked=e.target.checked); stUpd() });
+  $("#stMv")?.addEventListener("click",()=>{ const ids=[...$("#modal").querySelectorAll("[data-stsel]:checked")].map(c=>c.dataset.stsel); if(ids.length) moveForm(ids,{from:s.id,back:()=>{ const st=S.sites.get(s.id); if(st){ S.siteTab="tools"; siteForm(st) } }}) });
   $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
   $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
   if(!isNew) bindNeeds(s);
@@ -3073,7 +3126,7 @@ function handoverSheet(kind,id){
     <div class="sum">${l.length} поз. · ${l.reduce((a,t)=>a+qtyOf(t),0)} шт</div>
     ${l.length?`<div class="list">${l.map(t=>`<div class="card" style="cursor:default"><div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="tags">${kind==="person"?siteTag(t.site):holderTag(t.holder)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`).join("")}</div>
     <div class="actions"><button class="btn ghost" id="hoPrint">🖨 Друк</button><button class="btn ghost" id="hoShare">📤 Надіслати</button></div>
-    ${S.canWrite?`<div class="actions"><button class="btn" id="hoBack" style="width:100%">↩️ Повернути все</button></div>`:""}`:`<div class="m" style="color:var(--muted)">Інструменту немає</div>`}
+    ${S.canWrite?`<div class="actions"><button class="btn" id="hoBack" style="width:100%">🚚 Перемістити все (склад / інший об'єкт)</button></div>`:""}`:`<div class="m" style="color:var(--muted)">Інструменту немає</div>`}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#hoPrint")?.addEventListener("click",()=>printDoc(handoverHTML(kind,id),"Інструмент — "+(who||"")));
   $("#hoShare")?.addEventListener("click",async()=>{const text=handoverText(kind,id);
@@ -3084,19 +3137,19 @@ function handoverSheet(kind,id){
 function returnAllForm(kind,id){
   const l=toolsWhere(kind,id), who=kind==="person"?person(id)?.name:site(id)?.name;
   const wh=[...S.sites.values()].find(s=>s.type==="warehouse"&&s.active!==false);
-  openSheet(`<h2>↩️ Повернути все (${l.reduce((a,t)=>a+qtyOf(t),0)} шт)</h2>
+  openSheet(`<h2>🚚 Перемістити все (${l.reduce((a,t)=>a+qtyOf(t),0)} шт)</h2>
     <p style="margin:0 0 10px;color:var(--muted)">${kind==="person"?"Від: "+esc(who||""):"З об'єкта: "+esc(who||"")}</p>
     <form id="rbF"><div class="field"><label>Кому *</label><select name="holder" required>${personOptions(meId()||owners()[0]?.id||"","— виберіть")}</select></div>
     <div class="field"><label>Куди *</label><select name="site">${siteOptions(wh?.id||"","— не вказано")}</select></div>
     ${kind==="site"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="arch" style="width:22px;height:22px"> Після повернення перенести об'єкт в архів</label></div>`:""}
-    <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Повернути</button></div></form>`);
+    <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Перемістити</button></div></form>`);
   $("#rbF").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));if(!f.holder)return;
     const btn=e.target.querySelector("[type=submit]");btn.disabled=true;btn.textContent="Зачекайте…";
     let byName="";try{byName=(await S.user?.me?.())?.name||""}catch(_){}
     let n=0; for(const t of toolsWhere(kind,id)){ const cur=S.tools.get(t.id); if(!cur) continue; if(cur.holder===f.holder&&(cur.site||"")===(f.site||"")){n+=qtyOf(cur);continue}
       const ok=await write(db=>moveTool(db,cur,qtyOf(cur),f.holder,f.site||"","повернення"+(kind==="site"?" з об'єкта":""),byName)); if(!ok)break; n+=qtyOf(cur); }
     if(f.arch) await write(db=>db.doc("sites/"+id).update({active:false}));
-    closeSheet(); toast("Повернено "+n+" шт"+(f.arch?", об'єкт в архіві":""));};
+    closeSheet(); toast("Переміщено "+n+" шт"+(f.arch?", об'єкт в архіві":""));};
 }
 
 // ---------- Резервна копія на Google Диск ----------
@@ -3427,18 +3480,26 @@ async function approveOffer(o,stIn){
   const setC=confirm(diff?`Сума документа ${money(docT)}, а позиції дають ${money(total)} (різниця ${money(Math.round((docT-total)*100)/100)}).\n\nЗаписати суму ДОКУМЕНТА ${money(docT)} як суму договору з замовником?`:`Записати суму ${money(total)} як суму договору з замовником?\n(тоді буде видно «замовник винен»)`);
   const upd={approved:{id:o.id,kind:o.kind,no:o.no||"",items,total,docTotal:docT||total,at:Date.now()},approvedDone:[]}; if(setC) upd.contract=cT;
   if(await write(db=>db.doc("sites/"+st.id).update(upd))){ Object.assign(st,upd); toast("✅ Погоджено: тепер це кошторис об'єкта") } }
-function approvedHTML(s){ const ap=s.approved; if(!ap) return "";
+// скільки виконано по кожному рядку погодженої смети — за звітами робіт по об'єкту
+function apProgress(s){ const ap=s.approved, out={}; if(!ap?.items) return out; const key=x=>normW(x).split(" ").filter(w=>w.length>2).slice(0,6).join(" ");
+  const idx=ap.items.map((r,i)=>({i,k:key(r.name),n:normName(r.name),u:normUnit(r.unit||"")}));
+  for(const f of S.fin.values()){ if(f.site!==s.id||f.type!=="accrual"||!f.report) continue;
+    for(const it of f.report.items||[]){ const n=normName(it.name||""), u=normUnit(it.unit||""), q=+it.qty||0; if(!q) continue;
+      const hit=idx.find(x=>x.n===n)||idx.find(x=>x.k&&x.k===key(it.name||"")&&(!u||!x.u||u===x.u)); if(hit) out[hit.i]=(out[hit.i]||0)+q } }
+  return out }
+function approvedHTML(s){ const ap=s.approved; if(!ap) return `<div class="empty" style="margin-bottom:8px">Погодженої смети ще немає.<br><span class="m">Відкрийте КП чи смету в «📁 Документи» → «✅ Погоджено» — тут з'явиться список робіт з галочками.</span></div>`;
   const pct=(()=>{ try{ const v=parseFloat(localStorage.getItem("wrPct")); return isFinite(v)?v:40 }catch(_){ return 40 } })();
   const mode=S.apMode||"client", done=new Set(s.approvedDone||[]), items=ap.items.map((r,i)=>({...r,i})).filter(r=>mode==="client"||!r.mat);
   const pr=r=>mode==="client"?r.price:Math.ceil(r.price*(1-pct/100)/10-1e-9)*10, sum=l=>Math.round(l.reduce((a,r)=>a+r.qty*pr(r),0));
+  const got=apProgress(s); for(const r of items){ const g=got[r.i]||0; if(g>0&&g>=(+r.qty||0)*0.999) done.add(r.i) }
   const left=items.filter(r=>!done.has(r.i));
   return `<div class="section-t" style="display:flex;margin-top:4px">✅ Погоджена смета № ${esc(ap.no)}<span class="count">${done.size?`виконано ${items.length-left.length} з ${items.length}`:""}</span></div>
     <div class="seg" id="apMode" style="margin-bottom:6px"><button type="button" data-v="client" class="${mode==="client"?"on":""}">Для замовника</button><button type="button" data-v="crew" class="${mode==="crew"?"on":""}">Для людей −${pct}%</button></div>
     ${mode==="crew"?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="m" style="flex:1">Мінус від цін замовника, %</span><input id="apPct" inputmode="decimal" value="${pct}" style="width:64px;text-align:center"></div>`:""}
-    <div class="card" style="display:block;cursor:default">${items.map(r=>`<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line,#2a2f38);font-size:13.5px;${done.has(r.i)?"opacity:.45;text-decoration:line-through":""}"><input type="checkbox" data-apd="${r.i}" ${done.has(r.i)?"checked":""} style="width:20px;height:20px;flex:0 0 20px"><span style="flex:1;min-width:0">${r.mat?"🧱 ":""}${esc(r.name)}<div class="m" style="font-size:11.5px;color:var(--muted)">${+r.qty} ${esc(r.unit)} × ${money(pr(r))}</div></span><b style="white-space:nowrap">${money(Math.round(r.qty*pr(r)))}</b></label>`).join("")}
+    <div class="card" style="display:block;cursor:default">${items.map(r=>`<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line,#2a2f38);font-size:13.5px;${done.has(r.i)?"opacity:.45;text-decoration:line-through":""}"><input type="checkbox" data-apd="${r.i}" ${done.has(r.i)?"checked":""} style="width:20px;height:20px;flex:0 0 20px"><span style="flex:1;min-width:0">${r.mat?"🧱 ":""}${esc(r.name)}<div class="m" style="font-size:11.5px;color:var(--muted)">${+r.qty} ${esc(r.unit)} × ${money(pr(r))}${got[r.i]?` · <span style="color:var(--accent,#3b9)">за звітами ${Math.round(got[r.i]*100)/100} з ${+r.qty}</span>`:""}</div></span><b style="white-space:nowrap">${money(Math.round(r.qty*pr(r)))}</b></label>`).join("")}
       <div style="display:flex;margin-top:6px"><span style="flex:1">Разом${mode==="crew"?" людям":""}:</span><b>${money(sum(items))}</b></div>
       ${done.size?`<div style="display:flex"><span style="flex:1;color:var(--muted)">Залишилось:</span><b>${money(sum(left))}</b></div>`:""}</div>
-    <div class="m" style="color:var(--muted);font-size:12px;margin:4px 0 6px">Галочки — лише позначка для себе «вже зроблено»; на гроші й зарплати не впливають.</div>
+    <div class="m" style="color:var(--muted);font-size:12px;margin:4px 0 6px">Галочки ставляться самі, коли звіти робіт закривають обсяг; можна ставити й вручну. На гроші й зарплати не впливають.</div>
     <div class="actions" style="margin-top:0"><button class="btn ghost sm" id="apPrint">🖨️ PDF ${mode==="crew"?"для людей":"для замовника"}</button></div>` }
 function bindApproved(s){ const box=$("#apBox"); if(!box) return; const re=()=>{ box.innerHTML=approvedHTML(s); bindApproved(s) };
   $("#apMode")?.addEventListener("click",e=>{ const b=e.target.closest("button"); if(b){ S.apMode=b.dataset.v; re() } });
