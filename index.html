@@ -2429,7 +2429,17 @@ function finForm(f,preset){
     const a=sumExpr($("#finForm [name=amount]").value)||0, r=$("#taxOn").checked?(parseFloat(String($("#taxRate").value).replace(",","."))||0):0, t=siteTotals(isTestSite(site(sid))?S.finAll:S.fin)[sid]||{in:0,out:0};
     const old=!isNew&&f.site===sid&&f.type==="in"?(+f.amount||0)-(((S.finAll||S.fin).get(f.id+"_tax")?.amount)||0):0;
     const p=t.in-t.out-old+a-Math.round(a*r)/100, n=owners().length||1;
-    $("#closeInfo").innerHTML=`Прибуток «${esc(st.name)}» з цим платежем: <b>${money(p)}</b> → кожному з ${n} по <b>${money(p/n)}</b>. Об'єкт піде в архів.${isTestSite(st)?`<br>🧪 Тестовий об'єкт — у реальні баланси цей поділ не піде.`:""}${(()=>{ const n=[...S.tools.values()].filter(t=>t.site===sid&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0); return n?`<br>🧰 На об'єкті ще ${n} шт інструменту — після збереження нагадаю забрати.`:"" })()}${(+st.contract||0)>0&&(+st.contract)-(t.in-(old?+f.amount:0)+a)>0.5?`<br>⚠️ Замовник ще винен ${money((+st.contract)-(t.in-(old?+f.amount:0)+a))} за договором.`:""}` };
+    const src=isTestSite(site(sid))?S.finAll:S.fin, fl=[...src.values()].filter(x=>x.site===sid&&x.id!==f.id&&x.id!==f.id+"_tax"), sum=l=>l.reduce((q,x)=>q+(+x.amount||0),0);
+    const inPrev=sum(fl.filter(x=>x.type==="in")), outs=fl.filter(x=>x.type==="out"), byK={}; for(const x of outs){ const k=x.kind||"Інше"; byK[k]=(byK[k]||0)+(+x.amount||0) }
+    const tax=Math.round(a*r)/100, inAll=inPrev+a, outAll=sum(outs)+tax, prof=inAll-outAll, acc=sum(fl.filter(x=>x.type==="accrual")), paidW=sum(outs.filter(x=>x.worker)), owe=Math.round(acc-paidW);
+    const row=(l,v,b)=>`<div style="display:flex;gap:8px"><span style="flex:1">${l}</span>${b?`<b>${v}</b>`:`<span>${v}</span>`}</div>`;
+    $("#closeInfo").innerHTML=`<div class="card" style="display:block;cursor:default;margin-top:6px;font-size:13.5px">
+      <div style="font-weight:600;margin-bottom:4px">📊 Підсумок «${esc(st.name)}»</div>
+      ${row("Прихід раніше",money(inPrev))}${row("+ цей платіж",money(a))}${row("= Прихід усього",money(inAll),1)}
+      <div style="margin-top:4px"></div>${Object.entries(byK).sort((x,y)=>y[1]-x[1]).map(([k,v])=>row("− "+esc(k),money(v))).join("")}${tax?row(`− податок ЄП ${r}%`,money(tax)):""}${row("= Витрати усього",money(outAll),1)}
+      <div style="border-top:1px solid var(--line);margin:6px 0"></div>${row("💰 Заробили на об'єкті",`<span class="${prof<0?"out":"in"}">${money(prof)}</span>`,1)}${row(`→ кожному з ${n}`,money(prof/n),1)}
+      ${inAll?`<div class="m">рентабельність ${Math.round(prof/inAll*100)}% від приходу</div>`:""}${owe>0?`<div class="m" style="color:var(--red,#e5534b)">⚠️ Людям ще не виплачено ${money(owe)} — після виплати заробіток зменшиться</div>`:""}</div>
+      Об'єкт піде в архів.${isTestSite(st)?`<br>🧪 Тестовий об'єкт — у реальні баланси цей поділ не піде.`:""}${(()=>{ const n=[...S.tools.values()].filter(t=>t.site===sid&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0); return n?`<br>🧰 На об'єкті ще ${n} шт інструменту — після збереження нагадаю забрати.`:"" })()}${(+st.contract||0)>0&&(+st.contract)-(t.in-(old?+f.amount:0)+a)>0.5?`<br>⚠️ Замовник ще винен ${money((+st.contract)-(t.in-(old?+f.amount:0)+a))} за договором.`:""}` };
   ["amount"].forEach(n=>$("#finForm [name="+n+"]").addEventListener("input",()=>{updAmt();updClose()})); $("#taxOn").onchange=()=>{updAmt();updClose()}; $("#taxRate").oninput=()=>{updAmt();updClose()}; updAmt();
   $("#finForm [name=site]").addEventListener("change",updClose); $("#closeSite").onchange=updClose; $("#segM").addEventListener("click",()=>setTimeout(updClose)); updClose();
   $("#finForm").addEventListener("submit",async e=>{
