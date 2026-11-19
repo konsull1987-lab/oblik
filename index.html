@@ -362,6 +362,16 @@ function siteOptions(sel,emptyLabel){
   if(arch.length) h+=`<optgroup label="🗄 Архів">`+arch.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join("")+`</optgroup>`;
   return h;
 }
+// 📝 Автозбереження тексту в полях форм (надиктоване не пропаде, якщо зник інтернет чи закрили застосунок)
+const TA_TTL=36*3600e3; let taCommitAt=0;
+function taKey(node,ta){ return "ta:"+(node.querySelector(".sheet h2")?.textContent||"").slice(0,40)+":"+ta.id }
+function taAutosave(node){ node.querySelectorAll("textarea[id]").forEach(ta=>{ if(ta.dataset.as||ta.id==="kpT") return; ta.dataset.as=1; const k=taKey(node,ta);
+  try{ const v=JSON.parse(localStorage.getItem(k)||"null"); if(v&&Date.now()-v.at<TA_TTL&&v.t&&!ta.value.trim()){ ta.value=v.t; ta.dispatchEvent(new Event("input",{bubbles:true}));
+      ta.insertAdjacentHTML("afterend",`<div class="m" data-tar style="font-size:12px;margin-top:2px">↩️ Відновлено незбережений текст · <a href="#" onclick="return false">✕ очистити</a></div>`);
+      ta.nextElementSibling.querySelector("a").onclick=()=>{ ta.value=""; ta.dispatchEvent(new Event("input",{bubbles:true})); try{ localStorage.removeItem(k) }catch(_){} ta.nextElementSibling?.remove() } } else if(v) localStorage.removeItem(k) }catch(_){}
+  ta.addEventListener("input",()=>{ try{ ta.value.trim()?localStorage.setItem(k,JSON.stringify({at:Date.now(),t:ta.value})):localStorage.removeItem(k) }catch(_){} }) }) }
+document.addEventListener("click",e=>{ const b=e.target.closest("#modal .btn:not(.ghost)"); if(b&&/Зберег|Записати|Нарахувати|Надіслати|Додати в|Перемістити|💾/.test(b.textContent)) taCommitAt=Date.now() },true);
+function taClear(node){ if(!node||Date.now()-taCommitAt>4000) return; node.querySelectorAll("textarea[id]").forEach(ta=>{ try{ localStorage.removeItem(taKey(node,ta)) }catch(_){} }) }
 // 🔍 пошук над кожним списком об'єктів у формах (і по архіву)
 function siteSelSearch(root){ root.querySelectorAll("select").forEach(sel=>{ if(sel.dataset.ss||![...sel.querySelectorAll("optgroup")].some(g=>/Об'єкти|Склади|Архів/.test(g.label))||sel.options.length<7) return; sel.dataset.ss=1;
   const orig=sel.innerHTML, inp=document.createElement("input"); inp.type="search"; inp.placeholder="🔍 Пошук об'єкта (і в архіві)…"; inp.style.cssText="margin-bottom:4px;padding:8px 10px;font-size:14px"; sel.parentNode.insertBefore(inp,sel);
@@ -996,8 +1006,8 @@ function openSheet(html){ const m=$("#modal"), had=m.firstElementChild, oldKey=h
   else if(!had){ try{history.pushState({sheet:1},"")}catch(_){} }
   if(had&&newKey===oldKey){ const sc=had.querySelector(".sheet")?.scrollTop||0; had.remove(); m.appendChild(node); siteSelSearch(node); const sh=node.querySelector(".sheet"); if(sh) sh.scrollTop=sc; return }
   if(had) { m.onclick=null; m.onchange=null; m.oninput=null }
-  m.appendChild(node); siteSelSearch(node); }
-function closeSheet(){ const m=$("#modal"); const n=sheetStack.length+(m.firstElementChild?1:0); sheetStack.length=0; m.innerHTML=""; m.onclick=null; m.onchange=null; m.oninput=null;
+  m.appendChild(node); siteSelSearch(node); taAutosave(node); }
+function closeSheet(){ const m=$("#modal"); taClear(m.firstElementChild); const n=sheetStack.length+(m.firstElementChild?1:0); sheetStack.length=0; m.innerHTML=""; m.onclick=null; m.onchange=null; m.oninput=null;
   if(n>0&&history.state&&history.state.sheet){ popIgnore+=n; try{history.go(-n)}catch(_){ popIgnore=0 } } }
 function sheetBack(){ const m=$("#modal"), prev=sheetStack.pop(); m.innerHTML="";
   if(prev){ m.appendChild(prev.node); m.onclick=prev.onclick; m.onchange=prev.onchange; m.oninput=prev.oninput; const sh=prev.node.querySelector(".sheet"); if(sh) sh.scrollTop=prev.scroll }
@@ -3081,13 +3091,23 @@ ${mc.map(m=>m.name+" | "+m.unit).join("\n")}
     $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
     $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити КП № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
     $("#kpSave").onclick=async()=>{ const data={kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
-      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw();
+      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; S.kpDraftClear?.(); S.kpClean=JSON.stringify(st.rows); toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw();
         if(st.tender){ const on=st.rows.filter(r=>r.on!==false), w=n2(on.filter(r=>!r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)), m=st.withMat?n2(on.filter(r=>r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)):0;
           write(db=>db.doc("tenders/"+st.tender).update({kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m,updatedAt:Date.now()})).then(()=>{ const t=S.tz?.get(st.tender); if(t) Object.assign(t,{kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m}) }) }
         savePricesFromRows(st.rows,"з КП № "+st.no).then(n=>{ if(n) setTimeout(()=>{ toast(`📌 Ціни збережено в прайс: ${n}`); drawRows() },3200) });
         addWorksToPrice(st.rows,"з КП № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}${st.rows.some(r=>!r.mat&&r.on!==false&&!(+r.price>0))?" (без ціни — допишете в прайсі)":""}`),1500) }) } };
   }
+  // 📝 чернетка КП: зберігається на телефоні кожні 3 с і при згортанні — не пропаде, якщо зник інтернет чи закрили застосунок
+  const dk="kpDraft:"+(saved?.id||"new"), dSave=()=>{ try{ if(!st.rows.length&&!String(st.text||"").trim()) return; if(S.kpClean===JSON.stringify(st.rows)) return; const {fileParts,file,...rest}=st; localStorage.setItem(dk,JSON.stringify({at:Date.now(),st:rest})) }catch(_){} };
+  S.kpClean=saved?JSON.stringify(st.rows):null; let dOld=null; try{ dOld=JSON.parse(localStorage.getItem(dk)||"null") }catch(_){} if(dOld&&Date.now()-dOld.at>14*864e5){ localStorage.removeItem(dk); dOld=null }
+  S.kpDraftClear=()=>{ try{ localStorage.removeItem(dk); localStorage.removeItem("kpDraft:new") }catch(_){} };
   draw();
+  if(dOld&&(dOld.st.rows?.length||String(dOld.st.text||"").trim())&&(JSON.stringify(dOld.st.rows||[])!==JSON.stringify(st.rows||[])||String(dOld.st.text||"").trim()!==String(st.text||"").trim())){ const sh=document.querySelector("#modal .sheet h2");
+    sh?.insertAdjacentHTML("afterend",`<div class="banner" id="kpDr" style="margin-bottom:8px">📝 Є незбережена чернетка від ${new Date(dOld.at).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}${dOld.st.rows?.length?` · ${dOld.st.rows.length} поз.`:""}${dOld.st.client?" · "+esc(dOld.st.client):""}<div class="actions" style="margin-top:6px"><button class="btn ghost sm" id="kpDrNo">Відкинути</button><button class="btn sm" id="kpDrYes">↩️ Відновити</button></div></div>`);
+    $("#kpDrYes")?.addEventListener("click",()=>{ Object.assign(st,dOld.st,{fileParts:[],file:null}); draw(); toast("Чернетку відновлено") });
+    $("#kpDrNo")?.addEventListener("click",()=>{ try{ localStorage.removeItem(dk) }catch(_){} $("#kpDr")?.remove() }) }
+  const dTimer=setInterval(()=>{ if(!document.getElementById("kpNo")){ clearInterval(dTimer); dSave(); document.removeEventListener("visibilitychange",dVis); return } if(!document.getElementById("kpDr")) dSave() },3000);
+  const dVis=()=>{ if(document.hidden&&!document.getElementById("kpDr")) dSave() }; document.addEventListener("visibilitychange",dVis);
 }
 function kpHTML(st){
   const f=S.fops.get(st.fop)||{}, rows=st.rows.filter(r=>r.on!==false&&r.name&&(st.withMat||!r.mat)).sort((a,b)=>(a.mat?1:0)-(b.mat?1:0)), n2=v=>Math.round((+v||0)*100)/100;
