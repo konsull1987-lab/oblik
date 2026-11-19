@@ -297,7 +297,7 @@ async function init(){
   setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) } },1500);
   try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
-  try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
+  try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); tasksFromInbox(); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
   try{ db.collection("tasks").orderBy("date","desc").limit(300).onSnapshot(snap=>{ S.tasksT=snap.docs.map(d=>({id:d.id,...d.data()})); tasksNotify(); render() },()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),"")});
 }
@@ -318,6 +318,7 @@ async function write(fn){
 
 // ---------- Рендер ----------
 function render(){
+  if(S.duoLoaded) wpubSync();
   // поки людина друкує/диктує в полі пошуку на екрані — фонові оновлення (база, тендери, ШІ) не перемальовують екран, інакше голосовий ввід обривається
   const ae=document.activeElement; if(!S.forceRender&&ae&&ae.matches?.("#view input[type=search],#view input[type=text],#view textarea")&&document.getElementById("view")?.contains(ae)){ if(!S.renderHeld){ S.renderHeld=true; ae.addEventListener("blur",()=>{ S.renderHeld=false; setTimeout(render,50) },{once:true}) } return }
   if(S.meName){ const w=$("#who"), t=uaName(S.meName); if(w&&w.textContent!==t) w.textContent=t }
@@ -1446,7 +1447,7 @@ function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[
   $("#modal").querySelectorAll("[data-lk]").forEach(c=>c.onclick=async()=>{ const k=c.dataset.lk; let url, text;
     if(k==="g"){ url=base+"?g=1"; text=`Привіт! 👋 Сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
     else if(k==="join"){ url=base+"?join=1"; text=`Привіт! 👋 Заповніть, будь ласка, коротку анкету — так ми внесемо вас у нашу базу:\n${url}\n\nПісля анкети за цим же посиланням можна надсилати, що треба привезти, обсяги робіт і фото. Додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран».` }
-    else if(k.startsWith("p:")){ const p=person(k.slice(2)); url=base+`?p=${encodeURIComponent(p.id)}&pn=${encodeURIComponent(p.name)}`; text=`Привіт! 👋 Сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
+    else if(k.startsWith("p:")){ const p=person(k.slice(2)), wk=S.duoOk?await wkeyOf(p):""; url=base+`?p=${encodeURIComponent(p.id)}&pn=${encodeURIComponent(p.name)}${wk?"&k="+wk:""}`; text=`Привіт! 👋 Тут ваші завдання і розрахунок (скільки нараховано, виплачено і скільки ми винні). Сюди ж надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
     else { const x=site(k.slice(2)); url=base+`?o=${encodeURIComponent(x.id)}&n=${encodeURIComponent(x.name)}`; text=`Привіт! 👋 Сюди надсилайте, що треба привезти на об'єкт «${x.name}», що зроблено, і фото:\n${url}\n\n${TAIL}` }
     const pp=k.startsWith("p:")?person(k.slice(2)):null, ph=pp?intlPhone(pp.phone||pp.phones?.[0]?.tel):"";
     if(ph){ inviteVia(pp,ph,text,url); return }
@@ -4048,6 +4049,31 @@ function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Da
     const ok=await write(db=>isNew?db.collection(R("tasks")).add({...d,done:false,by:S.uid||"",byName:S.meName||"",createdAt:Date.now()}):db.collection(R("tasks")).doc(t.id).update(d));
     if(ok){ tkDraftClear(); closeSheet(); toast(isNew?"✅ Справу додано":"Збережено") } });
 }
+// 👷 Кабінет працівника: власники (Андрій, Сергій) публікують кожному його завдання і розрахунок у duo_wpub/{секретний ключ}.
+// Дмитро цю колекцію не читає (правила), працівник бачить лише свій документ за ключем із посилання.
+const wkeyNew=()=>{ const a=new Uint8Array(15); crypto.getRandomValues(a); return [...a].map(x=>"abcdefghijkmnpqrstuvwxyz23456789"[x%32]).join("") };
+async function wkeyOf(p){ if(p.wkey) return p.wkey; const k=wkeyNew(); if(await write(db=>db.doc("people/"+p.id).update({wkey:k}))){ p.wkey=k; setTimeout(wpubSync,500); return k } return "" }
+function wpubData(p){ const tasks=[...(S.tasksT||[]),...(S.tasksD||[])].filter(t=>t.who===p.id&&(!t.done||(+t.doneAt||0)>Date.now()-2*864e5))
+    .sort((a,b)=>(a.done-b.done)||String(a.date).localeCompare(String(b.date))||String(a.to||a.from||"99").localeCompare(String(b.to||b.from||"99")))
+    .slice(0,30).map(t=>({id:t.id,title:String(t.title||"").slice(0,300),date:t.date,from:t.from||"",to:t.to||"",site:site(t.site)?.name||(S.B.duo.sites?.get(t.site)?.name)||"",done:!!t.done}));
+  const ops=[], by={}; let acc=0, paid=0;
+  for(const [b,fin] of [["t",S.B.trio.fin],["d",S.B.duo.fin]]) for(const f of (fin||new Map()).values()){ if(f.worker!==p.id||isHelperPay(f)||!(f.type==="accrual"||f.type==="out")) continue;
+    const a=+f.amount||0, sn=(b==="t"?S.B.trio.sites:S.B.duo.sites)?.get(f.site)?.name||"", k=sn||"—", s=by[k]||(by[k]={site:sn,acc:0,paid:0});
+    if(f.type==="accrual"){ acc+=a; s.acc+=a } else { paid+=a; s.paid+=a }
+    ops.push({d:f.date||"",t:f.type==="accrual"?"a":"p",a:Math.round(a),s:sn}) }
+  ops.sort((x,y)=>String(y.d).localeCompare(String(x.d)));
+  return {name:p.name,tasks,acc:Math.round(acc),paid:Math.round(paid),debt:Math.round(acc-paid),sites:Object.values(by).map(s=>({...s,acc:Math.round(s.acc),paid:Math.round(s.paid)})).filter(s=>s.acc||s.paid).sort((a,b)=>(b.acc-b.paid)-(a.acc-a.paid)).slice(0,20),ops:ops.slice(0,25)} }
+function wpubSync(){ clearTimeout(S._wpT); S._wpT=setTimeout(async()=>{
+  if(!S.db||!S.duoOk||!S.duoLoaded||S.canWrite===false||S.offline) return;
+  let H={}; try{ H=JSON.parse(localStorage.getItem("wpubH")||"{}") }catch(_){}
+  for(const p of S.people.values()){ if(!p.wkey||p.role==="owner"||p.helper) continue;
+    const d=wpubData(p), h=JSON.stringify(d); if(H[p.wkey]===h) continue;
+    try{ await S.db.doc("duo_wpub/"+p.wkey).set({...d,at:Date.now()}); H[p.wkey]=h }catch(_){ } }
+  try{ localStorage.setItem("wpubH",JSON.stringify(H)) }catch(_){} },4000) }
+// ✅ працівник натиснув «Виконав» у своєму кабінеті → позначаємо справу виконаною
+function tasksFromInbox(){ if(S.canWrite===false) return; for(const m of S.inbox||[]){ if(!m.tid) continue; const t=[...(S.tasksT||[]),...(S.tasksD||[])].find(x=>x.id===m.tid); if(!t||t.done||S._tdIb?.[m.id]) continue;
+  (S._tdIb=S._tdIb||{})[m.id]=1; const col=(S.tasksD||[]).includes(t)?"duo_tasks":"tasks"; if(col==="duo_tasks"&&!S.duoOk) continue;
+  S.db?.collection(col).doc(t.id).update({done:true,doneAt:+m.at||Date.now(),doneBy:"",doneByName:(m.from||"працівник")+" (з телефону)"}).catch(()=>{}) } }
 function renderToday(){
   $("#headTools").innerHTML=""; const n2=v=>Math.round(v);
   // борги виконавцям (по обох базах, якщо людина має доступ до общаку на двох)

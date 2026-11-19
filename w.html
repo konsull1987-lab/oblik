@@ -19,6 +19,8 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
 #th button{position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:24px;height:24px;background:#e11d48;color:#fff}
 .card{background:#171b22;border:1px solid #2c323d;border-radius:14px;padding:14px;margin-top:14px}
 .ok{background:#16352a;border-color:#2f7d5a}
+.tk{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #2c323d}.tk:first-of-type{border-top:0}
+.rw{display:flex;justify-content:space-between;padding:4px 0}.late{color:#ef4444}.acc{color:#38bdf8}
 </style>
 </head>
 <body>
@@ -54,6 +56,7 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
     <button type="button" class="btn" id="pfOk" style="width:100%;margin-top:12px">Зберегти</button>
     <div id="joinRes"></div>
   </div>
+  <div id="cab"></div>
   <label>Що надсилаєте</label>
   <div class="seg" id="kind">
     <button type="button" data-v="need" class="on">🧱 Що привезти</button>
@@ -79,7 +82,7 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
 import * as CFG from "./firebase-config.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
-import {getFirestore, collection, addDoc} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+import {getFirestore, collection, addDoc, doc, onSnapshot} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut, signInAnonymously} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 const $=s=>document.querySelector(s);
 const app=initializeApp(CFG.firebaseConfig);
@@ -91,6 +94,8 @@ try{ if(q.get("g")==="1"||JOIN||PID){ localStorage.removeItem("wSite"); localSto
 try{ if(site){ localStorage.setItem("wSite",site); localStorage.setItem("wSiteN",siteName) } else { site=localStorage.getItem("wSite")||""; siteName=localStorage.getItem("wSiteN")||"" } }catch(_){}
 $("#obj").textContent=siteName?"Об'єкт: "+siteName:"Об'єкт не вказано — напишіть його в тексті";
 let prof={}; try{ prof=JSON.parse(localStorage.getItem("wProf")||"{}"); if(!prof.name&&localStorage.getItem("wName")) prof.name=localStorage.getItem("wName") }catch(_){}
+// 🔑 ключ особистого кабінету (завдання + розрахунок) — з посилання, далі пам'ятаємо
+let KEY=q.get("k")||""; try{ if(KEY) localStorage.setItem("wKey",KEY); else KEY=localStorage.getItem("wKey")||"" }catch(_){}
 if(PID){ prof.pid=PID; if(!prof.name&&PN) prof.name=PN; try{ localStorage.setItem("wProf",JSON.stringify(prof)) }catch(_){} }
 if(JOIN){ $("#joinX").style.display="block"; $("#pfOk").textContent="📨 Надіслати анкету"; document.querySelector("#pfBox b").textContent="🆕 Анкета нового працівника" }
 const showProf=()=>{ const ok=prof.name&&prof.phone&&!(JOIN&&!prof.joined); $("#pfBox").style.display=ok?"none":"block"; $("#pfView").style.display=ok?"block":"none";
@@ -142,11 +147,41 @@ window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); instEv=e;
 if(!standalone&&!inApp) setTimeout(()=>{ if(!instEv){ $("#instHint").style.display="block" } },2500);
 $("#inst").onclick=async()=>{ if(!instEv) return; instEv.prompt(); try{ await instEv.userChoice }catch(_){} instEv=null; $("#inst").style.display="none" };
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+
+// 👷 Кабінет: мої завдання і розрахунок
+const E=x=>String(x??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const M=v=>Math.round(+v||0).toLocaleString("uk-UA").replace(/,/g," ")+" ₴";
+const D=d=>{ const x=String(d||"").split("-"); return x.length===3?x[2]+"."+x[1]:"" };
+const loc=(dt=new Date())=>new Date(dt-dt.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+let cabOff=null, sentT={}; try{ sentT=JSON.parse(localStorage.getItem("wDoneT")||"{}") }catch(_){}
+function cabDraw(x){ if(!x){ $("#cab").innerHTML=`<div class="card m">📋 Ваші завдання і розрахунок з'являться тут, щойно власники відкриють застосунок.</div>`; return }
+  const td=loc(), tm=loc(new Date(Date.now()+864e5)), hm=new Date().toTimeString().slice(0,5);
+  const tl=(x.tasks||[]).map(t=>{ const done=t.done||sentT[t.id], late=!done&&(t.date<td||(t.date===td&&t.to&&t.to<hm));
+    const when=(t.date===td?"сьогодні":t.date===tm?"завтра":D(t.date))+(t.from&&t.to?` ${t.from}–${t.to}`:t.to?` до ${t.to}`:t.from?` з ${t.from}`:"");
+    return `<div class="tk" style="${done?"opacity:.55":""}"><div style="flex:1"><div style="${done?"text-decoration:line-through":""}">${E(t.title)}</div><div class="m ${late?"late":""}">${late?"⏰ ":"🕒 "}${E(when)}${t.site?" · 🏗️ "+E(t.site):""}</div></div>
+      ${done?`<span class="m">✅</span>`:`<button class="btn ghost" data-td="${E(t.id)}" style="padding:8px 10px;font-size:14px">✅ Виконав</button>`}</div>` }).join("");
+  const debt=+x.debt||0;
+  $("#cab").innerHTML=`<div class="card"><b>📋 Мої завдання</b>${tl||`<div class="m" style="margin-top:6px">Завдань немає</div>`}</div>
+    <div class="card"><b>💰 Розрахунок</b>
+      <div class="rw" style="margin-top:6px"><span>Нараховано за роботу</span><b class="acc">${M(x.acc)}</b></div>
+      <div class="rw"><span>Виплачено (аванси, оплата)</span><b>${M(x.paid)}</b></div>
+      <div class="rw" style="border-top:1px solid #2c323d;margin-top:4px;padding-top:8px"><span>${debt>=0?"Залишок — ми вам винні":"Аванс понад нараховане"}</span><b style="color:${debt>=0?"#f59e0b":"#22c55e"};font-size:18px">${M(Math.abs(debt))}</b></div>
+      ${(x.sites||[]).length>1||((x.sites||[])[0]?.site)?`<details style="margin-top:8px"><summary class="m" style="cursor:pointer">По об'єктах</summary>${x.sites.map(s=>`<div class="rw m"><span>${E(s.site||"без об'єкта")}</span><span>${M(s.acc)} / ${M(s.paid)} → <b style="color:#e8eaed">${M(s.acc-s.paid)}</b></span></div>`).join("")}<div class="m" style="font-size:12px">нараховано / виплачено → залишок</div></details>`:""}
+      ${(x.ops||[]).length?`<details style="margin-top:6px"><summary class="m" style="cursor:pointer">Останні записи</summary>${x.ops.map(o=>`<div class="rw m"><span>${D(o.d)} · ${o.t==="a"?"🔧 нараховано":"💵 виплачено"}${o.s?" · "+E(o.s):""}</span><b style="color:${o.t==="a"?"#38bdf8":"#e8eaed"}">${M(o.a)}</b></div>`).join("")}</details>`:""}
+      <div class="m" style="font-size:12px;margin-top:6px">Оновлено ${x.at?new Date(x.at).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}. Якщо щось не так — напишіть нижче «💬 Інше».</div></div>`;
+  $("#cab").querySelectorAll("[data-td]").forEach(b=>b.onclick=async()=>{ const t=(x.tasks||[]).find(y=>y.id===b.dataset.td); if(!t) return;
+    if(!(prof.name&&prof.phone)){ $("#pfBox").style.display="block"; alert("Спершу заповніть «Про вас» і натисніть «Зберегти»"); return }
+    b.disabled=true; b.textContent="…";
+    try{ await addDoc(collection(fs,"inbox"),{site:"",siteName:t.site||"",kind:"done",text:"✅ Виконано: "+t.title.slice(0,300),photos:[],from:prof.name.slice(0,80),phone:String(prof.phone||"").slice(0,30),pid:String(prof.pid||"").slice(0,40),tid:String(t.id).slice(0,40),email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new"});
+      sentT[t.id]=1; try{ localStorage.setItem("wDoneT",JSON.stringify(sentT)) }catch(_){} cabDraw(x) }
+    catch(e){ b.disabled=false; b.textContent="✅ Виконав"; alert("Не вдалося ("+(e.code||e.message)+"). Перевірте інтернет.") } }) }
+function cabStart(){ if(!KEY||cabOff) return; cabDraw(null);
+  cabOff=onSnapshot(doc(fs,"duo_wpub",KEY),s=>cabDraw(s.exists()?s.data():null),e=>{ $("#cab").innerHTML=`<div class="card m">📋 Кабінет недоступний (${E(e.code||"помилка")}). Попросіть у власника нове посилання.</div>` }) }
 onAuthStateChanged(auth,async u=>{ user=u;
   // без Google-акаунта: тихий анонімний вхід (працює й у Viber). Ім'я працівник вписує сам.
   if(!u&&!triedAnon){ triedAnon=true; try{ await signInAnonymously(auth); return }catch(e){ /* анонімний вхід вимкнений у Firebase — тоді через Google */ } }
   $("#login").style.display=u?"none":"block"; $("#app").style.display=u?"block":"none"; if(u&&!prof.name&&u.displayName){ $("#nm").value=u.displayName }
-  $("#out").style.display=u&&!u.isAnonymous?"":"none" });
+  $("#out").style.display=u&&!u.isAnonymous?"":"none"; if(u) cabStart() });
 </script>
 </body>
 </html>
