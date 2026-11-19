@@ -355,8 +355,15 @@ function siteOptions(sel,emptyLabel){
     const l=all.filter(s=>s.type===type); if(!l.length)continue;
     h+=`<optgroup label="${label}">`+l.map(s=>`<option value="${s.id}" ${sel===s.id?"selected":""}>${esc(s.name)}</option>`).join("")+`</optgroup>`;
   }
+  const arch=[...S.sites.values()].filter(s=>s.type!=="warehouse"&&!all.includes(s)).sort(byName);
+  if(arch.length) h+=`<optgroup label="🗄 Архів">`+arch.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join("")+`</optgroup>`;
   return h;
 }
+// 🔍 пошук над кожним списком об'єктів у формах (і по архіву)
+function siteSelSearch(root){ root.querySelectorAll("select").forEach(sel=>{ if(sel.dataset.ss||![...sel.querySelectorAll("optgroup")].some(g=>/Об'єкти|Склади|Архів/.test(g.label))||sel.options.length<7) return; sel.dataset.ss=1;
+  const orig=sel.innerHTML, inp=document.createElement("input"); inp.type="search"; inp.placeholder="🔍 Пошук об'єкта (і в архіві)…"; inp.style.cssText="margin-bottom:4px;padding:8px 10px;font-size:14px"; sel.parentNode.insertBefore(inp,sel);
+  inp.addEventListener("input",()=>{ const q=inp.value.trim(), cur=sel.value; sel.innerHTML=orig; if(q){ sel.querySelectorAll("option").forEach(o=>{ if(o.value&&!wordHit(o.textContent+" "+(S.sites.get(o.value)?.customer||""),q)&&o.value!==cur) o.remove() }); sel.querySelectorAll("optgroup").forEach(g=>{ if(!g.children.length) g.remove() }) }
+    const opts=[...sel.options].filter(o=>o.value); if(q&&opts.length===1&&sel.value!==opts[0].value){ sel.value=opts[0].value; sel.dispatchEvent(new Event("change",{bubbles:true})) } else sel.value=cur&&[...sel.options].some(o=>o.value===cur)?cur:sel.value }) }) }
 function personOptions(sel,emptyLabel){
   const all=[...S.people.values()].sort(byName);
   let h=`<option value="">${emptyLabel}</option>`;
@@ -984,9 +991,9 @@ function openSheet(html){ const m=$("#modal"), had=m.firstElementChild, oldKey=h
   const newKey=(node.querySelector(".sheet h2")?.textContent||"")+"|"+(node.querySelector("#segS button.on")?.dataset.v||"");
   if(had&&newKey!==oldKey){ sheetStack.push({node:had,onclick:m.onclick,onchange:m.onchange,oninput:m.oninput,scroll:had.querySelector(".sheet")?.scrollTop||0}); had.remove(); try{history.pushState({sheet:sheetStack.length+1},"")}catch(_){} }
   else if(!had){ try{history.pushState({sheet:1},"")}catch(_){} }
-  if(had&&newKey===oldKey){ const sc=had.querySelector(".sheet")?.scrollTop||0; had.remove(); m.appendChild(node); const sh=node.querySelector(".sheet"); if(sh) sh.scrollTop=sc; return }
+  if(had&&newKey===oldKey){ const sc=had.querySelector(".sheet")?.scrollTop||0; had.remove(); m.appendChild(node); siteSelSearch(node); const sh=node.querySelector(".sheet"); if(sh) sh.scrollTop=sc; return }
   if(had) { m.onclick=null; m.onchange=null; m.oninput=null }
-  m.appendChild(node); }
+  m.appendChild(node); siteSelSearch(node); }
 function closeSheet(){ const m=$("#modal"); const n=sheetStack.length+(m.firstElementChild?1:0); sheetStack.length=0; m.innerHTML=""; m.onclick=null; m.onchange=null; m.oninput=null;
   if(n>0&&history.state&&history.state.sheet){ popIgnore+=n; try{history.go(-n)}catch(_){ popIgnore=0 } } }
 function sheetBack(){ const m=$("#modal"), prev=sheetStack.pop(); m.innerHTML="";
