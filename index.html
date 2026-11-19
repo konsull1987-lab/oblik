@@ -2056,7 +2056,7 @@ function siteForm(s,pre){
   let type=s.type;
   $("#segT").onclick=e=>{const b=e.target.closest("button");if(!b)return;type=b.dataset.v;[...$("#segT").children].forEach(x=>x.classList.toggle("on",x===b))};
   if(!isNew&&isSite&&tab==="docs") loadSiteDocs(s);
-  if(!isNew&&isSite) bindApproved(s);
+  if(!isNew&&isSite){ bindApproved(s); apOrphanCheck(s) }
   $("#segS")?.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S.siteTab=b.dataset.v;siteForm(S.sites.get(s.id)||s)});
   $("#sOut")?.addEventListener("click",()=>finForm(null,{type:"out",site:s.id}));
   $("#sIn")?.addEventListener("click",()=>finForm(null,{type:"in",site:s.id}));
@@ -3269,7 +3269,7 @@ ${mc.map(m=>m.name+" | "+m.unit).join("\n")}
     $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"КП "+st.no);
     $("#kpShare").onclick=()=>{ const c=$("#kpC")?.value; if(c) st.client=c; sharePdf(kpHTML(st),`КП ${st.no}${st.client?" — "+st.client:""}`,`Комерційна пропозиція № ${st.no}${st.object?" · "+st.object:""}`) };
     $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
-    $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити КП № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
+    $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити КП № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ unapproveOffer(st.id); toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
     $("#kpSave").onclick=async()=>{ const data={kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
       const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; S.kpDraftClear?.(); S.kpClean=JSON.stringify(st.rows); toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw();
         if(st.tender){ const on=st.rows.filter(r=>r.on!==false), w=n2(on.filter(r=>!r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)), m=st.withMat?n2(on.filter(r=>r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)):0;
@@ -4264,6 +4264,12 @@ function apProgress(s){ const ap=s.approved, out={}; if(!ap?.items) return out; 
     for(const it of f.report.items||[]){ const n=normName(it.name||""), u=normUnit(it.unit||""), q=+it.qty||0; if(!q) continue;
       const hit=idx.find(x=>x.n===n)||idx.find(x=>x.k&&x.k===key(it.name||"")&&(!u||!x.u||u===x.u)); if(hit) out[hit.i]=(out[hit.i]||0)+q } }
   return out }
+// ✖ зняти погодження: смета перестає бути кошторисом, сума договору з неї обнуляється
+function unapproveUpd(st){ const ap=st.approved||{}, c=+st.contract||0, fromAp=c>0&&[ap.total,ap.docTotal].some(v=>Math.abs((+v||0)-c)<0.5); return {approved:null,approvedDone:[],...(fromAp?{contract:0}:{})} }
+async function unapproveOffer(oid){ const l=[...S.sites.values()].filter(x=>x.approved?.id===oid); if(!l.length) return;
+  await write(async db=>{ for(const x of l) await db.doc("sites/"+x.id).update(unapproveUpd(x)) }); toast("Погодження знято — сума договору з цієї смети більше не рахується") }
+async function apOrphanCheck(st){ if(!st?.approved?.id||!S.db||S.canWrite===false) return; S._apChk=S._apChk||{}; if(S._apChk[st.id]) return; S._apChk[st.id]=1;
+  try{ const d=await S.db.doc(R("offers")+"/"+st.approved.id).get(); if(d&&d.exists===false){ const u=unapproveUpd(st); await S.db.doc((isDuo()?"duo_sites/":"sites/")+st.id).update(u); toast("Погоджену смету видалено раніше — знято її з об'єкта"+(u.contract===0?" і обнулено суму договору":"")) } }catch(_){} }
 function approvedHTML(s){ const ap=s.approved; if(!ap) return `<div class="empty" style="margin-bottom:8px">Погодженої смети ще немає.<br><span class="m">Відкрийте КП чи смету в «📁 Документи» → «✅ Погоджено» — тут з'явиться список робіт з галочками.</span></div>`;
   const pct=(()=>{ try{ const v=parseFloat(localStorage.getItem("wrPct")); return isFinite(v)?v:40 }catch(_){ return 40 } })();
   const mode=S.apMode||"client", done=new Set(s.approvedDone||[]), items=ap.items.map((r,i)=>({...r,i})).filter(r=>mode==="client"||!r.mat);
@@ -4277,8 +4283,10 @@ function approvedHTML(s){ const ap=s.approved; if(!ap) return `<div class="empty
       <div style="display:flex;margin-top:6px"><span style="flex:1">Разом${mode==="crew"?" людям":""}:</span><b>${money(sum(items))}</b></div>
       ${done.size?`<div style="display:flex"><span style="flex:1;color:var(--muted)">Залишилось:</span><b>${money(sum(left))}</b></div>`:""}</div>
     <div class="m" style="color:var(--muted);font-size:12px;margin:4px 0 6px">Галочки ставляться самі, коли звіти робіт закривають обсяг; можна ставити й вручну. На гроші й зарплати не впливають.</div>
-    <div class="actions" style="margin-top:0"><button class="btn ghost sm" id="apPrint">🖨️ PDF ${mode==="crew"?"для людей":"для замовника"}</button></div>` }
+    <div class="actions" style="margin-top:0"><button class="btn ghost sm" id="apPrint">🖨️ PDF ${mode==="crew"?"для людей":"для замовника"}</button>${S.canWrite?`<button class="btn ghost sm" id="apUn" style="color:#ef4444">✖ Зняти погодження</button>`:""}</div>` }
 function bindApproved(s){ const box=$("#apBox"); if(!box) return; const re=()=>{ box.innerHTML=approvedHTML(s); bindApproved(s) };
+  box.querySelector("#apUn")?.addEventListener("click",async()=>{ const u=unapproveUpd(s); if(!confirm(`Зняти погоджену смету № ${s.approved?.no||""} з об'єкта?${u.contract===0?`\nСума договору ${money(s.contract)} теж обнулиться.`:""}\n\nСама смета залишиться в «📁 Документи».`)) return;
+    if(await write(db=>db.doc("sites/"+s.id).update(u))){ Object.assign(s,u); re(); toast("Погодження знято") } });
   $("#apMode")?.addEventListener("click",e=>{ const b=e.target.closest("button"); if(b){ S.apMode=b.dataset.v; re() } });
   $("#apPct")?.addEventListener("change",e=>{ const v=parseFloat(String(e.target.value).replace(",",".")); if(isFinite(v)&&v>=0&&v<100) try{localStorage.setItem("wrPct",String(v))}catch(_){} re() });
   box.querySelectorAll("[data-apd]").forEach(c=>c.onchange=async()=>{ const d=new Set(s.approvedDone||[]), i=+c.dataset.apd; c.checked?d.add(i):d.delete(i); s.approvedDone=[...d]; re(); if(S.canWrite) write(db=>db.doc("sites/"+s.id).update({approvedDone:s.approvedDone})).catch(()=>{}) });
@@ -4406,7 +4414,7 @@ function smetaSavedView(o){ const s=site(o.site)||{name:o.object,customer:o.clie
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#svPrint").onclick=()=>printDoc(smetaHTML(s,st),"Смета "+o.no);
   $("#svAp")?.addEventListener("click",()=>approveOffer(o));
-  $("#svDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити смету № "+o.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ toast("Видалено"); sheetBack() } });
+  $("#svDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити смету № "+o.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); sheetBack() } });
 }
 function siteDocsHTML(s){ return `<div id="sDocs"><div class="empty">Завантажую документи…</div></div>` }
 function loadSiteDocs(s){
@@ -4418,7 +4426,7 @@ function loadSiteDocs(s){
       ${off.length||docs.length?`<div class="list">${off.map(o=>row(o.kind==="smeta"?"📋":o.kind==="file"?"📎":"💼",(o.kind==="smeta"?"Смета":o.kind==="file"?esc(o.sub||"Документ"):"КП")+(o.no?" № "+esc(o.no):"")+(s.approved?.id===o.id?" ✅":""),fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":""),money(o.total||0),`data-off="${o.id}"`,`data-xoff="${o.id}"`)).join("")}
         ${docs.map(d=>row("🧾","Рах. № "+esc(d.invNo||"")+(d.actNo?" · Акт № "+esc(d.actNo):""),fmtDay(d.date)+" · "+esc(cliOf(d).name||""),money(docTotal(d)),`data-sdoc="${d.id}"`,`data-xdoc="${d.id}"`)).join("")}</div>`
         :`<div class="empty">Документів ще немає. Збережені смети, КП, рахунки й акти цього об'єкта з'являться тут.</div>`}`;
-    box.querySelectorAll("[data-xoff]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const o=off.find(x=>x.id===b.dataset.xoff); if(!confirm(`Видалити ${o.kind==="smeta"?"смету":"КП"} № ${o.no}?`)) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ toast("Видалено"); loadSiteDocs(s) } });
+    box.querySelectorAll("[data-xoff]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const o=off.find(x=>x.id===b.dataset.xoff); if(!confirm(`Видалити ${o.kind==="smeta"?"смету":"КП"} № ${o.no}?`)) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); loadSiteDocs(s) } });
     box.querySelectorAll("[data-xdoc]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const d=S.docs.get(b.dataset.xdoc); if(!confirm(`Видалити рахунок № ${d?.invNo||""}${d?.actNo?" і акт № "+d.actNo:""}?`)) return; if(await write(db=>db.doc("docs/"+b.dataset.xdoc).delete())){ toast("Видалено"); setTimeout(()=>loadSiteDocs(s),300) } });
     box.querySelectorAll("[data-off]").forEach(c=>c.onclick=()=>openOffer(off.find(o=>o.id===c.dataset.off)));
     box.querySelectorAll("[data-sdoc]").forEach(c=>c.onclick=()=>docView(c.dataset.sdoc));
