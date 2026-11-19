@@ -891,8 +891,8 @@ function renderSites(){
   const cnt={}; for(const t of S.tools.values()) if(t.site) cnt[t.site]=(cnt[t.site]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">${sq?"Нічого не знайдено":"Додайте склади й об'єкти кнопкою «+»."}</div>`; return; }
   const tot=siteTotals();
-  const nest=!sq, isKid=x=>nest&&x.parent&&S.sites.has(x.parent);
-  const card=(s,kid)=>{ const kids=nest&&!kid?siteKids(s.id):[], F=kids.length?famTotals(s.id,tot):null, t=F||tot[s.id], p=t?t.in-t.out:0, debt=F?(F.contract>0?F.contract-F.in:0):(+s.contract||0)>0?(+s.contract)-(t?.in||0):0;
+  const nest=!sq, isKid=x=>nest&&x.parent&&S.sites.has(x.parent), CP=custPaid(tot);
+  const card=(s,kid)=>{ const kids=nest&&!kid?siteKids(s.id):[], F=kids.length?famTotals(s.id,tot):null, t=F||tot[s.id], p=t?t.in-t.out:0, debt=F?(F.contract>0?F.contract-F.in:0):(+s.contract||0)>0?(+s.contract)-(CP[s.id]?.paid??(t?.in||0)):0;
     return `<div class="card" data-site="${s.id}" ${kid?`style="margin-left:22px;padding-top:8px;padding-bottom:8px"`:""}><div class="main"><div class="t">${kid?"↳ ":s.type==="warehouse"?"🏬 ":"🏗️ "}${!nest&&s.parent&&S.sites.get(s.parent)?`<span class="m">${esc(S.sites.get(s.parent).name)} › </span>`:""}${esc(s.name)}${kids.length?` <span class="tag site">📂 ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</span>`:""}${kid&&s.active===false?` <span class="tag">архів</span>`:""}${isTestSite(s)?` <span class="tag">🧪 тест · не рахується</span>`:""}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
     ${t?`<div class="m">прихід <span class="in">${money(t.in)}</span> · витрати <span class="out">${money(t.out)}</span> · прибуток <b class="${p<0?"out":""}">${money(p)}</b></div>`:""}
     ${debt>0?`<div class="m">👤 ${esc(siteCust(s)||"замовник")} винен${F?" усього":""} <b class="in">${money(debt)}</b></div>`:""}
@@ -2208,12 +2208,20 @@ const siteRoot=x=>x?.parent&&S.sites.get(x.parent)?S.sites.get(x.parent):x;
 const siteFam=id=>[id,...siteKids(id).map(x=>x.id)];
 const siteFull=x=>x?(x.parent&&S.sites.get(x.parent)?S.sites.get(x.parent).name+" › ":"")+x.name:"";
 const siteCust=x=>x?.customer||siteRoot(x)?.customer||"";
+// 💰 оплата замовника на головний об'єкт: спершу закриває його власний договір, решта — борги ділянок по черзі (у порядку створення), скільки вистачить
+function custPaid(tot){ tot=tot||siteTotals(); const r={}; for(const x of S.sites.values()){ const i=tot[x.id]?.in||0; r[x.id]={paid:i,got:0,gave:0} }
+  for(const root of S.sites.values()){ if(root.parent&&S.sites.has(root.parent)) continue; const kids=siteKids(root.id).sort((a,b)=>(a.order||0)-(b.order||0)||byName(a,b)); if(!kids.length) continue;
+    const pin=r[root.id].paid, pc=+root.contract||0; let left=pc>0?Math.max(0,pin-pc):pin;
+    for(const k of kids){ if(left<=0) break; const c=+k.contract||0; if(!(c>0)) continue; const need=c-r[k.id].paid; if(need<=0) continue; const take=Math.min(need,left); r[k.id].paid+=take; r[k.id].got+=take; left-=take; r[root.id].gave+=take }
+    r[root.id].paid-=r[root.id].gave }
+  return r }
 function famTotals(id,tot){ tot=tot||siteTotals(); const r={in:0,out:0,contract:0,acc:0,wpaid:0,n:0}; for(const k of siteFam(id)){ const t=tot[k]; if(t){ r.in+=t.in; r.out+=t.out; r.n+=t.n } r.contract+=+(S.sites.get(k)?.contract)||0 } return r }
 function famWorkDebt(ids){ const set=new Set(ids); let a=0; for(const f of S.fin.values()){ if(!set.has(f.site)||!f.worker||person(f.worker)?.helper||isHelperPay(f)) continue; if(f.type==="accrual") a+=+f.amount||0; else if(f.type==="out") a-=+f.amount||0 } return a }
 function famHTML(s){ const kids=siteKids(s.id); if(!kids.length) return ""; const tot=siteTotals(), all=famTotals(s.id,tot), p=all.in-all.out, cd=all.contract>0?all.contract-all.in:null, wd=famWorkDebt(siteFam(s.id));
-  const row=(x,own)=>{ const t=tot[x.id]||{in:0,out:0}, c=+x.contract||0, d=c>0?c-t.in:null, w=famWorkDebt([x.id]);
+  const cp=custPaid(tot);
+  const row=(x,own)=>{ const t=tot[x.id]||{in:0,out:0}, c=+x.contract||0, P=cp[x.id]||{paid:t.in,got:0,gave:0}, d=c>0?c-P.paid:null, w=famWorkDebt([x.id]);
     return `<div class="hist" ${own?"":`data-kid="${x.id}"`} style="cursor:${own?"default":"pointer"}"><div style="display:flex;gap:8px"><b style="flex:1">${own?"🏗️ "+esc(x.name)+" <span class=\"m\">(загальне)</span>":"↳ "+esc(x.name)}${x.active===false?` <span class="tag">архів</span>`:""}</b><b class="${t.in-t.out<0?"out":"in"}">${money(t.in-t.out)}</b></div>
-      <div class="m">прихід ${money(t.in)} · витрати ${money(t.out)}${d!=null?` · ${d>0?`замовник винен <b class="in">${money(d)}</b>`:d<0?`переплата ${money(-d)}`:"оплачено ✓"}`:""}${w>0.5?` · 👷 винні <b class="out">${money(w)}</b>`:""}</div></div>` };
+      <div class="m">прихід ${money(t.in)}${P.gave>0.5?` (з них ${money(P.gave)} закрили ділянки)`:""}${P.got>0.5?` + ${money(P.got)} з оплати на «${esc(s.name)}»`:""} · витрати ${money(t.out)}${d!=null?` · ${d>0?`замовник винен <b class="in">${money(d)}</b>`:d<0?`переплата ${money(-d)}`:"оплачено ✓"}`:""}${w>0.5?` · 👷 винні <b class="out">${money(w)}</b>`:""}</div></div>` };
   return `<div class="card" style="display:block;cursor:default;margin-bottom:8px;border-color:var(--accent)"><div style="display:flex"><b style="flex:1">📂 Разом по всьому об'єкту · ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</b><b class="${p<0?"out":"in"}">${money(p)}</b></div>
     <div class="m">прихід <span class="in">${money(all.in)}</span> · витрати <span class="out">${money(all.out)}</span></div>
     <div class="m">${cd!=null?(cd>0?`👤 ${esc(s.customer||"замовник")} винен усього <b class="in">${money(cd)}</b> (договори ${money(all.contract)})`:cd<0?`👤 переплата ${money(-cd)}`:`👤 оплачено повністю`):`<span style="color:var(--muted)">суми договорів не вказані</span>`}${wd>0.5?` · 👷 винні виконавцям <b class="out">${money(wd)}</b>`:""}</div>
@@ -2237,7 +2245,7 @@ const isHelperPay=f=>f.type==="out"&&(f.kind==="Підсоба"||!!person(f.work
 function workerTotals(){const t={};for(const f of S.fin.values()){if(!f.worker)continue;const x=t[f.worker]||(t[f.worker]={acc:0,paid:0,n:0});if(f.type==="accrual")x.acc+=+f.amount||0;else if(f.type==="out"){x.paid+=+f.amount||0; if(isHelperPay(f)) x.acc+=+f.amount||0}x.n++}
   for(const [id,x] of Object.entries(t)) if(person(id)?.helper) x.acc=x.paid; // підсоба: завжди в нулі
   return t}
-function customerRows(){const st=siteTotals();return [...S.sites.values()].filter(x=>(+x.contract||0)>0).map(x=>{const paid=st[x.id]?.in||0;return{s:x,contract:+x.contract,paid,debt:+x.contract-paid}}).sort((a,b)=>b.debt-a.debt)}
+function customerRows(){const st=siteTotals(), cp=custPaid(st);return [...S.sites.values()].filter(x=>(+x.contract||0)>0).map(x=>{const paid=cp[x.id]?.paid??(st[x.id]?.in||0);return{s:x,contract:+x.contract,paid,debt:+x.contract-paid}}).sort((a,b)=>b.debt-a.debt)}
 function finFiltered(){
   return [...S.fin.values()].filter(f=>{
     if(S.mSite&&f.site!==S.mSite&&!(f.site&&S.sites.get(f.site)?.parent===S.mSite))return false;
@@ -2715,10 +2723,11 @@ function renderStatsSites(){
   let h=statSeg()+`<label class="m" style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="checkbox" id="stAll" ${S.stAll?"checked":""} style="width:20px;height:20px"> Показати й архівні</label>
     <div class="sum" style="color:var(--muted);font-size:12.5px">По кожному об'єкту: гроші, борг замовника, борг виконавцям і рух за останні 6 місяців (зелене — прихід, червоне — витрати).</div>`;
   if(!l.length){ $("#view").innerHTML=h+`<div class="empty">Записів по об'єктах немає.</div>`; bindStatSeg(); $("#stAll").onchange=e=>{S.stAll=e.target.checked;renderMoneyStats()}; return }
-  const sum=l.reduce((a,x)=>({in:a.in+x.t.in,out:a.out+x.t.out,acc:a.acc+Math.max(0,x.t.acc-x.t.wpaid),cd:a.cd+Math.max(0,(+x.s.contract||0)>0?(+x.s.contract)-x.t.in:0)}),{in:0,out:0,acc:0,cd:0});
+  const CP=custPaid(), cpd=x=>CP[x.id]?.paid??(r[x.id]?.in||0);
+  const sum=l.reduce((a,x)=>({in:a.in+x.t.in,out:a.out+x.t.out,acc:a.acc+Math.max(0,x.t.acc-x.t.wpaid),cd:a.cd+Math.max(0,(+x.s.contract||0)>0?(+x.s.contract)-cpd(x.s):0)}),{in:0,out:0,acc:0,cd:0});
   h+=`<div class="card" style="display:block;cursor:default;margin-bottom:10px"><b>Разом по ${l.length} об'єктах</b><div class="m">прихід <span class="in">${money(sum.in)}</span> · витрати <span class="out">${money(sum.out)}</span> · прибуток <b class="${sum.in-sum.out<0?"out":""}">${money(sum.in-sum.out)}</b></div>
     <div class="m">👤 замовники винні <b class="in">${money(sum.cd)}</b> · 👷 ми винні виконавцям <b class="out">${money(sum.acc)}</b></div></div><div class="list">`;
-  for(const {s:x,t} of l){ const p=t.in-t.out, mg=t.in>0?Math.round(p/t.in*100):null, cd=(+x.contract||0)>0?(+x.contract)-t.in:null, wd=Math.max(0,t.acc-t.wpaid);
+  for(const {s:x,t} of l){ const p=t.in-t.out, mg=t.in>0?Math.round(p/t.in*100):null, cd=(+x.contract||0)>0?(+x.contract)-cpd(x):null, wd=Math.max(0,t.acc-t.wpaid);
     const mx=Math.max(1,...mk.map(k=>Math.max(t.m[k]?.in||0,t.m[k]?.out||0)));
     const spark=`<div style="display:flex;gap:4px;align-items:flex-end;height:34px;margin-top:6px">${mk.map(k=>{ const m=t.m[k]||{in:0,out:0}; return `<div style="flex:1;display:flex;gap:1px;align-items:flex-end;height:100%" title="${MONTHS[+k.slice(5)-1]}: +${money(m.in)} / −${money(m.out)}"><div style="flex:1;background:var(--green,#3fb950);height:${m.in/mx*100}%;min-height:${m.in?2:0}px;border-radius:2px 2px 0 0"></div><div style="flex:1;background:var(--red,#e5534b);height:${m.out/mx*100}%;min-height:${m.out?2:0}px;border-radius:2px 2px 0 0"></div></div>` }).join("")}</div>
       <div style="display:flex;gap:4px">${mk.map(k=>`<span class="m" style="flex:1;text-align:center;font-size:10px;color:var(--muted)">${MONTHS[+k.slice(5)-1].slice(0,3)}</span>`).join("")}</div>`;
