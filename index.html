@@ -277,6 +277,8 @@ async function init(){
   }).catch(()=>{ S.duoOk=false; applyBase(); render(); });
   for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   try{ db.doc("meta/backup").get().then(x=>{S.backupAt=x.exists?+x.data().at||0:0;S.backupLoaded=true;render()}).catch(()=>{}) }catch(_){}
+  setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) } },1500);
+  try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
   try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); render() },()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()}))});
@@ -1707,6 +1709,39 @@ function toolCard(id){
   $("#lostT")?.addEventListener("click",()=>lostForm([id]));
   $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
+// 🤖 Фоновий розбір ШІ: чеки й документи. Можна згорнути застосунок — прийде сповіщення, результат чекає на «Сьогодні»
+const RC_PROMPT=`Це фото касового чека або накладної з України. Знайди ПІДСУМКОВУ суму до сплати (рядок «СУМА», «ДО СПЛАТИ», «РАЗОМ»), дату покупки і назву магазину/продавця.
+Визнач вид витрати: одне з "Матеріали","Інструменти","Доставка","Інше". Коротко (до 60 символів) опиши, що куплено.
+Відповідь — лише JSON {"total":число,"date":"YYYY-MM-DD" або "","vendor":"","kind":"","items":""}. Якщо щось не видно — порожній рядок, total 0.`;
+const rcAI=img=>window.__fbAI([img],RC_PROMPT).then(t=>JSON.parse(String(t).replace(/^```(json)?|```$/g,"").trim()));
+S.jobs=S.jobs||[]; S.jobIn=S.jobIn||new Map();
+const jobsSave=()=>{ try{ localStorage.setItem("aiJobs",JSON.stringify(S.jobs.slice(-30))) }catch(_){} };
+const jobCache=()=>window.caches?caches.open("oblik-jobs"):Promise.reject(new Error("no cache"));
+async function jobPut(id,inp){ try{ const c=await jobCache(); if(inp.img) await c.put("/j/"+id,new Response(JSON.stringify(inp.img),{headers:{"content-type":"application/json"}}));
+  else if(inp.file) await c.put("/j/"+id,new Response(inp.file,{headers:{"content-type":inp.file.type||"application/octet-stream","x-name":encodeURIComponent(inp.file.name||"файл")}})) }catch(_){} }
+async function jobGet(id,kind){ if(S.jobIn.has(id)) return S.jobIn.get(id); try{ const r=await (await jobCache()).match("/j/"+id); if(!r) return null;
+  const inp=kind==="rc"?{img:await r.json()}:{file:new File([await r.blob()],decodeURIComponent(r.headers.get("x-name")||"файл"),{type:r.headers.get("content-type")||""})}; S.jobIn.set(id,inp); return inp }catch(_){ return null } }
+const jobRun=(kind,inp)=>kind==="rc"?rcAI(inp.img):docParts(inp.file).then(parts=>{ inp.parts=parts; return parseDocAI(parts) });
+function jobTitle(j){ const r=j.result||{}; return j.kind==="rc"?`🧾 Чек${r.vendor?": "+r.vendor:""}${+r.total?" — "+money(r.total):""}`:`📎 ${r.kind||j.ctx.kind||"Документ"}${r.no?" № "+r.no:""}${+r.total?" — "+money(r.total):""}${site(j.ctx.site)?" · "+site(j.ctx.site).name:""}` }
+async function jobStart(kind,ctx,inp,promise,label){ const j={id:"j"+Date.now().toString(36),kind,ctx,label,status:"run",at:Date.now()}; S.jobs.push(j); S.jobIn.set(j.id,inp); jobsSave(); jobPut(j.id,inp);
+  toast("🕐 Розбираю у фоні — можна згорнути застосунок, повідомлю"); try{ if(window.Notification&&Notification.permission==="default") Notification.requestPermission().catch(()=>{}) }catch(_){}
+  render(); jobWork(j,promise) }
+async function jobWork(j,promise){ try{ const inp=await jobGet(j.id,j.kind); if(!inp&&!promise) throw new Error("немає файлу");
+    j.result=await (promise||jobRun(j.kind,inp)); j.status="done" }catch(e){ j.status="err"; j.err=String(e?.message||e).slice(0,80) }
+  jobsSave(); render(); const txt=j.status==="done"?jobTitle(j)+" · перевірте і збережіть":`${j.label||"Розбір"}: не вдалося — відкрийте, щоб заповнити вручну`;
+  if(document.hidden){ try{ if(window.Notification&&Notification.permission==="granted") (await navigator.serviceWorker?.ready)?.showNotification(j.status==="done"?"🤖 Розбір завершено":"⚠️ Розбір не вдався",{body:txt,icon:"icon-192.png",tag:j.id,data:{job:j.id}}) }catch(_){} }
+  else toast("🤖 "+txt) }
+function jobsResume(){ try{ S.jobs=JSON.parse(localStorage.getItem("aiJobs")||"[]") }catch(_){ S.jobs=[] } for(const j of S.jobs) if(j.status==="run") jobWork(j) }
+function jobDrop(j){ S.jobs=S.jobs.filter(x=>x.id!==j.id); jobsSave(); S.jobIn.delete(j.id); jobCache().then(c=>c.delete("/j/"+j.id)).catch(()=>{}) }
+async function jobOpen(id){ const j=S.jobs.find(x=>x.id===id); if(!j){ toast("Розбір уже опрацьовано"); return } if(j.status==="run"){ toast("⏳ Ще розбираю…"); return }
+  const inp=await jobGet(j.id,j.kind); const r=j.result||{};
+  if(j.kind==="rc"){ const pre={...j.ctx,_rc:inp?.img||null,_rcRes:r}; if(+r.total>0) pre.amount=Math.round(r.total*100)/100; if(/^\d{4}-\d{2}-\d{2}$/.test(r.date||"")) pre.date=r.date;
+      if(KINDS.includes(r.kind)&&pre.type==="out") pre.kind=r.kind; const nt=[r.vendor,r.items].filter(Boolean).join(": "); if(nt&&!pre.note) pre.note=nt.slice(0,120); Object.keys(pre).forEach(k=>pre[k]===""&&delete pre[k]);
+      jobDrop(j); finForm(null,pre) }
+  else { const st=site(j.ctx.site); if(!st||!inp?.file){ toast("Не знайшов файл або об'єкт"); jobDrop(j); return } jobDrop(j); uploadDoc(st,inp.file,j.ctx.kindFixed?j.ctx.kind:null,{res:j.status==="done"?r:null,parts:inp.parts}) } }
+function jobsHTML(){ const l=S.jobs||[]; if(!l.length) return "";
+  return `<div class="section-t">🤖 Розбір ШІ</div><div class="list" style="margin-bottom:8px">${l.slice().reverse().map(j=>`<div class="card" data-job="${j.id}"><div class="main"><div class="t">${j.status==="run"?"⏳ ":j.status==="err"?"⚠️ ":"✅ "}${esc(j.status==="done"?jobTitle(j):(j.label||"Розбір"))}</div><div class="m">${j.status==="run"?"розбираю…":j.status==="err"?"не вдалося — заповнити вручну":"готово — натисніть, щоб перевірити і зберегти"}</div></div>${j.status!=="run"?`<button class="btn ghost sm" data-jobx="${j.id}" title="Прибрати">✕</button>`:""}</div>`).join("")}</div>` }
+
 // ❌ Втрати інструменту: позначка + аналітика
 const LOST_R={lost:"Загубили",stolen:"Вкрали",broken:"Зламаний, не ремонтується",left:"Залишили на об'єкті / не повернули"};
 function lostForm(ids,opt){ opt=opt||{}; const tools=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!tools.length) return; const one=tools.length===1?tools[0]:null;
@@ -2295,14 +2330,14 @@ function finForm(f,preset){
   $("#finForm [name=worker]")?.addEventListener("change",helpSync);
   if(!f.id) helpSync();
   // ---- чек: фото → сума/дата/магазин автоматично; фото зберігається й відкривається з запису ----
-  let rcImg=null, rcDrop=false;
+  let rcImg=f._rc||null, rcDrop=false; delete f._rc; const rcRes=f._rcRes; delete f._rcRes;
   const rcPick=async file=>{ if(!file) return; const info=$("#rcInfo");
     try{ rcImg=await shrinkImage(file,1600) }catch(_){ info.textContent="Не вдалося відкрити фото"; return }
-    rcDrop=false; info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">⏳ Читаю чек…`;
+    rcDrop=false; info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">⏳ Читаю чек…${isNew&&window.__fbAI?` <button type="button" class="btn ghost sm" id="rcBg">🕐 Розібрати у фоні</button>`:""}`;
+    $("#rcBg")?.addEventListener("click",()=>{ const F=n=>$("#finForm [name="+n+"]")?.value||""; const pend=S.rcPending; if(!pend) return; pend.bg=true;
+      jobStart("rc",{type:mode,site:F("site"),owner:F("owner"),worker:F("worker"),kind:F("kind"),note:F("note"),date:F("date")},{img:pend.img},pend.p,"🧾 Чек"); S.rcPending=null; closeSheet() });
     if(!window.__fbAI){ info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">Фото збережеться разом із записом`; return }
-    try{ const txt=await window.__fbAI([rcImg],`Це фото касового чека або накладної з України. Знайди ПІДСУМКОВУ суму до сплати (рядок «СУМА», «ДО СПЛАТИ», «РАЗОМ»), дату покупки і назву магазину/продавця.
-Визнач вид витрати: одне з "Матеріали","Інструменти","Доставка","Інше". Коротко (до 60 символів) опиши, що куплено.
-Відповідь — лише JSON {"total":число,"date":"YYYY-MM-DD" або "","vendor":"","kind":"","items":""}. Якщо щось не видно — порожній рядок, total 0.`);
+    try{ const pr=rcAI(rcImg); S.rcPending={p:pr,img:rcImg}; const txt=await pr; if(S.rcPending?.bg) return; S.rcPending=null;
       const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim()), F=n=>$("#finForm [name="+n+"]");
       const got=[]; if(+j.total>0&&F("amount")){ F("amount").value=String(Math.round(j.total*100)/100); F("amount").dispatchEvent(new Event("input")); got.push("сума "+money(j.total)) }
       if(/^\d{4}-\d{2}-\d{2}$/.test(j.date||"")&&F("date")){ F("date").value=j.date; got.push("дата") }
@@ -2310,6 +2345,7 @@ function finForm(f,preset){
       const nt=[j.vendor,j.items].filter(Boolean).join(": "); if(nt&&F("note")&&!F("note").value.trim()){ F("note").value=nt.slice(0,120); got.push("коментар") }
       info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">${got.length?"✅ Заповнено: "+esc(got.join(", "))+". Перевірте суму.":"Суму не розпізнано — впишіть вручну. Фото збережеться."}`;
     }catch(e){ info.innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">Не вдалося прочитати чек — впишіть суму вручну. Фото збережеться.` } };
+  if(rcImg) $("#rcInfo").innerHTML=`<img src="${rcImg.thumb}" style="height:56px;border-radius:6px;vertical-align:middle;margin-right:8px">${rcRes&&+rcRes.total?"🤖 Розібрано у фоні — перевірте суму, дату й вид":"Фото чека збережеться з записом"}`;
   $("#rcCam").onchange=e=>{rcPick(e.target.files[0]);e.target.value=""}; $("#rcGal").onchange=e=>{rcPick(e.target.files[0]);e.target.value=""};
   $("#rcOpen")?.addEventListener("click",()=>viewFile(f.receipt));
   $("#rcDel")?.addEventListener("click",()=>{ rcDrop=true; $("#rcOpen")?.remove(); $("#rcDel")?.remove(); $("#rcInfo").textContent="Чек буде прибрано після збереження" });
@@ -3739,9 +3775,9 @@ function renderToday(){
       return {n,mat,rest,how} });
     if(l.length) deliver.push({st,l}) }
   const ibn=inboxNew().length;
-  const tzn=suggNew().length;
+  const tzn=suggNew().length, jh=jobsHTML();
   const pick=[...S.sites.values()].filter(x=>x.active===false&&x.type!=="warehouse").map(x=>({x,n:[...S.tools.values()].filter(t=>t.site===x.id&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0)})).filter(o=>o.n);
-  let h=(pick.length&&!isDuo()?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
+  let h=jh+(pick.length&&!isDuo()?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
     ${dl.length?`<div class="list">${dl.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div></div><span class="amt out">${money(n2(v))}</span></div>`).join("")}</div>`:`<div class="empty" style="padding:10px">Боргів немає ✅</div>`}
     <div class="section-t" style="display:flex;margin-top:12px">📝 Потрібно на об'єкти<span class="count">${deliver.reduce((a,d)=>a+d.l.length,0)?deliver.reduce((a,d)=>a+d.l.length,0)+" поз.":""}</span></div>
     ${deliver.length?deliver.map(d=>{ const tag=x=>{ const c=x.how.startsWith("🛒")?"#22c55e":x.how==="купити"?"#f59e0b":"#38bdf8"; return `<span style="font-size:11.5px;padding:1px 7px;border-radius:9px;border:1px solid ${c};color:${c};white-space:nowrap">${esc(x.how)}</span>` };
@@ -3759,7 +3795,9 @@ function renderToday(){
   $("#view").innerHTML=h;
   $("#view").querySelectorAll("[data-ttz]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); tzView(S.tz.get(c.dataset.ttz)) });
   $("#view").querySelectorAll("[data-tfd]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); S.tab="sites"; S.sitesMode="tz"; S.tzMode="docs"; $("#headTools").dataset.b=""; render() });
-  $("#tBuy")?.addEventListener("click",()=>buyList()); $("#iamB")?.addEventListener("click",()=>whoAmISheet()); $("#ibB")?.addEventListener("click",()=>inboxSheet()); $("#view").querySelectorAll("[data-pick]").forEach(c=>c.onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(c.dataset.pick)) }); $("#tzsB")?.addEventListener("click",()=>{ S.tab="sites"; S.sitesMode="tz"; S.tzMode="sugg"; render() });
+  $("#tBuy")?.addEventListener("click",()=>buyList()); $("#iamB")?.addEventListener("click",()=>whoAmISheet()); $("#ibB")?.addEventListener("click",()=>inboxSheet()); $("#view").querySelectorAll("[data-jobx]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const j=S.jobs.find(x=>x.id===b.dataset.jobx); if(j){ jobDrop(j); render() } });
+  $("#view").querySelectorAll("[data-job]").forEach(c=>c.onclick=()=>jobOpen(c.dataset.job));
+  $("#view").querySelectorAll("[data-pick]").forEach(c=>c.onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(c.dataset.pick)) }); $("#tzsB")?.addEventListener("click",()=>{ S.tab="sites"; S.sitesMode="tz"; S.tzMode="sugg"; render() });
   $("#view").querySelectorAll("[data-tneeds]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); S.siteTab="needs"; siteForm(S.sites.get(c.dataset.tneeds)) });
 }
 
@@ -3890,8 +3928,12 @@ async function parseDocAI(parts){
   j.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>{ const qty=+x.qty||1, sum=+x.sum||0; let price=+x.price||0; if(sum>0&&Math.abs(qty*price-sum)>1) price=Math.round(sum/qty*100)/100; return {name:String(x.name).trim(),qty,unit:String(x.unit||""),price,mat:!!x.mat} });
   return j }
 const rowsSum=rows=>Math.round((rows||[]).reduce((a,r)=>a+(+r.qty||0)*(+r.price||0),0)*100)/100;
-function uploadDoc(s,preFile,preKind){
+function uploadDoc(s,preFile,preKind,restore){
   let st={kindFixed:!!preKind,file:null,parts:[],kind:preKind||"Смета",no:"",total:"",date:todayISO(),rows:[]};
+  const applyAI=j=>{ st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty||1,unit:String(x.unit||""),price:+x.price||0,mat:!!x.mat})); if(!st.no&&j.no) st.no=String(j.no); if(!st.total&&+j.total) st.total=String(j.total);
+    if(!st.kindFixed&&["Смета","КП","Акт","Рахунок","Договір","Інше"].includes(j.kind)) st.kind=j.kind; if(/^\d{4}-\d\d-\d\d$/.test(j.date||"")) st.date=j.date; if(j.customer) st.customer=String(j.customer).trim(); st.parsed=true;
+    if(!st.total&&st.rows.length) st.total=String(Math.round(st.rows.reduce((a,r)=>a+r.qty*r.price,0)*100)/100) };
+  if(restore){ st.file=preFile; st.parts=restore.parts||[]; if(restore.res) applyAI(restore.res); preFile=null }
   const draw=()=>{ openSheet(`<h2>📎 Готовий документ</h2><div class="m" style="margin:-6px 0 8px">🏗️ ${esc(s.name)}</div>
     ${st.file?`<div class="m" style="margin-bottom:6px">📎 ${esc(st.file.name)}</div>`:""}<div class="row" style="margin-bottom:8px"><label class="btn ghost" style="flex:1;text-align:center">📁 Файл (PDF, Excel)<input type="file" id="udF" accept="application/*,text/*" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">📷 Фото<input type="file" id="udP" accept="image/*" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
     <div class="row"><div class="field"><label>Що це</label><select id="udK">${["Смета","КП","Акт","Рахунок","Договір","Інше"].map(k=>`<option ${k===st.kind?"selected":""}>${k}</option>`).join("")}</select></div><div class="field"><label>№</label><input id="udN" value="${esc(st.no)}"></div></div>
@@ -3905,7 +3947,9 @@ function uploadDoc(s,preFile,preKind){
       try{ st.parts=await docParts(f) }catch(_){ toast("Файл не прочитався — збережу як є") } draw() };
     const sv=()=>{ st.kind=$("#udK").value; st.no=$("#udN").value; st.date=$("#udD").value; st.total=$("#udS").value };
     $("#udAI")?.addEventListener("click",async()=>{ sv(); const b=$("#udAI"); b.disabled=true; b.textContent="⏳ Розбираю…";
-      try{ const j=await parseDocAI(st.parts);
+      const pr=parseDocAI(st.parts); let bg=false; b.insertAdjacentHTML("afterend",`<button class="btn ghost" id="udBg" style="width:100%;margin-bottom:6px">🕐 Розібрати у фоні — закрити й повідомити</button>`);
+      $("#udBg").onclick=()=>{ bg=true; jobStart("doc",{site:s.id,kind:st.kind,kindFixed:st.kindFixed},{file:st.file,parts:st.parts},pr,"📎 "+st.kind); sheetStack.length?sheetBack():closeSheet() };
+      try{ const j=await pr; if(bg) return;
         st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({name:String(x.name).trim(),qty:+x.qty||1,unit:String(x.unit||""),price:+x.price||0,mat:!!x.mat})); if(!st.no&&j.no) st.no=String(j.no); if(!st.total&&+j.total) st.total=String(j.total);
         if(!st.kindFixed&&["Смета","КП","Акт","Рахунок","Договір","Інше"].includes(j.kind)) st.kind=j.kind; if(/^\d{4}-\d\d-\d\d$/.test(j.date||"")) st.date=j.date; if(j.customer) st.customer=String(j.customer).trim(); st.parsed=true;
         if(!st.total&&st.rows.length) st.total=String(Math.round(st.rows.reduce((a,r)=>a+r.qty*r.price,0)*100)/100) }catch(e){ toast("Не вдалося розібрати: "+String(e?.message||e).slice(0,60)) } draw() });
