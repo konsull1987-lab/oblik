@@ -3766,6 +3766,7 @@ function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
+    ${S.installEv?`<button class="btn" id="mInst" style="width:100%;margin-bottom:6px">📲 Встановити застосунок (щоб ділитися файлами в Облік)</button>`:matchMedia("(display-mode: standalone)").matches?"":`<div class="banner" style="margin-bottom:8px;font-size:13px">📲 Щоб у меню «Поділитися» з'явився «Облік»: Chrome → ⋮ → <b>«Встановити застосунок»</b> (або «Додати на головний екран» → «Встановити»).</div>`}
     <div class="section-t">Google-таблиця ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</div>
     <button class="btn" id="mGs" style="width:100%;margin-bottom:6px">🔄 Оновити з таблиці</button>
     <button class="btn ghost" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Зберегти на Google Диск${S.backupAt?` <span style="font-weight:400;color:var(--muted)">· остання ${fmtDay(new Date(S.backupAt).toISOString().slice(0,10))}</span>`:""}</button>
@@ -3800,6 +3801,8 @@ function openMenu(){
   $("#mGs").onclick=()=>gsheetImport();
 }
 $("#menuBtn").addEventListener("click",openMenu);
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); S.installEv=e });
+document.addEventListener("click",async e=>{ if(e.target.id!=="mInst"||!S.installEv) return; S.installEv.prompt(); try{ await S.installEv.userChoice }catch(_){} S.installEv=null; closeSheet() });
 $("#banner").addEventListener("click",e=>{ if(e.target.id==="bkNow"){e.preventDefault();e.target.textContent="Зачекайте…";driveBackup().then(()=>{const a=$("#bkNow");if(a)a.textContent="Зберегти зараз"})} });
 
 // ---------- Події ----------
@@ -4021,7 +4024,9 @@ function shareSheet(file,text){ if(file&&/\.json$/i.test(file.name)){ importPack
     ["doc:Акт","✅","Акт виконаних робіт",""],["doc:Рахунок","🧾","Рахунок",""],
     ...(img?[["rc","🧾","Чек витрати","сума зчитається сама"]]:[]),["rep","👷","Звіт робіт від хлопців","обсяги → нарахування"],["doc:Інше","📎","Інший документ","просто зберегти в об'єкті"],["tz","🏛️","Документація тендеру","додати до тендера в роботі для аналізу"]];
   const it=([id,ic,t,sub])=>`<button type="button" class="card" data-sht="${id}" style="display:flex;gap:10px;align-items:center;text-align:left;width:100%;margin-bottom:6px;cursor:pointer;color:var(--text);background:var(--card);border:1px solid var(--line);font:inherit;padding:11px 14px"><span style="font-size:22px">${ic}</span><span><b>${t}</b>${sub?`<div class="m" style="font-size:12px;color:var(--muted)">${sub}</div>`:""}</span></button>`;
-  openSheet(`<h2>📥 Що це за ${file?"файл":"текст"}?</h2><div class="m" style="margin-bottom:10px">${file?"📎 "+esc(file.name):esc(String(text).slice(0,200))}</div>${T.map(it).join("")}<div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  const bsw=S.duoOk?`<div class="seg" style="margin-bottom:10px">${[["trio","👥 На трьох"],["duo","🤝 На двох"]].map(([k,l])=>`<button type="button" data-shb="${k}" class="${(S.base||"trio")===k?"on":""}">${l}</button>`).join("")}</div>`:"";
+  openSheet(`<h2>📥 Що це за ${file?"файл":"текст"}?</h2><div class="m" style="margin-bottom:10px">${file?"📎 "+esc(file.name):esc(String(text).slice(0,200))}</div>${bsw}${T.map(it).join("")}<div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  document.querySelectorAll("[data-shb]").forEach(b=>b.onclick=()=>{ if((S.base||"trio")!==b.dataset.shb){ setBase(b.dataset.shb); shareSheet(file,text) } });
   document.querySelectorAll("[data-sht]").forEach(el=>el.onclick=()=>{ const a=el.dataset.sht;
     if(a==="tz"){ (async()=>{ await loadTenders(); const uaid=(String(text||file?.name||"").match(/UA-\d{4}-\d{2}-\d{2}-\d{6}-[a-z]/i)||[])[0];
         if(!file&&uaid){ closeSheet(); tzAddForm(uaid); return } const l=[...S.tz.values()].filter(t=>["work","sent"].includes(t.stage||"work"));
