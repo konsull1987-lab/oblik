@@ -866,9 +866,9 @@ function renderSites(){
   if(arch.length){
     const openA=S.showArch||!!sq;
     h+=`<div class="section-t" id="archT" style="cursor:pointer">${openA?"▾":"▸"} Архів (${arch.length})</div>`;
-    if(openA) h+=`${sq?"":`<input id="archQ" type="search" placeholder="Пошук в архіві" value="${esc(S.archQ||"")}" style="margin-bottom:8px">`}<div class="list">`+arch.filter(s=>!S.archQ||s.name.toLowerCase().includes(S.archQ.toLowerCase())).map(card).join("")+`</div>`;
+    if(openA) h+=`${sq?"":`<input id="archQ" type="search" placeholder="Пошук в архіві" value="${esc(S.archQ||"")}" style="margin-bottom:8px">`}<div class="list" id="archL">`+arch.map(card).join("")+`</div>`;
   }
-  $("#view").innerHTML=h;
+  $("#view").innerHTML=h; if(S.archQ) archFilter();
 }
 
 function renderPeople(){
@@ -4102,7 +4102,9 @@ $("#headTools").addEventListener("click",e=>{
   if(e.target.id==="selBtn"){S.select=!S.select;S.selected.clear();render()}
 });
 $("#view").addEventListener("change",e=>{ if(e.target.id==="sYear"){S.sYear=e.target.value;render()} });
-$("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){S.archQ=e.target.value; renderSites(); const q=$("#archQ"); q.focus(); try{q.setSelectionRange(q.value.length,q.value.length)}catch(_){}} });
+// пошук в архіві без перемальовування — інакше голосовий ввід обривається на першій літері
+const archFilter=()=>{ const q=(S.archQ||"").trim(); $("#archL")?.querySelectorAll("[data-site]").forEach(c=>{ const x=S.sites.get(c.dataset.site); c.style.display=!q||wordHit([x?.name,x?.customer,x?.note].join(" "),q)?"":"none" }) };
+$("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){ S.archQ=e.target.value; archFilter() } });
 $("#headTools").addEventListener("click",e=>{ const b=e.target.closest("[data-ssm]"); if(b){ S.sitesMode=b.dataset.ssm; $("#headTools").dataset.b=""; renderSites() } });
 $("#view").addEventListener("click",e=>{
   const bsw=e.target.closest("[data-base]"); if(bsw){ setBase(bsw.dataset.base); return }
