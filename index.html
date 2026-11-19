@@ -1401,8 +1401,7 @@ function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[
     <div class="actions"><button class="btn ghost" id="lkBack">Назад</button></div>`);
   $("#lkBack").onclick=inboxSheet;
   $("#modal").querySelectorAll("[data-lk]").forEach(c=>c.onclick=async()=>{ const x=site(c.dataset.lk), url=base+(x?`?o=${encodeURIComponent(x.id)}&n=${encodeURIComponent(x.name)}`:"");
-    const text=`📨 Надсилайте сюди, що треба привезти, що зроблено, фото${x?" (об'єкт «"+x.name+"»)":""}:
-${url}`;
+    const text=`📨 Сюди надсилайте, що треба привезти на об'єкт${x?" «"+x.name+"»":""}, що зроблено, і фото:\n${url}\n\nПерший раз заповніть «Про вас» (ПІБ, телефон) і додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран». Кожну позицію пишіть з нового рядка з кількістю. Детально — «❓ Як користуватися» у самій формі.`;
     try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return }
     try{ await navigator.clipboard.writeText(text); toast("Посилання скопійовано") }catch(_){ prompt("Скопіюйте посилання:",url) } }) }
 const digits=x=>String(x||"").replace(/\D/g,"").slice(-9);
