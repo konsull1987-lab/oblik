@@ -1429,7 +1429,7 @@ function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[
     <div class="list">
       <div class="card" data-lk="g"><div class="main"><div class="t">🔗 Загальне посилання</div><div class="m">без об'єкта і без людини — об'єкт виберете, коли розбиратимете</div></div><span class="count">📤</span></div>
       <div class="card" data-lk="join"><div class="main"><div class="t">🆕 Анкета для нової людини</div><div class="m">заповнить свої дані → вам прийде анкета → «Додати в Люди»</div></div><span class="count">📤</span></div></div>
-    ${ws.length?`<div class="section-t">👤 Окремому майстру</div><div class="list">${ws.map(p=>`<div class="card" data-lk="p:${p.id}"><div class="main"><div class="t">${esc(p.name)}</div>${p.trade||p.phone?`<div class="m">${esc([p.trade,p.phone].filter(Boolean).join(" · "))}</div>`:""}</div><span class="count">📤</span></div>`).join("")}</div>`:""}
+    ${ws.length?`<div class="section-t">👤 Окремому майстру</div><div class="list">${ws.map(p=>`<div class="card" data-lk="p:${p.id}"><div class="main"><div class="t">${esc(p.name)}${intlPhone(p.phone||p.phones?.[0]?.tel)?" 📞":""}</div>${p.trade||p.phone?`<div class="m">${esc([p.trade,p.phone].filter(Boolean).join(" · "))}</div>`:""}</div><span class="count">📤</span></div>`).join("")}</div>`:""}
     ${ss.length?`<div class="section-t">🏗️ На об'єкт (бригаді)</div><div class="list">${ss.map(x=>`<div class="card" data-lk="o:${x.id}"><div class="main"><div class="t">${esc(x.name)}</div></div><span class="count">📤</span></div>`).join("")}</div>`:""}
     <div class="actions"><button class="btn ghost" id="lkBack">Назад</button></div>`);
   $("#lkBack").onclick=inboxSheet;
@@ -1438,8 +1438,30 @@ function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[
     else if(k==="join"){ url=base+"?join=1"; text=`👋 Заповніть, будь ласка, коротку анкету — так ми внесемо вас у нашу базу:\n${url}\n\nПісля анкети за цим же посиланням можна надсилати, що треба привезти, обсяги робіт і фото. Додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран».` }
     else if(k.startsWith("p:")){ const p=person(k.slice(2)); url=base+`?p=${encodeURIComponent(p.id)}&pn=${encodeURIComponent(p.name)}`; text=`📨 ${p.name}, сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
     else { const x=site(k.slice(2)); url=base+`?o=${encodeURIComponent(x.id)}&n=${encodeURIComponent(x.name)}`; text=`📨 Сюди надсилайте, що треба привезти на об'єкт «${x.name}», що зроблено, і фото:\n${url}\n\n${TAIL}` }
+    const pp=k.startsWith("p:")?person(k.slice(2)):null, ph=pp?intlPhone(pp.phone||pp.phones?.[0]?.tel):"";
+    if(ph){ inviteVia(pp,ph,text,url); return }
     try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return }
     try{ await navigator.clipboard.writeText(text); toast("Посилання скопійовано") }catch(_){ prompt("Скопіюйте посилання:",url) } }) }
+// 📞 номер у міжнародному форматі: 097… → +38097…
+function intlPhone(x){ let d=String(x||"").replace(/[^\d+]/g,""); if(!d) return ""; if(d.startsWith("+")) return d; if(d.startsWith("380")) return "+"+d; if(d.startsWith("80")&&d.length===11) return "+3"+d; if(d.startsWith("0")&&d.length===10) return "+38"+d; return d.length>=9?"+"+d:"" }
+// надіслати запрошення одразу в чат з людиною (без пошуку в контактах)
+function inviteVia(p,ph,text,url){ const enc=encodeURIComponent(text);
+  openSheet(`<h2>📤 Запросити: ${esc(p.name)}</h2><div class="m" style="margin-bottom:8px">📞 ${esc(ph)}</div>
+    <div class="list">
+      <div class="card" data-iv="viber"><div class="main"><div class="t">💜 Viber</div><div class="m">відкриє чат з ${esc(p.name)} — текст уже скопійовано, просто вставте (затисніть поле → «Вставити»)</div></div></div>
+      <div class="card" data-iv="tg"><div class="main"><div class="t">✈️ Telegram</div><div class="m">відкриє чат за номером — текст скопійовано, вставте</div></div></div>
+      <div class="card" data-iv="wa"><div class="main"><div class="t">🟢 WhatsApp</div><div class="m">відкриє чат з готовим текстом</div></div></div>
+      <div class="card" data-iv="sms"><div class="main"><div class="t">💬 SMS</div><div class="m">відкриє повідомлення з готовим текстом</div></div></div>
+      <div class="card" data-iv="share"><div class="main"><div class="t">📤 Інше…</div><div class="m">звичайне меню «Поділитися»</div></div></div></div>
+    <div class="actions"><button class="btn ghost" id="ivBack">Назад</button></div>`);
+  $("#ivBack").onclick=inboxLinks;
+  $("#modal").querySelectorAll("[data-iv]").forEach(c=>c.onclick=async()=>{ const v=c.dataset.iv, n=ph.replace(/^\+/,"");
+    if(v==="viber"||v==="tg"){ try{ await navigator.clipboard.writeText(text); toast("Текст скопійовано — вставте в чат") }catch(_){} }
+    if(v==="viber") location.href="viber://chat?number=%2B"+n;
+    else if(v==="tg") location.href="https://t.me/+"+n;
+    else if(v==="wa") location.href="https://wa.me/"+n+"?text="+enc;
+    else if(v==="sms") location.href="sms:"+ph+"?body="+enc;
+    else { try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return } try{ await navigator.clipboard.writeText(text); toast("Скопійовано") }catch(_){ prompt("Скопіюйте:",url) } } }) }
 const digits=x=>String(x||"").replace(/\D/g,"").slice(-9);
 const inboxPerson=m=>{ if(m.pid&&person(m.pid)) return person(m.pid); const d=digits(m.phone); return [...S.people.values()].find(p=>d&&[p.phone,...(p.phones||[]).map(x=>x.tel)].some(t=>digits(t)===d))||[...S.people.values()].find(p=>normName(p.name)===normName(m.from||"")) };
 function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; const st=site(m.site), who=inboxPerson(m);
