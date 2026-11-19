@@ -150,6 +150,11 @@ button.card{color:var(--text);background:var(--card);font:inherit}
   <div id="headTools"></div>
 </header>
 <main id="view"></main>
+<script>
+// ⚡ миттєвий старт: показати останній знімок «Сьогодні», поки база й вхід ще піднімаються (1–3 с)
+try{ const sn=JSON.parse(localStorage.getItem("oblikSnap")||"null"); if(sn&&sn.html&&Date.now()-sn.at<7*864e5){ document.getElementById("view").innerHTML=sn.html; document.body.classList.add("snap"); setTimeout(()=>{ if(document.body.classList.contains("snap")){ document.body.classList.remove("snap"); try{ window.render&&render() }catch(_){} } },8000) } }catch(_){}
+</script>
+<style>body.snap #view{opacity:.6;pointer-events:none}body.snap #view::before{content:"⏳ Оновлюю дані…";display:block;text-align:center;font-size:13px;color:var(--muted);padding:6px 0}</style>
 <button class="fab" id="fab" aria-label="Додати">+</button>
 <div id="bulk"></div>
 <nav id="nav">
@@ -320,8 +325,11 @@ function render(){
   if(S.canWrite&&!window.__demo&&S.backupLoaded&&Date.now()-(S.backupAt||0)>BACKUP_DAYS*864e5&&S.tools.size+S.fin.size>0) ban.push(`☁️ ${S.backupAt?`Резервна копія на Google Диску — ${Math.floor((Date.now()-S.backupAt)/864e5)} дн. тому, час зробити свіжу`:"Резервної копії на Google Диску ще немає"}. <a href="#" id="bkNow" style="color:inherit;text-decoration:underline;white-space:nowrap">Зберегти зараз</a> <span id="bkMsg"></span>`);
   $("#banner").innerHTML=ban.map(b=>`<div class="banner">${b}</div>`).join("");
   $("#fab").style.display=(S.canWrite&&!S.select&&S.tab!=="history")?"":"none";
+  // поки дані з кешу ще не прийшли — лишаємо знімок, не малюємо порожній екран
+  if(document.body.classList.contains("snap")){ if(!(S.people?.size&&S.fin&&(S.fin.size||S.loaded?.fin))) return; document.body.classList.remove("snap") }
   ({today:renderToday,tools:renderTools,sites:renderSites,people:renderPeople,history:renderHistory,money:renderMoney})[S.tab]();
   renderBulk();
+  if(S.tab==="today"&&!S.select){ clearTimeout(S.snapT); S.snapT=setTimeout(()=>{ try{ const h=$("#view").innerHTML; if(h.length<350000&&!/Завантаження…/.test(h)) localStorage.setItem("oblikSnap",JSON.stringify({at:Date.now(),html:h})) }catch(_){} },1500) }
 }
 
 function filteredTools(){
@@ -4361,7 +4369,7 @@ window.__sheetsToken=async()=>{ if(shTok&&Date.now()<shExp) return shTok;
   const r=await reauthenticateWithPopup(auth.currentUser,p); const c=GoogleAuthProvider.credentialFromResult(r); if(!c?.accessToken) throw new Error("Немає доступу до Google-таблиць");
   shTok=drvTok=c.accessToken; shExp=drvExp=Date.now()+50*60e3; return shTok; };
 window.__fbList=async c=>{ const sn=await getDocs(collection(fs,px(c))); return sn.docs.map(d=>({id:d.id,...d.data()})) };
-window.__fbSignOut=async()=>{ await signOut(auth); location.reload(); };
+window.__fbSignOut=async()=>{ try{ localStorage.removeItem("oblikSnap") }catch(_){} await signOut(auth); location.reload(); };
 
 document.getElementById("loginBtn").onclick=async()=>{
   const p=new GoogleAuthProvider(); p.setCustomParameters({prompt:"select_account"});
@@ -4373,7 +4381,7 @@ getRedirectResult(auth).catch(e=>{ msg.textContent="Не вдалося увій
 
 let started=false;
 onAuthStateChanged(auth,async u=>{
-  if(!u){ L.style.display="flex"; return; }
+  if(!u){ L.style.display="flex"; try{ localStorage.removeItem("oblikSnap") }catch(_){} document.body.classList.remove("snap"); document.getElementById("view").innerHTML=""; return; }
   const email=(u.email||"").toLowerCase();
   if(ALLOWED.length&&!ALLOWED.includes(email)){ L.style.display="flex"; msg.innerHTML="Пошта <b>"+email+"</b> не має доступу.<br>Попросіть Андрія додати її."; document.getElementById("loginBtn").style.display="none"; lo2.style.display=""; return; }
   L.style.display="none"; window.__fbEmail=email;
