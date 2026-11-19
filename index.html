@@ -285,6 +285,14 @@ async function init(){
   }).catch(()=>{ S.duoOk=false; S.duoChecked=true; applyBase(); render(); });
   for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   try{ db.doc("meta/backup").get().then(x=>{S.backupAt=x.exists?+x.data().at||0:0;S.backupLoaded=true;render()}).catch(()=>{}) }catch(_){}
+  // 🔔 перший запуск: спитати про сповіщення (один раз)
+  setTimeout(()=>{ try{ if(!S.canWrite||localStorage.getItem("notifAsked")||!window.Notification||Notification.permission!=="default"||$("#modal").children.length) return;
+    localStorage.setItem("notifAsked","1");
+    openSheet(`<h2>🔔 Отримувати сповіщення?</h2><div class="m" style="margin-bottom:10px">Застосунок повідомлятиме про нові повідомлення від працівників, записи Сергія й Дмитра, нові тендери, готовий розбір чеків. Що саме — можна вибрати в <b>⋯ Меню → 🔔 Сповіщення</b>.</div>
+      <div class="actions"><button class="btn ghost" id="naNo">Ні</button><button class="btn ghost" id="naSet">Налаштувати</button><button class="btn" id="naYes">🔔 Так</button></div>`);
+    $("#naNo").onclick=()=>{ const n=notifCfg(); n.off=true; try{ localStorage.setItem("oblikNotif",JSON.stringify(n)) }catch(_){} closeSheet(); toast("Можна увімкнути пізніше: ⋯ Меню → 🔔 Сповіщення") };
+    $("#naYes").onclick=async()=>{ try{ await Notification.requestPermission() }catch(_){} closeSheet(); toast(Notification.permission==="granted"?"🔔 Сповіщення увімкнено":"Дозвіл не надано") };
+    $("#naSet").onclick=async()=>{ try{ await Notification.requestPermission() }catch(_){} notifSheet() } }catch(_){} },5000);
   setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) } },1500);
   try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
