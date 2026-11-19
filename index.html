@@ -300,6 +300,8 @@ async function write(fn){
 
 // ---------- Рендер ----------
 function render(){
+  // поки людина друкує/диктує в полі пошуку на екрані — фонові оновлення (база, тендери, ШІ) не перемальовують екран, інакше голосовий ввід обривається
+  const ae=document.activeElement; if(!S.forceRender&&ae&&ae.matches?.("#view input[type=search],#view input[type=text],#view textarea")&&document.getElementById("view")?.contains(ae)){ if(!S.renderHeld){ S.renderHeld=true; ae.addEventListener("blur",()=>{ S.renderHeld=false; setTimeout(render,50) },{once:true}) } return }
   if(S.meName){ const w=$("#who"), t=uaName(S.meName); if(w&&w.textContent!==t) w.textContent=t }
   if(isDuo()&&S.tab==="tools") S.tab="money";
   document.querySelectorAll("nav button").forEach(b=>{b.classList.toggle("on",b.dataset.tab===S.tab); if(b.dataset.tab==="tools") b.style.display=isDuo()?"none":""});
