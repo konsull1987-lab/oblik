@@ -267,14 +267,14 @@ async function init(){
   sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
   sub("fin",db.collection("fin"),snap=>{S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
   // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
-  db.doc("duo_meta/info").get().then(()=>{ S.duoOk=true;
+  db.doc("duo_meta/info").get().then(()=>{ S.duoOk=true; S.duoChecked=true;
     const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase();render()};
     let n=0; const done=()=>{if(++n===2){S.duoLoaded=true;render()}};
     let f1=0,f2=0;
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
     db.collection("duo_fin").onSnapshot(s=>{mk("fin")(s);if(!s.metadata.fromCache&&!f2++)done()},()=>{});
     applyBase(); render();
-  }).catch(()=>{ S.duoOk=false; applyBase(); render(); });
+  }).catch(()=>{ S.duoOk=false; S.duoChecked=true; applyBase(); render(); });
   for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   try{ db.doc("meta/backup").get().then(x=>{S.backupAt=x.exists?+x.data().at||0:0;S.backupLoaded=true;render()}).catch(()=>{}) }catch(_){}
   setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) } },1500);
@@ -4012,6 +4012,8 @@ function uploadDoc(s,preFile,preKind,restore){
   }; draw(); if(preFile) setTimeout(async()=>{ await $("#udF")?.onchange({target:{files:[preFile]}}); if(st.parts.length) $("#udAI")?.click() },50) }
 async function handleShare(){ if(!/[?&]share=1/.test(location.search)) return; try{ history.replaceState(null,"",location.pathname) }catch(_){}
   let t=0; while((!S.db||!S.sites?.size)&&t++<60) await new Promise(r=>setTimeout(r,250)); if(!S.canWrite){ toast("Немає прав на зміни"); return }
+  // дочекатися перевірки доступу «на двох», щоб у вікні був перемикач на трьох / на двох
+  t=0; while(!S.duoChecked&&t++<60) await new Promise(r=>setTimeout(r,150));
   let file=null, text=""; try{ const c=await caches.open("oblik-share"); const r=await c.match("shared-file");
     if(r){ const b=await r.blob(); file=new File([b],decodeURIComponent(r.headers.get("x-name")||"файл"),{type:b.type||r.headers.get("content-type")||""}); await c.delete("shared-file") }
     else { const q=await c.match("shared-text"); if(q){ text=await q.text(); await c.delete("shared-text") } } }catch(_){}
@@ -4024,7 +4026,7 @@ function shareSheet(file,text){ if(file&&/\.json$/i.test(file.name)){ importPack
     ["doc:Акт","✅","Акт виконаних робіт",""],["doc:Рахунок","🧾","Рахунок",""],
     ...(img?[["rc","🧾","Чек витрати","сума зчитається сама"]]:[]),["rep","👷","Звіт робіт від хлопців","обсяги → нарахування"],["doc:Інше","📎","Інший документ","просто зберегти в об'єкті"],["tz","🏛️","Документація тендеру","додати до тендера в роботі для аналізу"]];
   const it=([id,ic,t,sub])=>`<button type="button" class="card" data-sht="${id}" style="display:flex;gap:10px;align-items:center;text-align:left;width:100%;margin-bottom:6px;cursor:pointer;color:var(--text);background:var(--card);border:1px solid var(--line);font:inherit;padding:11px 14px"><span style="font-size:22px">${ic}</span><span><b>${t}</b>${sub?`<div class="m" style="font-size:12px;color:var(--muted)">${sub}</div>`:""}</span></button>`;
-  const bsw=S.duoOk?`<div class="seg" style="margin-bottom:10px">${[["trio","👥 На трьох"],["duo","🤝 На двох"]].map(([k,l])=>`<button type="button" data-shb="${k}" class="${(S.base||"trio")===k?"on":""}">${l}</button>`).join("")}</div>`:"";
+  const bsw=S.duoOk?`<div class="m" style="margin-bottom:4px">Куди записати:</div><div class="seg" style="margin-bottom:10px">${[["trio","👥 На трьох"],["duo","🤝 На двох"]].map(([k,l])=>`<button type="button" data-shb="${k}" class="${(S.base||"trio")===k?"on":""}">${l}</button>`).join("")}</div>`:"";
   openSheet(`<h2>📥 Що це за ${file?"файл":"текст"}?</h2><div class="m" style="margin-bottom:10px">${file?"📎 "+esc(file.name):esc(String(text).slice(0,200))}</div>${bsw}${T.map(it).join("")}<div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   document.querySelectorAll("[data-shb]").forEach(b=>b.onclick=()=>{ if((S.base||"trio")!==b.dataset.shb){ setBase(b.dataset.shb); shareSheet(file,text) } });
   document.querySelectorAll("[data-sht]").forEach(el=>el.onclick=()=>{ const a=el.dataset.sht;
