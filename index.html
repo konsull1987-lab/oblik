@@ -4311,7 +4311,7 @@ const {firebaseConfig, ALLOWED}=CFG; const DEMO_EMAILS=(CFG.DEMO_EMAILS||[]).map
 const sha=async t=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)))].map(b=>b.toString(16).padStart(2,"0")).join("");
 import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
-import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc, getDocs} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, query, orderBy, limit, where, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, getDoc, getDocs} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut, reauthenticateWithPopup} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 
 const app=initializeApp(firebaseConfig);
@@ -4325,7 +4325,7 @@ const px=c=>DEMO&&!String(c).startsWith("demo_")?"demo_"+c:c;
 const pxPath=p=>{ const i=p.indexOf("/"); return px(p.slice(0,i))+p.slice(i) };
 const snapW=s=>({docs:s.docs.map(d=>({id:d.id,exists:true,data:()=>d.data(),metadata:d.metadata})),metadata:s.metadata});
 const wrapQ=q=>({ onSnapshot:(next,err)=>onSnapshot(q,{includeMetadataChanges:true},s=>next(snapW(s)),e=>err&&err({code:e.code,message:e.message})),
-  orderBy:(f,d)=>wrapQ(query(q,orderBy(f,d))), limit:n=>wrapQ(query(q,limit(n))), get:async()=>snapW(await getDocs(q)) });
+  orderBy:(f,d)=>wrapQ(query(q,orderBy(f,d))), limit:n=>wrapQ(query(q,limit(n))), where:(f,op,v)=>wrapQ(query(q,where(f,op,v))), get:async()=>snapW(await getDocs(q)) });
 const wrapD=r=>({id:r.id,path:r.path,get:async()=>{ let x=await getDoc(r);
     if(DEMO&&!x.exists()&&r.parent.path==="demo_files") x=await getDoc(doc(fs,"files",r.id)); // оригінали файлів читаємо з реальної бази
     return{exists:x.exists(),data:()=>x.data()}},set:d=>setDoc(r,d),update:d=>updateDoc(r,d),delete:()=>deleteDoc(r)});
