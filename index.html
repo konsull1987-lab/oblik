@@ -1434,10 +1434,10 @@ function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[
     <div class="actions"><button class="btn ghost" id="lkBack">Назад</button></div>`);
   $("#lkBack").onclick=inboxSheet;
   $("#modal").querySelectorAll("[data-lk]").forEach(c=>c.onclick=async()=>{ const k=c.dataset.lk; let url, text;
-    if(k==="g"){ url=base+"?g=1"; text=`📨 Сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
-    else if(k==="join"){ url=base+"?join=1"; text=`👋 Заповніть, будь ласка, коротку анкету — так ми внесемо вас у нашу базу:\n${url}\n\nПісля анкети за цим же посиланням можна надсилати, що треба привезти, обсяги робіт і фото. Додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран».` }
-    else if(k.startsWith("p:")){ const p=person(k.slice(2)); url=base+`?p=${encodeURIComponent(p.id)}&pn=${encodeURIComponent(p.name)}`; text=`📨 ${p.name}, сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
-    else { const x=site(k.slice(2)); url=base+`?o=${encodeURIComponent(x.id)}&n=${encodeURIComponent(x.name)}`; text=`📨 Сюди надсилайте, що треба привезти на об'єкт «${x.name}», що зроблено, і фото:\n${url}\n\n${TAIL}` }
+    if(k==="g"){ url=base+"?g=1"; text=`Привіт! 👋 Сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
+    else if(k==="join"){ url=base+"?join=1"; text=`Привіт! 👋 Заповніть, будь ласка, коротку анкету — так ми внесемо вас у нашу базу:\n${url}\n\nПісля анкети за цим же посиланням можна надсилати, що треба привезти, обсяги робіт і фото. Додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран».` }
+    else if(k.startsWith("p:")){ const p=person(k.slice(2)); url=base+`?p=${encodeURIComponent(p.id)}&pn=${encodeURIComponent(p.name)}`; text=`Привіт! 👋 Сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
+    else { const x=site(k.slice(2)); url=base+`?o=${encodeURIComponent(x.id)}&n=${encodeURIComponent(x.name)}`; text=`Привіт! 👋 Сюди надсилайте, що треба привезти на об'єкт «${x.name}», що зроблено, і фото:\n${url}\n\n${TAIL}` }
     const pp=k.startsWith("p:")?person(k.slice(2)):null, ph=pp?intlPhone(pp.phone||pp.phones?.[0]?.tel):"";
     if(ph){ inviteVia(pp,ph,text,url); return }
     try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return }
