@@ -3112,7 +3112,7 @@ function smetaFlow(siteId){
   const mkGet=()=>{ try{ const v=parseFloat(localStorage.getItem("smMk")); return isFinite(v)?v:40 }catch(_){ return 40 } };
   const dayAfter=d=>new Date(new Date(d).getTime()+864e5).toISOString().slice(0,10);
   loadMatPrices();
-  let st={withMat:false,mmk:0,mrows:null,from:s.billedTo?dayAfter(s.billedTo):(dates[0]||todayISO()),to:todayISO(),mk:mkGet(),usePrice:false,no:String(new Date().getFullYear()).slice(2)+"-"+String(Date.now()).slice(-4),rows:null};
+  let st={withMat:false,mmk:0,mrows:null,mextra:[],from:s.billedTo?dayAfter(s.billedTo):(dates[0]||todayISO()),to:todayISO(),mk:mkGet(),usePrice:false,no:String(new Date().getFullYear()).slice(2)+"-"+String(Date.now()).slice(-4),rows:null};
   const build=()=>{ const m=new Map();
     for(const f of recs()) if(f.date>=st.from&&f.date<=st.to) for(const it of f.report.items){
       const rate=+it.rate||0, qty=+it.qty||0; if(!(rate>0&&qty>0)) continue;
@@ -3122,7 +3122,13 @@ function smetaFlow(siteId){
     st.rows=[...m.values()].sort((a,b)=>a.name.localeCompare(b.name,"uk"));
     // матеріали, що пройшли через «Потрібно» цього об'єкта (привезені), з цінами Епіцентру/вручну + націнка
     st.mrows=(s.needs||[]).filter(n=>n.kind==="material"&&(n.done||(+n.got||0)>0)).map(n=>{ const q=n.done?Math.max(+n.got||0,+n.qty||1):(+n.got||0), p=matPriceOf(n);
-      return {on:true,mat:true,name:n.name,unit:n.unit||"шт",qty:q,price:p?Math.round(p.price*(1+st.mmk/100)*100)/100:0,cost:p?Math.round(p.price*q*100)/100:0} }) };
+      return {on:true,mat:true,name:n.name,unit:n.unit||"шт",qty:q,price:p?Math.round(p.price*(1+st.mmk/100)*100)/100:0,cost:p?Math.round(p.price*q*100)/100:0} }).concat(st.mextra) };
+  // ручні матеріали: «цемент 10 мішків 180» — назва, к-сть, од., ціна (ціну можна не писати — візьметься з прайсу)
+  const parseMat=line=>{ const t=String(line).replace(/\s[—–-]+\s?/g," ").replace(/\s+/g," ").trim(); if(!t) return null;
+    const m=t.match(/^(.*?)\s(\d+(?:[.,]\d+)?)\s*([a-zа-яіїєґ'.²³]+)?(?:\s*(?:по|x|х|×|\*)?\s*(\d+(?:[.,]\d+)?)\s*(?:грн|₴)?)?$/i);
+    const name=(m?m[1]:t).trim(), qty=m?+m[2].replace(",","."):1, unit=normUnit(m&&m[3]||"шт")||"шт", pr=m&&m[4]?+m[4].replace(",","."):0;
+    const p=pr?null:matPriceOf({name,unit}); const base=pr||(p?p.price:0);
+    return {on:true,mat:true,manual:true,name,unit,qty,price:Math.round(base*(1+st.mmk/100)*100)/100,cost:Math.round(base*qty*100)/100} };
   const draw=()=>{ if(!st.rows) build();
     const allR=[...st.rows,...(st.withMat?st.mrows:[])], on=allR.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+n2(r.qty*r.price),0)), cost=n2(on.reduce((a,r)=>a+r.cost,0));
     openSheet(`<h2>📋 Смета виконаних робіт</h2><div class="m" style="margin:-6px 0 8px">${esc(s.name||"")}${s.customer?" · "+esc(s.customer):""}</div>
@@ -3132,7 +3138,7 @@ function smetaFlow(siteId){
       ${s.billedTo?`<div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Попередня смета виставлена по ${fmtDay(s.billedTo)}</div>`:""}
       <div class="seg" id="smMat" style="margin-bottom:8px"><button type="button" data-v="0" class="${st.withMat?"":"on"}">Матеріали не входять</button><button type="button" data-v="1" class="${st.withMat?"on":""}">Матеріали входять</button></div>
       ${st.withMat?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="m" style="flex:1">Націнка на матеріали, %</span><input id="smMmk" inputmode="decimal" value="${st.mmk}" style="width:70px;text-align:center"></div>`:""}
-      ${st.rows.length||(st.withMat&&st.mrows.length)?`<div class="section-t" style="display:flex">Роботи<span class="count">${st.rows.filter(r=>r.on).length} поз.</span></div>
+      ${st.rows.length||st.withMat?`<div class="section-t" style="display:flex">Роботи<span class="count">${st.rows.filter(r=>r.on).length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(r.unit)} ×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price}" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
@@ -3140,7 +3146,10 @@ function smetaFlow(siteId){
       ${st.withMat?`<div class="section-t" style="display:flex">Матеріали<span class="count">${st.mrows.filter(r=>r.on).length} поз.</span></div>
         ${st.mrows.length?st.mrows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}"><div class="row" style="align-items:center"><input type="checkbox" data-mi="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><span style="flex:1">${esc(r.name)}</span></div>
           <div class="row" style="margin-top:6px;align-items:center"><input data-mi="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(r.unit)} ×</span><input data-mi="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div></div>`).join("")
-          :`<div class="m" style="color:var(--muted);margin-bottom:6px">Немає привезених матеріалів у «Потрібно» цього об'єкта.</div>`}`:""}
+          :`<div class="m" style="color:var(--muted);margin-bottom:6px">Немає привезених матеріалів у «Потрібно» цього об'єкта — додайте вручну нижче.</div>`}
+        <div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="margin-bottom:4px">➕ Додати матеріали вручну — кожен з нового рядка: <i>назва, к-сть, од., ціна</i> (ціну можна не писати — візьметься з прайсу). Можна голосом 🎤.</div>
+          <textarea id="smMAdd" rows="3" placeholder="цемент 10 мішків 180&#10;профіль CD-60 24 шт&#10;клей для плитки 5 мішків 320"></textarea>
+          <button type="button" class="btn sm" id="smMAddB" style="width:100%;margin-top:6px">➕ Додати в смету</button></div>`:""}
       <div class="sum">Замовнику: <b>${money(tot)}</b> · собівартість ${money(cost)} · різниця <b class="in">${money(n2(tot-cost))}</b></div>
       <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Просто отримати й переслати:</div>
       <div class="actions" style="margin-top:4px"><button class="btn ghost" id="smXls">⬇️ Excel</button><button class="btn ghost" id="smPrint">🖨️ PDF</button></div>
@@ -3154,6 +3163,8 @@ function smetaFlow(siteId){
     $("#smUP").onchange=e=>{st.usePrice=e.target.checked;re()};
     $("#smMat").onclick=e=>{const b=e.target.closest("button");if(!b)return;st.withMat=b.dataset.v==="1";draw()};
     $("#smMmk")?.addEventListener("change",e=>{st.mmk=parseFloat(String(e.target.value).replace(",","."))||0;re()});
+    $("#smMAddB")?.addEventListener("click",()=>{ const l=String($("#smMAdd").value||"").split(/\n|;/).map(parseMat).filter(Boolean); if(!l.length){ toast("Напишіть хоча б одну позицію"); return }
+      st.mextra.push(...l); st.mrows.push(...l); const np=l.filter(r=>!r.price).length; toast(`Додано ${l.length}${np?` · ${np} без ціни — впишіть`:""}`); draw() });
     document.querySelectorAll("#modal [data-mi]").forEach(el=>el.onchange=e=>{const r=st.mrows[e.target.dataset.mi],k=e.target.dataset.k; if(k==="on") r.on=e.target.checked; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()}); $("#smNo").onchange=e=>st.no=e.target.value;
     document.querySelectorAll("#modal [data-i]").forEach(el=>el.onchange=e=>{const r=st.rows[e.target.dataset.i],k=e.target.dataset.k;
       if(k==="on") r.on=e.target.checked; else if(k==="name") r.name=e.target.value; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()});
