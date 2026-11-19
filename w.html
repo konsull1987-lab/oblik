@@ -49,7 +49,10 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
     <label>Телефон *</label><input id="ph" type="tel" placeholder="097 123 45 67" autocomplete="tel">
     <label>Спеціальність</label><input id="tr" placeholder="напр. плиточник, електрик, різноробочий">
     <label>Бригада / бригадир</label><input id="cr" placeholder="напр. бригада Петра">
+    <div id="joinX" style="display:none"><label>Досвід, років</label><input id="ex" inputmode="numeric" placeholder="напр. 5">
+    <label>Місто / село</label><input id="ct" placeholder="напр. Полтава"></div>
     <button type="button" class="btn" id="pfOk" style="width:100%;margin-top:12px">Зберегти</button>
+    <div id="joinRes"></div>
   </div>
   <label>Що надсилаєте</label>
   <div class="seg" id="kind">
@@ -82,17 +85,25 @@ const $=s=>document.querySelector(s);
 const app=initializeApp(CFG.firebaseConfig);
 if(CFG.RECAPTCHA_KEY){ try{ initializeAppCheck(app,{provider:new ReCaptchaEnterpriseProvider(CFG.RECAPTCHA_KEY),isTokenAutoRefreshEnabled:true}) }catch(e){} }
 const fs=getFirestore(app), auth=getAuth(app); auth.languageCode="uk";
-const q=new URLSearchParams(location.search); let site=q.get("o")||"", siteName=q.get("n")||"";
+const q=new URLSearchParams(location.search); let site=q.get("o")||"", siteName=q.get("n")||""; const JOIN=q.get("join")==="1", PID=q.get("p")||"", PN=q.get("pn")||"";
+try{ if(q.get("g")==="1"||JOIN||PID){ localStorage.removeItem("wSite"); localStorage.removeItem("wSiteN") } }catch(_){}
 // запам'ятати об'єкт: значок на робочому столі відкриває w.html без параметрів
 try{ if(site){ localStorage.setItem("wSite",site); localStorage.setItem("wSiteN",siteName) } else { site=localStorage.getItem("wSite")||""; siteName=localStorage.getItem("wSiteN")||"" } }catch(_){}
 $("#obj").textContent=siteName?"Об'єкт: "+siteName:"Об'єкт не вказано — напишіть його в тексті";
 let prof={}; try{ prof=JSON.parse(localStorage.getItem("wProf")||"{}"); if(!prof.name&&localStorage.getItem("wName")) prof.name=localStorage.getItem("wName") }catch(_){}
-const showProf=()=>{ const ok=prof.name&&prof.phone; $("#pfBox").style.display=ok?"none":"block"; $("#pfView").style.display=ok?"block":"none";
+if(PID){ prof.pid=PID; if(!prof.name&&PN) prof.name=PN; try{ localStorage.setItem("wProf",JSON.stringify(prof)) }catch(_){} }
+if(JOIN){ $("#joinX").style.display="block"; $("#pfOk").textContent="📨 Надіслати анкету"; document.querySelector("#pfBox b").textContent="🆕 Анкета нового працівника" }
+const showProf=()=>{ const ok=prof.name&&prof.phone&&!(JOIN&&!prof.joined); $("#pfBox").style.display=ok?"none":"block"; $("#pfView").style.display=ok?"block":"none";
   $("#pfTxt").innerHTML=ok?`👤 <b>${prof.name.replace(/</g,"&lt;")}</b> · ${prof.phone.replace(/</g,"&lt;")}${prof.trade?" · "+prof.trade.replace(/</g,"&lt;"):""}`:"";
-  $("#nm").value=prof.name||""; $("#ph").value=prof.phone||""; $("#tr").value=prof.trade||""; $("#cr").value=prof.crew||"" };
+  $("#nm").value=prof.name||""; $("#ph").value=prof.phone||""; $("#tr").value=prof.trade||""; $("#cr").value=prof.crew||""; $("#ex").value=prof.exp||""; $("#ct").value=prof.city||"" };
 $("#pfEd").onclick=()=>{ $("#pfBox").style.display="block"; $("#pfView").style.display="none" };
-$("#pfOk").onclick=()=>{ const name=$("#nm").value.trim(), phone=$("#ph").value.trim(); if(!name){ alert("Вкажіть прізвище та ім'я"); return } if(phone.replace(/\D/g,"").length<9){ alert("Вкажіть номер телефону"); return }
-  prof={...prof,name,phone,trade:$("#tr").value.trim(),crew:$("#cr").value.trim()}; try{ localStorage.setItem("wProf",JSON.stringify(prof)) }catch(_){} showProf() };
+$("#pfOk").onclick=async()=>{ const name=$("#nm").value.trim(), phone=$("#ph").value.trim(); if(!name){ alert("Вкажіть прізвище та ім'я"); return } if(phone.replace(/\D/g,"").length<9){ alert("Вкажіть номер телефону"); return }
+  prof={...prof,name,phone,trade:$("#tr").value.trim(),crew:$("#cr").value.trim(),exp:$("#ex").value.trim(),city:$("#ct").value.trim()};
+  if(JOIN&&!prof.joined){ const b=$("#pfOk"); b.disabled=true; b.textContent="Надсилаю…";
+    try{ await addDoc(collection(fs,"inbox"),{site:"",siteName:"",kind:"join",text:"",photos:[],from:name.slice(0,80),phone:phone.slice(0,30),trade:prof.trade.slice(0,60),crew:prof.crew.slice(0,60),exp:String(prof.exp).slice(0,20),city:String(prof.city).slice(0,60),email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new"}); prof.joined=1;
+      $("#joinRes").innerHTML=`<div class="card ok">✅ Анкету надіслано. Тепер нижче можна надсилати, що треба привезти, обсяги робіт і фото.</div>` }
+    catch(e){ b.disabled=false; b.textContent="📨 Надіслати анкету"; $("#joinRes").innerHTML=`<div class="card">❌ Не вдалося (${e.code||e.message}). Спробуйте ще раз.</div>`; return } }
+  try{ localStorage.setItem("wProf",JSON.stringify(prof)) }catch(_){} showProf() };
 showProf();
 let kind="need", imgs=[], user=null;
 $("#kind").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; kind=b.dataset.v; [...$("#kind").children].forEach(x=>x.classList.toggle("on",x===b)) };
@@ -109,7 +120,7 @@ $("#send").onclick=async()=>{
   let photos=imgs.map(x=>x.d), max=1280, qual=.6;
   while(photos.join("").length>850000&&max>500){ max-=200; qual=Math.max(.4,qual-.05); photos=[]; for(const x of imgs) photos.push(await shrink(x.f,max,qual)) }
   try{
-    await addDoc(collection(fs,"inbox"),{site,siteName,kind,text:text.slice(0,4000),photos,from:from.slice(0,80),phone:String(prof.phone||"").slice(0,30),trade:String(prof.trade||"").slice(0,60),crew:String(prof.crew||"").slice(0,60),email:user?.email||"",uid:user?.uid||"",dev:navigator.userAgent.slice(0,120),at:Date.now(),status:"new"});
+    await addDoc(collection(fs,"inbox"),{site,siteName,kind,text:text.slice(0,4000),photos,from:from.slice(0,80),phone:String(prof.phone||"").slice(0,30),trade:String(prof.trade||"").slice(0,60),crew:String(prof.crew||"").slice(0,60),pid:String(prof.pid||"").slice(0,40),email:user?.email||"",uid:user?.uid||"",dev:navigator.userAgent.slice(0,120),at:Date.now(),status:"new"});
     $("#res").innerHTML=`<div class="card ok">✅ Надіслано. Власники побачать це в застосунку.</div>`;
     $("#tx").value=""; imgs=[]; draw();
   }catch(e){ $("#res").innerHTML=`<div class="card">❌ Не вдалося надіслати (${e.code||e.message}). Перевірте інтернет і спробуйте ще раз.</div>` }

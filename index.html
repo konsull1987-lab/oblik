@@ -1382,12 +1382,12 @@ function advanceSheet(siteId,preWorker){ const st=site(siteId); if(!st) return;
   draw() }
 
 // 📨 Вхідні від працівників (сторінка w.html) — нічого не додається без власника
-const INBOX_KIND={need:"🧱 Що привезти",tools:"🧰 Інструмент на об'єкті",done:"📋 Що зроблено",other:"💬 Інше"};
+const INBOX_KIND={join:"🆕 Анкета",need:"🧱 Що привезти",tools:"🧰 Інструмент на об'єкті",done:"📋 Що зроблено",other:"💬 Інше"};
 const inboxNew=()=>(S.inbox||[]).filter(m=>m.status==="new");
 const imgFromData=d=>({mime:"image/jpeg",b64:String(d).split(",")[1]||"",thumb:d});
 function inboxSheet(){ const l=S.inbox||[];
   openSheet(`<h2>📨 Від працівників</h2>
-    <div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="ibLinks">🔗 Посилання для бригад</button></div>
+    <div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="ibLinks">🔗 Запросити (бригаду, майстра, нову людину)</button></div>
     ${l.length?`<div class="list">${l.map(m=>`<div class="card" data-ib="${m.id}" style="${m.status==="new"?"":"opacity:.55"}"><div class="main"><div class="t">${m.status==="new"?"🔵 ":"✓ "}${esc(inboxPerson(m)?.name||m.from||"?")} · ${esc(INBOX_KIND[m.kind]||"")}</div>
       <div class="m" style="font-size:12.5px">${esc(site(m.site)?.name||m.siteName||"без об'єкта")} · ${new Date(m.at).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}${m.photos?.length?" · 📷 "+m.photos.length:""}</div>
       <div class="m" style="font-size:13px;white-space:pre-line">${esc(String(m.text||"").slice(0,120))}</div></div></div>`).join("")}</div>`:`<div class="empty">Повідомлень ще немає.<br><span class="m">Надішліть бригаді посилання — вони зможуть скидати списки й фото сюди.</span></div>`}
@@ -1395,29 +1395,39 @@ function inboxSheet(){ const l=S.inbox||[];
   $("#modal").querySelectorAll("[data-ib]").forEach(c=>c.onclick=()=>inboxMsg(c.dataset.ib));
   $("#ibLinks").onclick=inboxLinks }
 function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[^/]*$/,"")+"w.html";
-  const ss=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort(byName);
-  openSheet(`<h2>🔗 Посилання для бригад</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Надішліть посилання бригаді у Viber/Telegram. Вони один раз увійдуть через Google і зможуть надсилати текст і фото. Бачать лише форму — ваших даних не бачать.</div>
-    <div class="list">${ss.map(x=>`<div class="card" data-lk="${x.id}"><div class="main"><div class="t">🏗️ ${esc(x.name)}</div></div><span class="count">📤</span></div>`).join("")}<div class="card" data-lk=""><div class="main"><div class="t">Без об'єкта (загальне)</div></div><span class="count">📤</span></div></div>
+  const ss=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort(byName), ws=[...S.people.values()].filter(p=>p.role!=="owner"&&p.active!==false).sort(byName);
+  const TAIL="Перший раз заповніть «Про вас» (ПІБ, телефон) і додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран». Кожну позицію пишіть з нового рядка з кількістю. Детально — «❓ Як користуватися» у самій формі.";
+  openSheet(`<h2>🔗 Запросити в «Облік: бригада»</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Людина отримає посилання у Viber/Telegram і зможе надсилати вам матеріали, обсяги робіт і фото. Облік вона не бачить.</div>
+    <div class="list">
+      <div class="card" data-lk="g"><div class="main"><div class="t">🔗 Загальне посилання</div><div class="m">без об'єкта і без людини — об'єкт виберете, коли розбиратимете</div></div><span class="count">📤</span></div>
+      <div class="card" data-lk="join"><div class="main"><div class="t">🆕 Анкета для нової людини</div><div class="m">заповнить свої дані → вам прийде анкета → «Додати в Люди»</div></div><span class="count">📤</span></div></div>
+    ${ws.length?`<div class="section-t">👤 Окремому майстру</div><div class="list">${ws.map(p=>`<div class="card" data-lk="p:${p.id}"><div class="main"><div class="t">${esc(p.name)}</div>${p.trade||p.phone?`<div class="m">${esc([p.trade,p.phone].filter(Boolean).join(" · "))}</div>`:""}</div><span class="count">📤</span></div>`).join("")}</div>`:""}
+    ${ss.length?`<div class="section-t">🏗️ На об'єкт (бригаді)</div><div class="list">${ss.map(x=>`<div class="card" data-lk="o:${x.id}"><div class="main"><div class="t">${esc(x.name)}</div></div><span class="count">📤</span></div>`).join("")}</div>`:""}
     <div class="actions"><button class="btn ghost" id="lkBack">Назад</button></div>`);
   $("#lkBack").onclick=inboxSheet;
-  $("#modal").querySelectorAll("[data-lk]").forEach(c=>c.onclick=async()=>{ const x=site(c.dataset.lk), url=base+(x?`?o=${encodeURIComponent(x.id)}&n=${encodeURIComponent(x.name)}`:"");
-    const text=`📨 Сюди надсилайте, що треба привезти на об'єкт${x?" «"+x.name+"»":""}, що зроблено, і фото:\n${url}\n\nПерший раз заповніть «Про вас» (ПІБ, телефон) і додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран». Кожну позицію пишіть з нового рядка з кількістю. Детально — «❓ Як користуватися» у самій формі.`;
+  $("#modal").querySelectorAll("[data-lk]").forEach(c=>c.onclick=async()=>{ const k=c.dataset.lk; let url, text;
+    if(k==="g"){ url=base+"?g=1"; text=`📨 Сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
+    else if(k==="join"){ url=base+"?join=1"; text=`👋 Заповніть, будь ласка, коротку анкету — так ми внесемо вас у нашу базу:\n${url}\n\nПісля анкети за цим же посиланням можна надсилати, що треба привезти, обсяги робіт і фото. Додайте значок на робочий стіл: кнопка «📲» внизу або Chrome → ⋮ → «Додати на головний екран».` }
+    else if(k.startsWith("p:")){ const p=person(k.slice(2)); url=base+`?p=${encodeURIComponent(p.id)}&pn=${encodeURIComponent(p.name)}`; text=`📨 ${p.name}, сюди надсилайте, що треба привезти, що зроблено (обсяги робіт), і фото:\n${url}\n\n${TAIL}` }
+    else { const x=site(k.slice(2)); url=base+`?o=${encodeURIComponent(x.id)}&n=${encodeURIComponent(x.name)}`; text=`📨 Сюди надсилайте, що треба привезти на об'єкт «${x.name}», що зроблено, і фото:\n${url}\n\n${TAIL}` }
     try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return }
     try{ await navigator.clipboard.writeText(text); toast("Посилання скопійовано") }catch(_){ prompt("Скопіюйте посилання:",url) } }) }
 const digits=x=>String(x||"").replace(/\D/g,"").slice(-9);
-const inboxPerson=m=>{ const d=digits(m.phone); return [...S.people.values()].find(p=>d&&[p.phone,...(p.phones||[]).map(x=>x.tel)].some(t=>digits(t)===d))||[...S.people.values()].find(p=>normName(p.name)===normName(m.from||"")) };
+const inboxPerson=m=>{ if(m.pid&&person(m.pid)) return person(m.pid); const d=digits(m.phone); return [...S.people.values()].find(p=>d&&[p.phone,...(p.phones||[]).map(x=>x.tel)].some(t=>digits(t)===d))||[...S.people.values()].find(p=>normName(p.name)===normName(m.from||"")) };
 function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; const st=site(m.site), who=inboxPerson(m);
   openSheet(`<h2>📨 ${esc(m.from||"")}</h2><div class="m" style="margin-bottom:4px">${esc(INBOX_KIND[m.kind]||"")} · ${esc(st?.name||m.siteName||"без об'єкта")} · ${new Date(m.at).toLocaleString("uk-UA")}</div>
-    <div class="m" style="margin-bottom:8px">${m.phone?`📞 <a href="${telHref(m.phone)}">${esc(m.phone)}</a>`:""}${m.trade?" · "+esc(m.trade):""}${m.crew?" · "+esc(m.crew):""}${who?` · ✅ у «Людях»: <b>${esc(who.name)}</b>`:S.canWrite&&m.from?` · <a href="#" id="ibAddP" onclick="return false">👤 Додати в «Люди»</a>`:""}</div>
+    <div class="m" style="margin-bottom:8px">${m.phone?`📞 <a href="${telHref(m.phone)}">${esc(m.phone)}</a>`:""}${m.trade?" · "+esc(m.trade):""}${m.exp?" · досвід "+esc(m.exp):""}${m.city?" · "+esc(m.city):""}${m.crew?" · "+esc(m.crew):""}${who?` · ✅ у «Людях»: <b>${esc(who.name)}</b>`:S.canWrite&&m.from?` · <a href="#" id="ibAddP" onclick="return false">👤 Додати в «Люди»</a>`:""}</div>
     ${m.text?`<div class="card" style="display:block;cursor:default;white-space:pre-line;margin-bottom:8px">${esc(m.text)}</div>`:""}
     ${m.photos?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${m.photos.map((p,i)=>`<img src="${p}" data-ph="${i}" style="width:96px;height:96px;object-fit:cover;border-radius:10px;cursor:pointer">`).join("")}</div>`:""}
-    ${!st?`<div class="field"><label>Об'єкт</label><select id="ibSite">${siteOptions("","— виберіть")}</select></div>`:""}
-    ${S.canWrite?`<div class="m" style="margin:4px 0 6px">Куди це перенести (застосунок розбере через ШІ, ви перевірите перед збереженням):</div>
-    <div class="actions" style="flex-wrap:wrap;margin-top:0"><button class="btn ${m.kind==="need"?"":"ghost "}sm" data-ia="need">🧱 У «Потрібно»</button><button class="btn ${m.kind==="tools"?"":"ghost "}sm" data-ia="tools">🧰 Інструмент на об'єкті</button><button class="btn ${m.kind==="done"?"":"ghost "}sm" data-ia="done">📋 Звіт робіт</button>${m.photos?.length?`<button class="btn ghost sm" id="ibPh">📷 Фото → в об'єкт</button>`:""}</div>
-    <div class="actions"><button class="btn danger sm" id="ibDel">🗑 Видалити</button><button class="btn ghost sm" id="ibDone">${m.status==="new"?"✓ Опрацьовано":"↩️ Нове"}</button></div>`:""}
+    ${!st&&m.kind!=="join"?`<div class="field"><label>Об'єкт</label><select id="ibSite">${siteOptions("","— виберіть")}</select></div>`:""}
+    ${m.kind==="join"&&S.canWrite?`<div class="banner" style="margin-bottom:8px">🆕 Анкета нової людини. ${who?"Вже є в «Людях».":`<button class="btn sm" id="ibAddP2">👤 Додати в «Люди»</button>`}</div>`:""}
+    ${S.canWrite&&m.kind!=="join"?`<div class="m" style="margin:4px 0 6px">Куди це перенести (застосунок розбере через ШІ, ви перевірите перед збереженням):</div>
+    <div class="actions" style="flex-wrap:wrap;margin-top:0"><button class="btn ${m.kind==="need"?"":"ghost "}sm" data-ia="need">🧱 У «Потрібно»</button><button class="btn ${m.kind==="tools"?"":"ghost "}sm" data-ia="tools">🧰 Інструмент на об'єкті</button><button class="btn ${m.kind==="done"?"":"ghost "}sm" data-ia="done">📋 Звіт робіт</button>${m.photos?.length?`<button class="btn ghost sm" id="ibPh">📷 Фото → в об'єкт</button>`:""}</div>`:""}
+    ${S.canWrite?`<div class="actions"><button class="btn danger sm" id="ibDel">🗑 Видалити</button><button class="btn ghost sm" id="ibDone">${m.status==="new"?"✓ Опрацьовано":"↩️ Нове"}</button></div>`:""}
     <div class="actions"><button class="btn ghost" id="ibBack">Назад</button></div>`);
   $("#ibBack").onclick=inboxSheet;
-  $("#ibAddP")?.addEventListener("click",async()=>{ const data={name:m.from,role:"worker",phone:m.phone||"",phones:m.phone?[{tel:m.phone,label:""}]:[],trade:m.trade||"",note:[m.crew,"додано з повідомлення"].filter(Boolean).join(" · "),since:todayISO(),active:true};
+  $("#ibAddP2")?.addEventListener("click",()=>$("#ibAddP")?.click());
+  $("#ibAddP")?.addEventListener("click",async()=>{ const data={name:m.from,role:"worker",phone:m.phone||"",phones:m.phone?[{tel:m.phone,label:""}]:[],trade:m.trade||"",note:[m.crew,m.exp&&"досвід "+m.exp,m.city,m.kind==="join"?"з анкети":"додано з повідомлення"].filter(Boolean).join(" · "),since:todayISO(),active:true};
     if(await write(db=>db.collection("people").add(data))){ toast("Додано в «Люди»"); setTimeout(()=>inboxMsg(id),400) } });
   $("#modal").querySelectorAll("[data-ph]").forEach(i=>i.onclick=()=>{ const w=window.open(); if(w) w.document.write(`<img src="${m.photos[+i.dataset.ph]}" style="max-width:100%">`) });
   const mark=st2=>write(db=>db.doc("inbox/"+m.id).update({status:st2,doneAt:Date.now()})).then(()=>{ m.status=st2 });
