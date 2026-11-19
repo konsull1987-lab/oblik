@@ -2043,7 +2043,7 @@ const KINDS=["Матеріали","Зарплата","Підсоба","Інст�
 // сума з виразу: «15000+17 356» → 32356 (також «-», кома як десятковий роздільник)
 function sumExpr(x){ const t=String(x??"").replace(/\s/g,"").replace(/,/g,"."); if(!t) return NaN; if(!/^[+-]?\d*\.?\d+([+-]\d*\.?\d+)*$/.test(t)) return NaN;
   return Math.round((t.match(/[+-]?\d*\.?\d+/g)||[]).reduce((a,n)=>a+parseFloat(n),0)*100)/100 }
-const TAX_DEF=()=>{ try{ return JSON.parse(localStorage.getItem("oblikTax")||"null")||{on:false,rate:8} }catch(_){ return {on:false,rate:8} } };
+const TAX_DEF=()=>{ try{ const t=JSON.parse(localStorage.getItem("oblikTax")||"null")||{on:false,rate:7}; if(+t.rate===8&&!t.v7){ t.rate=7; t.v7=1; localStorage.setItem("oblikTax",JSON.stringify(t)) } return t }catch(_){ return {on:false,rate:7} } };
 const money=n=>(Math.round((n||0)*100)/100).toLocaleString("uk-UA",{maximumFractionDigits:2})+" ₴";
 const owners=()=>[...S.people.values()].filter(p=>p.role==="owner"&&(!isDuo()||DUO_OWNERS.includes(p.id))).sort(byName);
 // 👤 хто зайшов: власник за поштою акаунта (прив'язка в базі), інакше за ім'ям акаунта
