@@ -1388,7 +1388,7 @@ const imgFromData=d=>({mime:"image/jpeg",b64:String(d).split(",")[1]||"",thumb:d
 function inboxSheet(){ const l=S.inbox||[];
   openSheet(`<h2>📨 Від працівників</h2>
     <div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="ibLinks">🔗 Посилання для бригад</button></div>
-    ${l.length?`<div class="list">${l.map(m=>`<div class="card" data-ib="${m.id}" style="${m.status==="new"?"":"opacity:.55"}"><div class="main"><div class="t">${m.status==="new"?"🔵 ":"✓ "}${esc(m.from||"?")} · ${esc(INBOX_KIND[m.kind]||"")}</div>
+    ${l.length?`<div class="list">${l.map(m=>`<div class="card" data-ib="${m.id}" style="${m.status==="new"?"":"opacity:.55"}"><div class="main"><div class="t">${m.status==="new"?"🔵 ":"✓ "}${esc(inboxPerson(m)?.name||m.from||"?")} · ${esc(INBOX_KIND[m.kind]||"")}</div>
       <div class="m" style="font-size:12.5px">${esc(site(m.site)?.name||m.siteName||"без об'єкта")} · ${new Date(m.at).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}${m.photos?.length?" · 📷 "+m.photos.length:""}</div>
       <div class="m" style="font-size:13px;white-space:pre-line">${esc(String(m.text||"").slice(0,120))}</div></div></div>`).join("")}</div>`:`<div class="empty">Повідомлень ще немає.<br><span class="m">Надішліть бригаді посилання — вони зможуть скидати списки й фото сюди.</span></div>`}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -1405,8 +1405,11 @@ function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[
 ${url}`;
     try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return }
     try{ await navigator.clipboard.writeText(text); toast("Посилання скопійовано") }catch(_){ prompt("Скопіюйте посилання:",url) } }) }
-function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; const st=site(m.site);
-  openSheet(`<h2>📨 ${esc(m.from||"")}</h2><div class="m" style="margin-bottom:8px">${esc(INBOX_KIND[m.kind]||"")} · ${esc(st?.name||m.siteName||"без об'єкта")} · ${new Date(m.at).toLocaleString("uk-UA")}</div>
+const digits=x=>String(x||"").replace(/\D/g,"").slice(-9);
+const inboxPerson=m=>{ const d=digits(m.phone); return [...S.people.values()].find(p=>d&&[p.phone,...(p.phones||[]).map(x=>x.tel)].some(t=>digits(t)===d))||[...S.people.values()].find(p=>normName(p.name)===normName(m.from||"")) };
+function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; const st=site(m.site), who=inboxPerson(m);
+  openSheet(`<h2>📨 ${esc(m.from||"")}</h2><div class="m" style="margin-bottom:4px">${esc(INBOX_KIND[m.kind]||"")} · ${esc(st?.name||m.siteName||"без об'єкта")} · ${new Date(m.at).toLocaleString("uk-UA")}</div>
+    <div class="m" style="margin-bottom:8px">${m.phone?`📞 <a href="${telHref(m.phone)}">${esc(m.phone)}</a>`:""}${m.trade?" · "+esc(m.trade):""}${m.crew?" · "+esc(m.crew):""}${who?` · ✅ у «Людях»: <b>${esc(who.name)}</b>`:S.canWrite&&m.from?` · <a href="#" id="ibAddP" onclick="return false">👤 Додати в «Люди»</a>`:""}</div>
     ${m.text?`<div class="card" style="display:block;cursor:default;white-space:pre-line;margin-bottom:8px">${esc(m.text)}</div>`:""}
     ${m.photos?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${m.photos.map((p,i)=>`<img src="${p}" data-ph="${i}" style="width:96px;height:96px;object-fit:cover;border-radius:10px;cursor:pointer">`).join("")}</div>`:""}
     ${!st?`<div class="field"><label>Об'єкт</label><select id="ibSite">${siteOptions("","— виберіть")}</select></div>`:""}
@@ -1415,6 +1418,8 @@ function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; 
     <div class="actions"><button class="btn danger sm" id="ibDel">🗑 Видалити</button><button class="btn ghost sm" id="ibDone">${m.status==="new"?"✓ Опрацьовано":"↩️ Нове"}</button></div>`:""}
     <div class="actions"><button class="btn ghost" id="ibBack">Назад</button></div>`);
   $("#ibBack").onclick=inboxSheet;
+  $("#ibAddP")?.addEventListener("click",async()=>{ const data={name:m.from,role:"worker",phone:m.phone||"",phones:m.phone?[{tel:m.phone,label:""}]:[],trade:m.trade||"",note:[m.crew,"додано з повідомлення"].filter(Boolean).join(" · "),since:todayISO(),active:true};
+    if(await write(db=>db.collection("people").add(data))){ toast("Додано в «Люди»"); setTimeout(()=>inboxMsg(id),400) } });
   $("#modal").querySelectorAll("[data-ph]").forEach(i=>i.onclick=()=>{ const w=window.open(); if(w) w.document.write(`<img src="${m.photos[+i.dataset.ph]}" style="max-width:100%">`) });
   const mark=st2=>write(db=>db.doc("inbox/"+m.id).update({status:st2,doneAt:Date.now()})).then(()=>{ m.status=st2 });
   $("#ibDone")?.addEventListener("click",async()=>{ await mark(m.status==="new"?"done":"new"); inboxSheet() });

@@ -11,13 +11,7 @@ service cloud.firestore {
       return email() in ['konsull1987@gmail.com', 'esmik7686@gmail.com'];
     }
     // 📨 працівники (будь-який вхід через Google) можуть лише НАДІСЛАТИ повідомлення; читають і обробляють власники
-    match /inbox/{id} {
-      allow create: if request.auth != null
-        && request.resource.data.keys().hasOnly(['site','siteName','kind','text','photos','from','email','at','status'])
-        && request.resource.data.status == 'new'
-        && request.resource.data.text is string && request.resource.data.text.size() <= 4000
-        && request.resource.data.photos is list && request.resource.data.photos.size() <= 5;
-    }
+    match /inbox/{id} { allow create: if request.auth != null; }
     match /{col}/{doc=**} {
       allow read, write: if allowed() && (!col.matches('(demo_)?duo_.*') || duo());
     }
