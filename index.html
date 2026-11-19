@@ -273,10 +273,10 @@ async function init(){
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>{ const x={id:d.id,...d.data()}; if(x.helper===undefined&&/^\s*(підсоб|подсоб|помічник|разнораб|різнороб)/i.test(x.name||"")) x.helper=true; return [d.id,x] }))});
   sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
-  sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
+  sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase(); notifyNew("fin",S.B.trio.finRaw,"trio")});
   // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
   db.doc("duo_meta/info").get().then(()=>{ S.duoOk=true; S.duoChecked=true;
-    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(c==="fin") S.B.duo.finRaw=S.B.duo.fin; applyBase();render()};
+    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(c==="fin"){ S.B.duo.finRaw=S.B.duo.fin; notifyNew("fin",S.B.duo.finRaw,"duo") } applyBase();render()};
     let n=0; const done=()=>{if(++n===2){S.duoLoaded=true;render()}};
     let f1=0,f2=0;
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
@@ -288,7 +288,7 @@ async function init(){
   setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) } },1500);
   try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
-  try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); render() },()=>{}) }catch(_){}
+  try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()}))});
 }
 async function write(fn){
@@ -497,7 +497,7 @@ async function tzScan(opts){ opts=opts||{}; if(S.tzScanning) return; if(!S.canWr
       const sc=tzScore(t); const data={pid:t.pid,tid:t.tid,title:t.title,buyer:t.buyer,locality:t.locality,km:t.km??null,value:t.value,tEnd:t.tEnd,method:t.method,score:sc.score,why:sc.why,state:"new",at:Date.now()};
       if(await write(db=>db.doc("tzsugg/"+id).set(data))){ S.tzs.set(id,{id,...data}); added++ } }
     await write(db=>db.doc("meta/tzscan").set({offset,at:Date.now()}));
-    S.tzScanning=null; if(opts.force||added) toast(added?`✨ Нових тендерів: ${added}`:"Нових підходящих тендерів немає"); render();
+    S.tzScanning=null; if(added&&notifCfg().tz&&!opts.force) notify(`✨ Нові тендери: ${added}`,"Відкрийте «Тендери → ✨ Нові»","tz"); else if(opts.force||added) toast(added?`✨ Нових тендерів: ${added}`:"Нових підходящих тендерів немає"); render();
   }catch(e){ S.tzScanning=null; if(opts.force) toast("Пошук не вдався: "+String(e?.message||e).slice(0,70)); render() } }
 async function suggAdd(x){ toast("⏳ Додаю тендер…"); try{ const d=await tzFetch(x.pid); d.km=x.km; const data={...d,fop:S.tzLastFop||"",stage:"work",createdAt:Date.now(),updatedAt:Date.now(),checks:{},note:"",by:window.__fbEmail||""}; let id="";
   if(await write(async db=>{ const r=await db.collection("tenders").add(data); id=r.id; await db.doc("tzsugg/"+x.id).update({state:"added"}) })&&id){ S.tz.set(id,{id,...data}); x.state="added"; renderTenders(); tzView(S.tz.get(id)) } }catch(e){ toast("Не вдалося: "+String(e?.message||e).slice(0,60)) } }
@@ -1778,6 +1778,30 @@ function toolCard(id){
   $("#lostT")?.addEventListener("click",()=>lostForm([id]));
   $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
+// 🔔 Сповіщення власникам: нові повідомлення бригад, записи інших власників, нові тендери, готовий розбір ШІ
+const NOTIF_DEF={inbox:true,fin:true,tz:true,ai:true};
+const notifCfg=()=>{ try{ return {...NOTIF_DEF,...JSON.parse(localStorage.getItem("oblikNotif")||"{}")} }catch(_){ return {...NOTIF_DEF} } };
+S.seen=S.seen||{};
+async function notify(title,body,tag,data){ const c=notifCfg(); if(c.off) return;
+  if(!document.hidden){ toast(title+(body?" — "+body:"")); return }
+  try{ if(window.Notification&&Notification.permission==="granted") (await navigator.serviceWorker?.ready)?.showNotification(title,{body,icon:"icon-192.png",tag,data:data||{},renotify:true}) }catch(_){} }
+function notifyNew(kind,map,base){ const key=kind+base, seen=S.seen[key]; S.seen[key]=new Set(map.keys()); if(!seen) return; const c=notifCfg(); if(c.off) return;
+  const fresh=[...map.entries()].filter(([id])=>!seen.has(id)).map(([,x])=>x); if(!fresh.length) return;
+  if(kind==="inbox"&&c.inbox){ const l=fresh.filter(m=>m.status==="new"); if(l.length) notify(`📨 ${l.length>1?l.length+" нові повідомлення":"Нове повідомлення"} від працівників`,l.map(m=>`${m.from||"?"}: ${INBOX_KIND[m.kind]||""}${m.text?" — "+String(m.text).slice(0,60):""}${m.photos?.length?" · 📷"+m.photos.length:""}`).join("\n"),"inbox") }
+  if(kind==="fin"&&c.fin){ const l=fresh.filter(f=>f.by&&f.by!==S.uid&&!String(f.id).endsWith("_tax")&&(+f.createdAt||0)>Date.now()-15*60e3); if(!l.length) return;
+    const who=f=>uaName(f.byName||"")||"Хтось", T={in:"➕ прихід",out:"➖ витрата",accrual:"🔧 нарахування",xfer:"⇄ залік"};
+    notify(`💰 ${base==="duo"?"🤝 ":""}${l.length>1?l.length+" нові записи":"Новий запис"} від ${who(l[0])}`,l.slice(0,4).map(f=>`${T[f.type]||f.type} ${money(f.amount)}${site(f.site)?" · "+site(f.site).name:""}${f.worker&&person(f.worker)?" · "+person(f.worker).name:""}`).join("\n"),"fin"+base) } }
+function notifSheet(){ const c=notifCfg(), perm=window.Notification?Notification.permission:"unsupported";
+  const it=(k,t,d)=>`<label class="card" style="display:flex;gap:10px;align-items:center;padding:10px 12px"><input type="checkbox" data-nc="${k}" ${c[k]?"checked":""} style="width:22px;height:22px"><span style="flex:1"><b>${t}</b><div class="m">${d}</div></span></label>`;
+  openSheet(`<h2>🔔 Сповіщення</h2>
+    ${perm==="granted"?`<div class="banner" style="margin-bottom:8px">✅ Сповіщення на цьому телефоні дозволено</div>`:perm==="denied"?`<div class="banner" style="margin-bottom:8px">⛔ Сповіщення заборонено в налаштуваннях. Chrome → ⋮ → Налаштування → Сповіщення → дозвольте для konsull1987-lab.github.io</div>`:perm==="unsupported"?`<div class="banner" style="margin-bottom:8px">Цей браузер не підтримує сповіщення. На iPhone — лише з значка на екрані «Додому».</div>`:`<button class="btn" id="ntAsk" style="width:100%;margin-bottom:8px">🔔 Дозволити сповіщення</button>`}
+    ${it("inbox","📨 Від працівників","нові повідомлення, анкети, фото")}${it("fin","💰 Записи інших власників","прихід, витрата, нарахування, залік — хто і скільки")}${it("tz","✨ Нові тендери","знайдені автопошуком")}${it("ai","🤖 Розбір ШІ готовий","чеки й документи у фоні")}
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin:6px 0">Сповіщення приходять, поки застосунок відкритий або згорнутий. Якщо його повністю закрити (змахнути) — прийдуть при наступному відкритті.</div>
+    <div class="actions"><button class="btn ghost" id="ntTest">Перевірити</button><button class="btn" data-close>Готово</button></div>`);
+  $("#modal").querySelectorAll("[data-nc]").forEach(x=>x.onchange=()=>{ const n=notifCfg(); n[x.dataset.nc]=x.checked; try{ localStorage.setItem("oblikNotif",JSON.stringify(n)) }catch(_){} });
+  $("#ntAsk")?.addEventListener("click",async()=>{ try{ await Notification.requestPermission() }catch(_){} notifSheet() });
+  $("#ntTest").onclick=async()=>{ try{ (await navigator.serviceWorker?.ready)?.showNotification("🔔 Облік",{body:"Сповіщення працюють",icon:"icon-192.png",tag:"test"}); toast("Надіслано тестове сповіщення") }catch(e){ toast("Не вдалося: "+e.message) } } }
+
 // 📷 Фото об'єкта: власні (додані тут) + що надіслала бригада через форму
 const thumbOf=(file,max=320)=>new Promise((ok,bad)=>{ const u=URL.createObjectURL(file), i=new Image(); i.onload=()=>{ const k=Math.min(1,max/Math.max(i.width,i.height)), c=document.createElement("canvas"); c.width=Math.round(i.width*k); c.height=Math.round(i.height*k); c.getContext("2d").drawImage(i,0,0,c.width,c.height); URL.revokeObjectURL(u); ok(c.toDataURL("image/jpeg",.6)) }; i.onerror=bad; i.src=u });
 async function photoAdd(siteId,file,meta){ const th=await thumbOf(file); const big=file.size>1.5e6?await (async()=>{ const d=await thumbOf(file,1600); return new File([await (await fetch(d)).blob()],file.name||"фото.jpg",{type:"image/jpeg"}) })():file;
@@ -1828,7 +1852,7 @@ async function jobStart(kind,ctx,inp,promise,label){ const j={id:"j"+Date.now().
 async function jobWork(j,promise){ try{ const inp=await jobGet(j.id,j.kind); if(!inp&&!promise) throw new Error("немає файлу");
     j.result=await (promise||jobRun(j.kind,inp)); j.status="done" }catch(e){ j.status="err"; j.err=String(e?.message||e).slice(0,80) }
   jobsSave(); render(); const txt=j.status==="done"?jobTitle(j)+" · перевірте і збережіть":`${j.label||"Розбір"}: не вдалося — відкрийте, щоб заповнити вручну`;
-  if(document.hidden){ try{ if(window.Notification&&Notification.permission==="granted") (await navigator.serviceWorker?.ready)?.showNotification(j.status==="done"?"🤖 Розбір завершено":"⚠️ Розбір не вдався",{body:txt,icon:"icon-192.png",tag:j.id,data:{job:j.id}}) }catch(_){} }
+  if(document.hidden&&notifCfg().ai){ try{ if(window.Notification&&Notification.permission==="granted") (await navigator.serviceWorker?.ready)?.showNotification(j.status==="done"?"🤖 Розбір завершено":"⚠️ Розбір не вдався",{body:txt,icon:"icon-192.png",tag:j.id,data:{job:j.id}}) }catch(_){} }
   else toast("🤖 "+txt) }
 function jobsResume(){ try{ S.jobs=JSON.parse(localStorage.getItem("aiJobs")||"[]") }catch(_){ S.jobs=[] } for(const j of S.jobs) if(j.status==="run") jobWork(j) }
 function jobDrop(j){ S.jobs=S.jobs.filter(x=>x.id!==j.id); jobsSave(); S.jobIn.delete(j.id); jobCache().then(c=>c.delete("/j/"+j.id)).catch(()=>{}) }
@@ -3886,6 +3910,7 @@ function openMenu(){
   openSheet(`<h2>Меню</h2>
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
     ${S.installEv?`<button class="btn" id="mInst" style="width:100%;margin-bottom:6px">📲 Встановити застосунок (щоб ділитися файлами в Облік)</button>`:matchMedia("(display-mode: standalone)").matches?"":`<div class="banner" style="margin-bottom:8px;font-size:13px">📲 Щоб у меню «Поділитися» з'явився «Облік»: Chrome → ⋮ → <b>«Встановити застосунок»</b> (або «Додати на головний екран» → «Встановити»).</div>`}
+    <button class="btn ghost" id="mNotif" style="width:100%;margin-bottom:6px">🔔 Сповіщення</button>
     <div class="section-t">Google-таблиця ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</div>
     <button class="btn" id="mGs" style="width:100%;margin-bottom:6px">🔄 Оновити з таблиці</button>
     <button class="btn ghost" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Зберегти на Google Диск${S.backupAt?` <span style="font-weight:400;color:var(--muted)">· остання ${fmtDay(new Date(S.backupAt).toISOString().slice(0,10))}</span>`:""}</button>
@@ -3921,6 +3946,7 @@ function openMenu(){
 }
 $("#menuBtn").addEventListener("click",openMenu);
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); S.installEv=e });
+document.addEventListener("click",e=>{ if(e.target.id==="mNotif") notifSheet() });
 document.addEventListener("click",async e=>{ if(e.target.id!=="mInst"||!S.installEv) return; S.installEv.prompt(); try{ await S.installEv.userChoice }catch(_){} S.installEv=null; closeSheet() });
 $("#banner").addEventListener("click",e=>{ if(e.target.id==="bkNow"){e.preventDefault();e.target.textContent="Зачекайте…";driveBackup().then(()=>{const a=$("#bkNow");if(a)a.textContent="Зберегти зараз"})} });
 
