@@ -213,7 +213,10 @@ const S = {
 // ---- Дві бази: «на трьох» (fin, sites) і «общак на двох» (duo_fin, duo_sites) ----
 const DUO_OWNERS=["andriy","serhiy"];
 const isDuo=()=>S.base==="duo"&&S.duoOk;
-function applyBase(){ const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.sites=S.B[k].sites; }
+// 🧪 Тестовий об'єкт (пісочниця): його платежі не входять у жодні підсумки, баланси, борги й аналітику
+const isTestSite=x=>!!x&&(x.test===true||(x.test!==false&&/^\s*(тест|test|пісочниця)(\s|$)/i.test(x.name||"")));
+function testFilter(k){ const b=S.B[k]; if(!b.finRaw) b.finRaw=b.fin; const t=new Set([...b.sites.values()].filter(isTestSite).map(x=>x.id)); b.testIds=t; b.fin=t.size?new Map([...b.finRaw].filter(([,f])=>!t.has(f.site))):b.finRaw }
+function applyBase(){ testFilter("trio"); if(S.B.duo.sites) testFilter("duo"); const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.finAll=S.B[k].finRaw||S.B[k].fin; S.sites=S.B[k].sites; }
 const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers"||c==="photos")?"duo_"+c:c;
 // ---- Журнал змін: кожне додавання / зміна / видалення зберігається повністю (як було → як стало) ----
 const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
@@ -265,10 +268,10 @@ async function init(){
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
-  sub("fin",db.collection("fin"),snap=>{S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
+  sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
   // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
   db.doc("duo_meta/info").get().then(()=>{ S.duoOk=true; S.duoChecked=true;
-    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase();render()};
+    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(c==="fin") S.B.duo.finRaw=S.B.duo.fin; applyBase();render()};
     let n=0; const done=()=>{if(++n===2){S.duoLoaded=true;render()}};
     let f1=0,f2=0;
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
@@ -860,7 +863,7 @@ function renderSites(){
   if(!all.length){ $("#view").innerHTML=`<div class="empty">${sq?"Нічого не знайдено":"Додайте склади й об'єкти кнопкою «+»."}</div>`; return; }
   const tot=siteTotals();
   const card=s=>{ const t=tot[s.id], p=t?t.in-t.out:0, debt=(+s.contract||0)>0?(+s.contract)-(t?.in||0):0;
-    return `<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
+    return `<div class="card" data-site="${s.id}"><div class="main"><div class="t">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}${isTestSite(s)?` <span class="tag">🧪 тест · не рахується</span>`:""}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
     ${t?`<div class="m">прихід <span class="in">${money(t.in)}</span> · витрати <span class="out">${money(t.out)}</span> · прибуток <b class="${p<0?"out":""}">${money(p)}</b></div>`:""}
     ${debt>0?`<div class="m">👤 ${esc(s.customer||"замовник")} винен <b class="in">${money(debt)}</b></div>`:""}
     ${s.note?`<div class="m">${esc(s.note)}</div>`:""}</div>${isDuo()?"":`<span class="count">${cnt[s.id]||0} од.</span>`}</div>` };
@@ -1890,14 +1893,14 @@ function siteForm(s){
   const isSite=s.type!=="warehouse", tabs=isNew?[]:(isSite?[["money","💰 Гроші"],["tools","🧰 Інструмент"],["needs","📝 Потрібно"],["works","📋 Роботи"],["photos","📷 Фото"],["docs","📁 Документи"],["data","⚙️ Дані"]]:[["tools","🧰 Інструмент"],["data","⚙️ Дані"]]);
   let tab=isNew?"data":(tabs.some(t=>t[0]===S.siteTab)?S.siteTab:tabs[0][0]);
   const T=(k,html)=>`<div data-stab="${k}" style="display:${tab===k?"block":"none"}">${html}</div>`;
-  const finHere=isNew?[]:[...S.fin.values()].filter(f=>f.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
+  const finHere=isNew?[]:[...(isTestSite(s)?S.finAll||S.fin:S.fin).values()].filter(f=>f.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
   const toolsHere=isNew?[]:[...S.tools.values()].filter(t=>t.site===s.id&&t.status!=="lost").sort(byName);
   const reps=finHere.filter(f=>f.type==="accrual"&&f.report);
   if(!isNew&&isSite){ const nl=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1)).length, ap=s.approved?.items?.length||0, apd=(()=>{ const d=new Set(s.approvedDone||[]), g=apProgress(s); (s.approved?.items||[]).forEach((r,i)=>{ if(g[i]&&g[i]>=(+r.qty||0)*0.999) d.add(i) }); return d.size })();
     for(const t of tabs){ if(t[0]==="tools"&&toolsHere.length) t[1]+=" "+toolsHere.length; if(t[0]==="needs"&&nl) t[1]+=" "+nl; if(t[0]==="works"&&ap) t[1]+=` ${apd}/${ap}` } }
   openSheet(`<h2>${isNew?"Новий склад / об'єкт":(isSite?"🏗️ ":"🏬 ")+esc(s.name)}</h2>
     ${tabs.length?`<div class="seg" id="segS" style="margin-bottom:10px;overflow-x:auto;flex-wrap:nowrap">${tabs.map(([k,l])=>`<button type="button" data-v="${k}" class="${tab===k?"on":""}" style="white-space:nowrap">${l}</button>`).join("")}</div>`:""}
-    ${!isNew&&isSite?T("money",(()=>{const t=siteTotals()[s.id];return `<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}
+    ${!isNew&&isSite?T("money",(()=>{const t=isTestSite(s)?finHere.reduce((a,f)=>{ if(f.type==="in") a.in+=+f.amount||0; else if(f.type==="out") a.out+=+f.amount||0; return a },{in:0,out:0}):siteTotals()[s.id];return `${isTestSite(s)?`<div class="banner" style="margin-bottom:8px">🧪 Тестовий об'єкт — платежі, нарахування й борги звідси <b>не входять</b> у баланси, аналітику, «Сьогодні» і борги людей.</div>`:""}<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}
       ${S.canWrite?`<div class="actions" style="margin:6px 0"><button class="btn ghost sm" id="sOut">💸 Витрата</button><button class="btn ghost sm" id="sRc">🧾 Чек</button><button class="btn ghost sm" id="sIn">💰 Прихід</button><button class="btn ghost sm" id="sAdv">👷 Аванс бригаді</button></div>`:""}
       ${finHere.slice(0,8).map(f=>finLine(f)).join("")||`<div class="empty">Платежів ще немає</div>`}
       ${finHere.length>8?`<button class="btn ghost" id="showSiteFin" style="width:100%;margin:8px 0">Усі платежі (${finHere.length})</button>`:""}`})()):""}
@@ -1916,6 +1919,7 @@ function siteForm(s){
       ${s.type!=="warehouse"?`<div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я, телефон"></div>
         <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${s.contract||""}" placeholder="0"></div></div>`:""}
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="active" style="width:22px;height:22px" ${s.active!==false?"checked":""}> Активний (знятий — йде в архів)</label></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="test" style="width:22px;height:22px" ${isTestSite(s)?"checked":""}> 🧪 Тестовий (пісочниця) — гроші не рахуються ніде</label></div>
       ${s.type!=="warehouse"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="perm" style="width:22px;height:22px" ${isPerm(s)?"checked":""}> ♾️ Постійний (як «Шабашка»): дрібні разові роботи, прибуток ділиться одразу, не закривається</label></div>
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="split" style="width:22px;height:22px" ${s.split||isPerm(s)?"checked":""}> Прибуток поділено між власниками</label></div>`:""}
       ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delS">Видалити</button>${s.type!=="warehouse"?`<button type="button" class="btn ghost" id="mrgS">🔀 Об'єднати</button>`:""}`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
@@ -1946,7 +1950,7 @@ function siteForm(s){
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено"); if(!isNew&&s.active!==false&&data.active===false) setTimeout(()=>toolsLeftPrompt(s.id),400)}
   });
