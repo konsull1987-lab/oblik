@@ -214,7 +214,7 @@ const S = {
 const DUO_OWNERS=["andriy","serhiy"];
 const isDuo=()=>S.base==="duo"&&S.duoOk;
 function applyBase(){ const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.sites=S.B[k].sites; }
-const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers")?"duo_"+c:c;
+const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers"||c==="photos")?"duo_"+c:c;
 // ---- Журнал змін: кожне додавання / зміна / видалення зберігається повністю (як було → як стало) ----
 const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
 const MOVE_KEYS=new Set(["holder","site","qty","updatedAt"]);
@@ -1413,7 +1413,7 @@ function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; 
     ${m.photos?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${m.photos.map((p,i)=>`<img src="${p}" data-ph="${i}" style="width:96px;height:96px;object-fit:cover;border-radius:10px;cursor:pointer">`).join("")}</div>`:""}
     ${!st?`<div class="field"><label>Об'єкт</label><select id="ibSite">${siteOptions("","— виберіть")}</select></div>`:""}
     ${S.canWrite?`<div class="m" style="margin:4px 0 6px">Куди це перенести (застосунок розбере через ШІ, ви перевірите перед збереженням):</div>
-    <div class="actions" style="flex-wrap:wrap;margin-top:0"><button class="btn ${m.kind==="need"?"":"ghost "}sm" data-ia="need">🧱 У «Потрібно»</button><button class="btn ${m.kind==="tools"?"":"ghost "}sm" data-ia="tools">🧰 Інструмент на об'єкті</button><button class="btn ${m.kind==="done"?"":"ghost "}sm" data-ia="done">📋 Звіт робіт</button></div>
+    <div class="actions" style="flex-wrap:wrap;margin-top:0"><button class="btn ${m.kind==="need"?"":"ghost "}sm" data-ia="need">🧱 У «Потрібно»</button><button class="btn ${m.kind==="tools"?"":"ghost "}sm" data-ia="tools">🧰 Інструмент на об'єкті</button><button class="btn ${m.kind==="done"?"":"ghost "}sm" data-ia="done">📋 Звіт робіт</button>${m.photos?.length?`<button class="btn ghost sm" id="ibPh">📷 Фото → в об'єкт</button>`:""}</div>
     <div class="actions"><button class="btn danger sm" id="ibDel">🗑 Видалити</button><button class="btn ghost sm" id="ibDone">${m.status==="new"?"✓ Опрацьовано":"↩️ Нове"}</button></div>`:""}
     <div class="actions"><button class="btn ghost" id="ibBack">Назад</button></div>`);
   $("#ibBack").onclick=inboxSheet;
@@ -1422,7 +1422,8 @@ function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; 
   $("#modal").querySelectorAll("[data-ph]").forEach(i=>i.onclick=()=>{ const w=window.open(); if(w) w.document.write(`<img src="${m.photos[+i.dataset.ph]}" style="max-width:100%">`) });
   const mark=st2=>write(db=>db.doc("inbox/"+m.id).update({status:st2,doneAt:Date.now()})).then(()=>{ m.status=st2 });
   $("#ibDone")?.addEventListener("click",async()=>{ await mark(m.status==="new"?"done":"new"); inboxSheet() });
-  $("#ibDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити повідомлення?")) return; await write(db=>db.doc("inbox/"+m.id).delete()); S.inbox=(S.inbox||[]).filter(x=>x.id!==m.id); inboxSheet() });
+  $("#ibPh")?.addEventListener("click",async()=>{ const sid=st?.id||$("#ibSite")?.value; if(!sid){ toast("Виберіть об'єкт"); return } toast("⏳ Зберігаю фото…"); const n=await inboxPhotosToSite(m,sid); toast(`📷 ${n} фото збережено в «${site(sid)?.name||""}» → вкладка «Фото»`) });
+  $("#ibDel")?.addEventListener("click",async()=>{ if(!confirm(m.photos?.length&&(st||$("#ibSite")?.value)?"Видалити повідомлення? Фото збережуться в об'єкті.":"Видалити повідомлення?")) return; const sid=st?.id||$("#ibSite")?.value; if(m.photos?.length&&sid) await inboxPhotosToSite(m,sid); await write(db=>db.doc("inbox/"+m.id).delete()); S.inbox=(S.inbox||[]).filter(x=>x.id!==m.id); inboxSheet() });
   $("#modal").querySelectorAll("[data-ia]").forEach(b=>b.onclick=async()=>{ const sid=st?.id||$("#ibSite")?.value||""; const a=b.dataset.ia, imgs=(m.photos||[]).map(imgFromData);
     if(a!=="tools"&&!sid){ toast("Виберіть об'єкт"); return }
     await mark("done");
@@ -1715,6 +1716,32 @@ function toolCard(id){
   $("#lostT")?.addEventListener("click",()=>lostForm([id]));
   $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
+// 📷 Фото об'єкта: власні (додані тут) + що надіслала бригада через форму
+const thumbOf=(file,max=320)=>new Promise((ok,bad)=>{ const u=URL.createObjectURL(file), i=new Image(); i.onload=()=>{ const k=Math.min(1,max/Math.max(i.width,i.height)), c=document.createElement("canvas"); c.width=Math.round(i.width*k); c.height=Math.round(i.height*k); c.getContext("2d").drawImage(i,0,0,c.width,c.height); URL.revokeObjectURL(u); ok(c.toDataURL("image/jpeg",.6)) }; i.onerror=bad; i.src=u });
+async function photoAdd(siteId,file,meta){ const th=await thumbOf(file); const big=file.size>1.5e6?await (async()=>{ const d=await thumbOf(file,1600); return new File([await (await fetch(d)).blob()],file.name||"фото.jpg",{type:"image/jpeg"}) })():file;
+  const r=await saveFile(big); let id=""; await write(async db=>{ const x=await db.collection(R("photos")).add({site:siteId,fileId:r.id,thumb:th,at:Date.now(),date:todayISO(),by:S.uid||"",byName:S.meName||"",from:meta?.from||"",note:meta?.note||"",msg:meta?.msg||""}); id=x.id }); return id }
+async function sitePhotos(s){ const box=$("#phBox"); if(!box) return;
+  let own=[]; try{ const q=await S.db.collection(R("photos")).where("site","==",s.id).get(); own=q.docs.map(d=>({id:d.id,...d.data()})) }catch(_){}
+  const saved=new Set(own.map(p=>p.msg).filter(Boolean)), inb=(S.inbox||[]).filter(m=>m.site===s.id&&m.photos?.length&&!m.savedTo&&!saved.has(m.id)).flatMap(m=>m.photos.map((d,i)=>({src:d,at:m.at,from:m.from,note:INBOX_KIND[m.kind]||"",msg:m.id,i})));
+  const all=[...own.map(p=>({...p,src:p.thumb})),...inb].sort((a,b)=>(b.at||0)-(a.at||0)), byDay=new Map(); for(const p of all){ const k=new Date(p.at).toLocaleDateString("uk-UA"); if(!byDay.has(k)) byDay.set(k,[]); byDay.get(k).push(p) }
+  box.innerHTML=`${S.canWrite?`<div class="row" style="margin-bottom:8px"><label class="btn ghost" style="flex:1;text-align:center">📷 Камера<input type="file" id="phCam" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" id="phGal" accept="image/*" multiple style="display:none"></label></div>`:""}
+    ${all.length?[...byDay.entries()].map(([d,l])=>`<div class="section-t">${d}<span class="count">${l.length}</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">${l.map((p,k)=>`<div style="position:relative"><img src="${p.src}" data-phv="${all.indexOf(p)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer">${p.from?`<span style="position:absolute;left:4px;bottom:4px;font-size:10.5px;background:rgba(0,0,0,.6);color:#fff;padding:1px 5px;border-radius:6px">${esc(p.from)}</span>`:""}</div>`).join("")}</div>`).join("")
+      :`<div class="empty">Фото ще немає.<br><span class="m">Додайте тут або бригада надішле через «📨 посилання для бригад» — фото з'являться тут самі.</span></div>`}`;
+  const add=async fl=>{ const n=fl.length; if(!n) return; toast(`⏳ Зберігаю ${n} фото…`); let ok=0; for(const f of fl){ try{ await photoAdd(s.id,f); ok++ }catch(e){ toast(String(e?.message)==="big"?"Фото більше 8 МБ":"Не збереглося") } } if(ok) toast(`📷 Збережено ${ok}`); sitePhotos(s) };
+  $("#phCam")?.addEventListener("change",e=>{ add([...e.target.files]); e.target.value="" }); $("#phGal")?.addEventListener("change",e=>{ add([...e.target.files]); e.target.value="" });
+  box.querySelectorAll("[data-phv]").forEach(img=>img.onclick=()=>photoView(all,+img.dataset.phv,s)) }
+async function photoView(all,i,s){ const p=all[i]; if(!p) return; let src=p.src;
+  const ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;z-index:1100;background:#000;display:flex;flex-direction:column";
+  const draw=()=>{ ov.innerHTML=`<div style="display:flex;gap:8px;align-items:center;padding:10px;color:#fff"><span style="flex:1;font-size:13px">${new Date(p.at).toLocaleString("uk-UA")}${p.from?" · "+esc(p.from):p.byName?" · "+esc(uaName(p.byName)):""}${p.note?" · "+esc(p.note):""}</span>${S.canWrite&&p.id?`<button class="btn ghost sm" data-pd>🗑</button>`:""}<button class="btn ghost sm" data-px>✕</button></div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;overflow:auto"><img src="${src}" style="max-width:100%;max-height:100%"></div>
+    <div style="display:flex;justify-content:space-between;padding:10px"><button class="btn ghost" data-pp ${i?"":"disabled"}>‹</button><span style="color:#aaa;align-self:center">${i+1} / ${all.length}</span><button class="btn ghost" data-pn ${i<all.length-1?"":"disabled"}>›</button></div>` };
+  draw(); document.body.appendChild(ov);
+  if(p.fileId){ try{ const r=await fileBlob(p.fileId); if(r){ src=URL.createObjectURL(r.blob); draw() } }catch(_){} }
+  ov.onclick=async e=>{ if(e.target.closest("[data-px]")){ ov.remove(); return } if(e.target.closest("[data-pp]")){ ov.remove(); photoView(all,i-1,s); return } if(e.target.closest("[data-pn]")){ ov.remove(); photoView(all,i+1,s); return }
+    if(e.target.closest("[data-pd]")&&confirm("Видалити фото?")){ if(await write(db=>db.doc(R("photos")+"/"+p.id).delete())){ deleteFile(p.fileId).catch(()=>{}); ov.remove(); sitePhotos(s) } } } }
+// фото з повідомлення бригади → у фото об'єкта (щоб лишились, навіть якщо повідомлення видалять)
+async function inboxPhotosToSite(m,sid){ if(m.savedTo) return m.photos?.length||0; let n=0; for(const d of m.photos||[]){ try{ const f=new File([await (await fetch(d)).blob()],"фото.jpg",{type:"image/jpeg"}); await photoAdd(sid,f,{from:m.from||"",note:INBOX_KIND[m.kind]||"",msg:m.id}); n++ }catch(_){} } if(n){ m.savedTo=sid; await write(db=>db.doc("inbox/"+m.id).update({savedTo:sid})) } return n }
+
 // 🤖 Фоновий розбір ШІ: чеки й документи. Можна згорнути застосунок — прийде сповіщення, результат чекає на «Сьогодні»
 const RC_PROMPT=`Це фото касового чека або накладної з України. Знайди ПІДСУМКОВУ суму до сплати (рядок «СУМА», «ДО СПЛАТИ», «РАЗОМ»), дату покупки і назву магазину/продавця.
 Визнач вид витрати: одне з "Матеріали","Інструменти","Доставка","Інше". Коротко (до 60 символів) опиши, що куплено.
@@ -1843,7 +1870,7 @@ function mergeSite(src){
 function siteForm(s){
   const isNew=!s; s=s||{type:"site"};
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
-  const isSite=s.type!=="warehouse", tabs=isNew?[]:(isSite?[["money","💰 Гроші"],["tools","🧰 Інструмент"],["needs","📝 Потрібно"],["works","📋 Роботи"],["docs","📁 Документи"],["data","⚙️ Дані"]]:[["tools","🧰 Інструмент"],["data","⚙️ Дані"]]);
+  const isSite=s.type!=="warehouse", tabs=isNew?[]:(isSite?[["money","💰 Гроші"],["tools","🧰 Інструмент"],["needs","📝 Потрібно"],["works","📋 Роботи"],["photos","📷 Фото"],["docs","📁 Документи"],["data","⚙️ Дані"]]:[["tools","🧰 Інструмент"],["data","⚙️ Дані"]]);
   let tab=isNew?"data":(tabs.some(t=>t[0]===S.siteTab)?S.siteTab:tabs[0][0]);
   const T=(k,html)=>`<div data-stab="${k}" style="display:${tab===k?"block":"none"}">${html}</div>`;
   const finHere=isNew?[]:[...S.fin.values()].filter(f=>f.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
@@ -1863,6 +1890,7 @@ function siteForm(s){
     ${!isNew&&isSite?T("needs",`<div id="needsBox">${needsHTML(s)}</div>`):""}
     ${!isNew&&isSite?T("works",`<div id="apBox">${approvedHTML(s)}</div>${S.canWrite?`<button class="btn" id="sRep" style="width:100%;margin-bottom:6px">📋 Звіт робіт по цьому об'єкту</button>`:""}
       ${reps.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)} · ${esc(person(f.worker)?.name||"")}</div><div class="m" style="font-size:12px">${(f.report.items||[]).slice(0,3).map(i=>esc(i.name)).join(", ")}${(f.report.items||[]).length>3?"…":""}</div></div><b>${money(f.amount)}</b></div>`).join("")||`<div class="empty">Звітів робіт ще немає. Роботи зі звітів збираються в смету для замовника («📁 Документи» → «📋 Смета»).</div>`}`):""}
+    ${!isNew&&isSite?T("photos",`<div id="phBox"><div class="empty">Завантажую фото…</div></div>`):""}
     ${!isNew&&isSite?T("docs",siteDocsHTML(s)):""}
     ${T("data",`    <form id="siteForm">
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
@@ -1896,7 +1924,8 @@ function siteForm(s){
   $("#stMv")?.addEventListener("click",()=>{ const ids=[...$("#modal").querySelectorAll("[data-stsel]:checked")].map(c=>c.dataset.stsel); if(ids.length) moveForm(ids,{from:s.id,back:()=>{ const st=S.sites.get(s.id); if(st){ S.siteTab="tools"; siteForm(st) } }}) });
   $("#showSiteFin")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"money",mtab:"journal",mSite:s.id,mOwner:"",mKind:"",mMonth:"",mType:""});render()});
   $("#hoS")?.addEventListener("click",()=>handoverSheet("site",s.id));
-  if(!isNew) bindNeeds(s);
+  if(!isNew) bindNeeds(s); if(!isNew&&isSite&&tab==="photos") sitePhotos(s);
+  $("#segS")?.addEventListener("click",e=>{ const b=e.target.closest("[data-v]"); if(b?.dataset.v==="photos") setTimeout(()=>sitePhotos(s),30) });
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
@@ -4213,7 +4242,7 @@ window.__fbAI=async(imgs,prompt,onTry)=>{
   throw new Error(errs.join(" | "));
 };
 window.__fbDump=async()=>{ const out={exportedAt:new Date().toISOString(),exportedAtMs:Date.now()};
-  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","offers","meta","duo_fin","duo_sites","duo_files"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
+  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","offers","meta","photos","duo_fin","duo_sites","duo_files","duo_photos"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
   return out; };
 let drvTok=null, drvExp=0;
 window.__driveToken=async()=>{ if(drvTok&&Date.now()<drvExp) return drvTok;
