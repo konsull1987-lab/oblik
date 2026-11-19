@@ -2402,7 +2402,7 @@ function finForm(f,preset){
   $("#rcOpen")?.addEventListener("click",()=>viewFile(f.receipt));
   $("#rcDel")?.addEventListener("click",()=>{ rcDrop=true; $("#rcOpen")?.remove(); $("#rcDel")?.remove(); $("#rcInfo").textContent="Чек буде прибрано після збереження" });
   const taxDoc=!isNew&&f.type==="in"?S.fin.get(f.id+"_tax"):null, td=TAX_DEF();
-  $("#taxOn").checked=isNew?false:!!taxDoc; $("#taxRate").value=taxDoc?.taxRate||td.rate||8;
+  $("#taxOn").checked=isNew?false:!!taxDoc; $("#taxRate").value=taxDoc?.taxRate||td.rate||7;
   const updAmt=()=>{ const raw=$("#finForm [name=amount]").value, a=sumExpr(raw); $("#amtSum").textContent=/[+-].*\d/.test(raw.replace(/^\s*[+-]/,""))&&a>0?"= "+money(a):"";
     const r=parseFloat(String($("#taxRate").value).replace(",","."))||0; $("#taxInfo").textContent=$("#taxOn").checked&&a>0?`Прихід ${money(a)} · податок ${money(Math.round(a*r)/100)} окремою витратою «Податки» · залишиться ${money(a-Math.round(a*r)/100)}`:"" };
   const updClose=()=>{ if(!$("#finForm [name=site]")) return; const sid=$("#finForm [name=site]").value, st=site(sid); const show=mode==="in"&&st&&st.type!=="warehouse"&&!isPerm(st)&&!(st.split&&st.active===false);
@@ -2451,7 +2451,7 @@ function finForm(f,preset){
           if(f.receipt) deleteFile(f.receipt).catch(()=>{}) }catch(e){ toast("Чек не збережено: "+String(e?.message||e).slice(0,60)) } }
         else if(rcDrop&&f.receipt){ deleteFile(f.receipt).catch(()=>{}) } }
       const taxOn=mode==="in"&&$("#taxOn").checked, rate=parseFloat(String($("#taxRate").value).replace(",","."))||0;
-      if(mode==="in"){ try{ localStorage.setItem("oblikTax",JSON.stringify({on:taxOn,rate:rate||8})) }catch(_){} }
+      if(mode==="in"){ try{ localStorage.setItem("oblikTax",JSON.stringify({on:taxOn,rate:rate||7,v7:1})) }catch(_){} }
       ok=await write(async db=>{
         let id=f.id;
         if(isNew){ const r=await db.collection("fin").add(data); id=r.id }
