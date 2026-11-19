@@ -289,7 +289,7 @@ async function init(){
   try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
   try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
-  sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()}))});
+  sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),"")});
 }
 async function write(fn){
   if(!S.db){toast("Немає з'єднання з базою");return false}
@@ -1779,26 +1779,45 @@ function toolCard(id){
   $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
 // 🔔 Сповіщення власникам: нові повідомлення бригад, записи інших власників, нові тендери, готовий розбір ШІ
-const NOTIF_DEF={inbox:true,fin:true,tz:true,ai:true};
+const NOTIF_DEF={inbox:true,fin:true,tz:true,ai:true, i_need:true,i_tools:true,i_done:true,i_other:true,i_join:true, f_in:true,f_out:true,f_accrual:true,f_xfer:true,f_min:0,f_from:"", mv:false,mv_lost:true, quiet:false,qFrom:22,qTo:7};
 const notifCfg=()=>{ try{ return {...NOTIF_DEF,...JSON.parse(localStorage.getItem("oblikNotif")||"{}")} }catch(_){ return {...NOTIF_DEF} } };
 S.seen=S.seen||{};
-async function notify(title,body,tag,data){ const c=notifCfg(); if(c.off) return;
+const inQuiet=c=>{ if(!c.quiet) return false; const h=new Date().getHours(), a=+c.qFrom, b=+c.qTo; return a<b?h>=a&&h<b:h>=a||h<b };
+async function notify(title,body,tag,data){ const c=notifCfg(); if(c.off) return; if(inQuiet(c)&&document.hidden) return;
   if(!document.hidden){ toast(title+(body?" — "+body:"")); return }
   try{ if(window.Notification&&Notification.permission==="granted") (await navigator.serviceWorker?.ready)?.showNotification(title,{body,icon:"icon-192.png",tag,data:data||{},renotify:true}) }catch(_){} }
 function notifyNew(kind,map,base){ const key=kind+base, seen=S.seen[key]; S.seen[key]=new Set(map.keys()); if(!seen) return; const c=notifCfg(); if(c.off) return;
   const fresh=[...map.entries()].filter(([id])=>!seen.has(id)).map(([,x])=>x); if(!fresh.length) return;
-  if(kind==="inbox"&&c.inbox){ const l=fresh.filter(m=>m.status==="new"); if(l.length) notify(`📨 ${l.length>1?l.length+" нові повідомлення":"Нове повідомлення"} від працівників`,l.map(m=>`${m.from||"?"}: ${INBOX_KIND[m.kind]||""}${m.text?" — "+String(m.text).slice(0,60):""}${m.photos?.length?" · 📷"+m.photos.length:""}`).join("\n"),"inbox") }
-  if(kind==="fin"&&c.fin){ const l=fresh.filter(f=>f.by&&f.by!==S.uid&&!String(f.id).endsWith("_tax")&&(+f.createdAt||0)>Date.now()-15*60e3); if(!l.length) return;
+  if(kind==="moves"){ const l=fresh.filter(m=>m.by&&m.by!==S.uid&&(+m.at||0)>Date.now()-15*60e3); if(!l.length) return; const lost=l.filter(m=>/^❌/.test(m.note||"")), mv=l.filter(m=>!/^❌/.test(m.note||""));
+    if(lost.length&&c.mv_lost) notify(`❌ Втрачено інструмент (${lost.length})`,lost.map(m=>`${m.toolName||"?"}${m.qty>1?" ×"+m.qty:""} — ${m.note.replace(/^❌\s*/,"")}`).join("\n"),"lost");
+    if(mv.length&&c.mv) notify(`🚚 ${uaName(mv[0].byName||"")||"Хтось"} перемістив інструмент (${mv.length})`,mv.slice(0,4).map(m=>`${m.toolName||"?"}${m.qty>1?" ×"+m.qty:""} → ${site(m.toSite)?.name||person(m.toHolder)?.name||"?"}`).join("\n"),"mv"); return }
+  if(kind==="inbox"&&c.inbox){ const l=fresh.filter(m=>m.status==="new"&&c["i_"+(m.kind||"other")]!==false); if(l.length) notify(`📨 ${l.length>1?l.length+" нові повідомлення":"Нове повідомлення"} від працівників`,l.map(m=>`${m.from||"?"}: ${INBOX_KIND[m.kind]||""}${m.text?" — "+String(m.text).slice(0,60):""}${m.photos?.length?" · 📷"+m.photos.length:""}`).join("\n"),"inbox") }
+  if(kind==="fin"&&c.fin){ const l=fresh.filter(f=>f.by&&f.by!==S.uid&&!String(f.id).endsWith("_tax")&&(+f.createdAt||0)>Date.now()-15*60e3&&c["f_"+f.type]!==false&&(+f.amount||0)>=(+c.f_min||0)&&(!c.f_from||f.by===c.f_from||normName(uaName(f.byName||"")).startsWith(normName(c.f_from)))); if(!l.length) return;
     const who=f=>uaName(f.byName||"")||"Хтось", T={in:"➕ прихід",out:"➖ витрата",accrual:"🔧 нарахування",xfer:"⇄ залік"};
     notify(`💰 ${base==="duo"?"🤝 ":""}${l.length>1?l.length+" нові записи":"Новий запис"} від ${who(l[0])}`,l.slice(0,4).map(f=>`${T[f.type]||f.type} ${money(f.amount)}${site(f.site)?" · "+site(f.site).name:""}${f.worker&&person(f.worker)?" · "+person(f.worker).name:""}`).join("\n"),"fin"+base) } }
 function notifSheet(){ const c=notifCfg(), perm=window.Notification?Notification.permission:"unsupported";
-  const it=(k,t,d)=>`<label class="card" style="display:flex;gap:10px;align-items:center;padding:10px 12px"><input type="checkbox" data-nc="${k}" ${c[k]?"checked":""} style="width:22px;height:22px"><span style="flex:1"><b>${t}</b><div class="m">${d}</div></span></label>`;
+  const sw=(k,t,d,sub)=>`<label class="card" style="display:flex;gap:10px;align-items:center;padding:10px 12px;${sub?"margin-left:22px;":""}"><input type="checkbox" data-nc="${k}" ${c[k]?"checked":""} style="width:22px;height:22px"><span style="flex:1"><b style="${sub?"font-weight:500":""}">${t}</b>${d?`<div class="m">${d}</div>`:""}</span></label>`;
+  const own=[...S.people.values()].filter(p=>p.role==="owner"&&p.id!==meId()).sort(byName);
   openSheet(`<h2>🔔 Сповіщення</h2>
-    ${perm==="granted"?`<div class="banner" style="margin-bottom:8px">✅ Сповіщення на цьому телефоні дозволено</div>`:perm==="denied"?`<div class="banner" style="margin-bottom:8px">⛔ Сповіщення заборонено в налаштуваннях. Chrome → ⋮ → Налаштування → Сповіщення → дозвольте для konsull1987-lab.github.io</div>`:perm==="unsupported"?`<div class="banner" style="margin-bottom:8px">Цей браузер не підтримує сповіщення. На iPhone — лише з значка на екрані «Додому».</div>`:`<button class="btn" id="ntAsk" style="width:100%;margin-bottom:8px">🔔 Дозволити сповіщення</button>`}
-    ${it("inbox","📨 Від працівників","нові повідомлення, анкети, фото")}${it("fin","💰 Записи інших власників","прихід, витрата, нарахування, залік — хто і скільки")}${it("tz","✨ Нові тендери","знайдені автопошуком")}${it("ai","🤖 Розбір ШІ готовий","чеки й документи у фоні")}
-    <div class="m" style="color:var(--muted);font-size:12.5px;margin:6px 0">Сповіщення приходять, поки застосунок відкритий або згорнутий. Якщо його повністю закрити (змахнути) — прийдуть при наступному відкритті.</div>
+    ${perm==="granted"?`<div class="banner" style="margin-bottom:8px">✅ Сповіщення на цьому телефоні дозволено</div>`:perm==="denied"?`<div class="banner" style="margin-bottom:8px">⛔ Сповіщення заборонено. Chrome → ⋮ → Налаштування → Сповіщення → дозвольте для konsull1987-lab.github.io</div>`:perm==="unsupported"?`<div class="banner" style="margin-bottom:8px">Цей браузер не підтримує сповіщення. На iPhone — лише з значка на екрані «Додому».</div>`:`<button class="btn" id="ntAsk" style="width:100%;margin-bottom:8px">🔔 Дозволити сповіщення</button>`}
+    ${sw("off","🔕 Вимкнути всі","нічого не надсилати","")}
+    <div class="section-t">📨 Від працівників</div>${sw("inbox","Повідомлення бригад","")}
+      <div data-dep="inbox">${sw("i_need","🧱 Що привезти","",1)}${sw("i_tools","🧰 Інструмент на об'єкті","",1)}${sw("i_done","📋 Що зроблено","",1)}${sw("i_other","💬 Інше","",1)}${sw("i_join","🆕 Анкети нових людей","",1)}</div>
+    <div class="section-t">💰 Записи інших власників</div>${sw("fin","Гроші","")}
+      <div data-dep="fin">${sw("f_in","➕ Прихід","",1)}${sw("f_out","➖ Витрати","",1)}${sw("f_accrual","🔧 Нарахування","",1)}${sw("f_xfer","⇄ Заліки","",1)}
+      <div class="row" style="margin-left:22px"><div class="field"><label>Лише від суми, ₴</label><input data-nv="f_min" inputmode="numeric" value="${+c.f_min||""}" placeholder="будь-яка"></div>
+        <div class="field"><label>Від кого</label><select data-nv="f_from"><option value="">усіх</option>${own.map(p=>`<option value="${esc(p.name)}" ${c.f_from===p.name?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div></div></div>
+    <div class="section-t">🧰 Інструмент</div>${sw("mv_lost","❌ Хтось позначив інструмент втраченим","")}${sw("mv","🚚 Переміщення інструменту іншими","може бути часто")}
+    <div class="section-t">Інше</div>${sw("tz","✨ Нові тендери","знайдені автопошуком")}${sw("ai","🤖 Розбір ШІ готовий","чеки й документи у фоні")}
+    <div class="section-t">🌙 Тихі години</div>${sw("quiet","Не турбувати вночі","у цей час сповіщення не приходять")}
+      <div class="row" style="margin-left:22px" data-dep="quiet"><div class="field"><label>з</label><select data-nv="qFrom">${[...Array(24).keys()].map(h=>`<option value="${h}" ${+c.qFrom===h?"selected":""}>${String(h).padStart(2,"0")}:00</option>`).join("")}</select></div>
+        <div class="field"><label>до</label><select data-nv="qTo">${[...Array(24).keys()].map(h=>`<option value="${h}" ${+c.qTo===h?"selected":""}>${String(h).padStart(2,"0")}:00</option>`).join("")}</select></div></div>
+    <div class="m" style="color:var(--muted);font-size:12.5px;margin:6px 0">Налаштування — для цього телефона. Сповіщення приходять, поки застосунок відкритий або згорнутий.</div>
     <div class="actions"><button class="btn ghost" id="ntTest">Перевірити</button><button class="btn" data-close>Готово</button></div>`);
-  $("#modal").querySelectorAll("[data-nc]").forEach(x=>x.onchange=()=>{ const n=notifCfg(); n[x.dataset.nc]=x.checked; try{ localStorage.setItem("oblikNotif",JSON.stringify(n)) }catch(_){} });
+  const save=(k,v)=>{ const n=notifCfg(); n[k]=v; try{ localStorage.setItem("oblikNotif",JSON.stringify(n)) }catch(_){} dep() };
+  const dep=()=>{ const n=notifCfg(); $("#modal").querySelectorAll("[data-dep]").forEach(d=>{ d.style.opacity=n[d.dataset.dep]&&!n.off?"":".4"; d.style.pointerEvents=n[d.dataset.dep]&&!n.off?"":"none" }) }; dep();
+  $("#modal").querySelectorAll("[data-nc]").forEach(x=>x.onchange=()=>save(x.dataset.nc,x.checked));
+  $("#modal").querySelectorAll("[data-nv]").forEach(x=>x.onchange=()=>save(x.dataset.nv,x.dataset.nv==="f_from"?x.value:+x.value||0));
   $("#ntAsk")?.addEventListener("click",async()=>{ try{ await Notification.requestPermission() }catch(_){} notifSheet() });
   $("#ntTest").onclick=async()=>{ try{ (await navigator.serviceWorker?.ready)?.showNotification("🔔 Облік",{body:"Сповіщення працюють",icon:"icon-192.png",tag:"test"}); toast("Надіслано тестове сповіщення") }catch(e){ toast("Не вдалося: "+e.message) } } }
 
