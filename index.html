@@ -266,7 +266,7 @@ async function init(){
   const sub=(name,q,fn)=>q.onSnapshot(snap=>{fn(snap); if(!snap.metadata.fromCache){S.loaded[name]=true; if(Object.values(S.loaded).every(Boolean)){clearTimeout(timer);S.slow=false}} render();},
     err=>{S.loaded[name]=true; S.err=err?.code||"error"; render();});
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
-  sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>{ const x={id:d.id,...d.data()}; if(x.helper===undefined&&/^\s*(підсоб|подсоб|помічник|разнораб|різнороб)/i.test(x.name||"")) x.helper=true; return [d.id,x] }))});
   sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
   sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase()});
   // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
@@ -2384,7 +2384,7 @@ function finForm(f,preset){
         ${d.debt>0?`<br>⚠️ Якщо ви <b>віддаєте гроші за вже нараховане</b> — це не нарахування. <a href="#" id="toPay" onclick="return false"><b>💵 Записати як виплату боргу →</b></a>`:""}</div>` }
     else box.innerHTML=`<div class="banner" style="margin-bottom:8px">${line}${a>0?`<br>Після оплати ${money(a)}: ${d.debt-a>0?`борг <b>${money(d.debt-a)}</b>`:d.debt-a<0?`<b>переплата ${money(a-d.debt)}</b> (аванс наперед)`:"розраховані повністю ✅"}`:""}</div>`;
     $("#toPay")?.addEventListener("click",()=>{ setMode("out"); const k=$("#finForm [name=kind]"); if(k) k.value="Зарплата"; debtInfo() }) };
-  $("#finForm [name=worker]")?.addEventListener("change",e=>{ const k=$("#finForm [name=kind]"); if(mode==="out"&&e.target.value&&k&&k.value==="Матеріали"&&!person(e.target.value)?.helper) k.value="Зарплата" });
+  $("#finForm [name=worker]")?.addEventListener("change",e=>{ const k=$("#finForm [name=kind]"); if(mode==="out"&&e.target.value&&k){ if(person(e.target.value)?.helper) k.value="Підсоба"; else if(k.value==="Матеріали") k.value="Зарплата" } });
   ["worker","site","kind"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",debtInfo)); $("#finForm [name=amount]").addEventListener("input",debtInfo);
   $("#segM").addEventListener("click",()=>setTimeout(debtInfo)); setTimeout(debtInfo);
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
