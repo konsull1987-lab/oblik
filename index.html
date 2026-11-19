@@ -1446,7 +1446,8 @@ function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[
 function intlPhone(x){ let d=String(x||"").replace(/[^\d+]/g,""); if(!d) return ""; if(d.startsWith("+")) return d; if(d.startsWith("380")) return "+"+d; if(d.startsWith("80")&&d.length===11) return "+3"+d; if(d.startsWith("0")&&d.length===10) return "+38"+d; return d.length>=9?"+"+d:"" }
 // надіслати запрошення одразу в чат з людиною (без пошуку в контактах)
 function inviteVia(p,ph,text,url){ const enc=encodeURIComponent(text);
-  openSheet(`<h2>📤 Запросити: ${esc(p.name)}</h2><div class="m" style="margin-bottom:8px">📞 ${esc(ph)}</div>
+  const nums=[...new Map([[intlPhone(p.phone),""],...(p.phones||[]).map(x=>[intlPhone(x.tel),x.label||""])].filter(([n])=>n)).entries()];
+  openSheet(`<h2>📤 Запросити: ${esc(p.name)}</h2>${nums.length>1?`<div class="m" style="margin-bottom:4px">На який номер:</div><div class="seg" style="margin-bottom:8px;flex-wrap:wrap">${nums.map(([n,l],i)=>`<button type="button" data-ivn="${esc(n)}" class="${n===ph?"on":""}">📞 ${esc(n)}${l?" · "+esc(l):""}</button>`).join("")}</div><div class="m" style="color:var(--muted);font-size:12px;margin-bottom:8px">Якщо в месенджері «номера немає» — виберіть інший номер.</div>`:`<div class="m" style="margin-bottom:8px">📞 ${esc(ph)}</div>`}
     <div class="list">
       <div class="card" data-iv="viber"><div class="main"><div class="t">💜 Viber</div><div class="m">відкриє чат з ${esc(p.name)} — текст уже скопійовано, просто вставте (затисніть поле → «Вставити»)</div></div></div>
       <div class="card" data-iv="tg"><div class="main"><div class="t">✈️ Telegram</div><div class="m">відкриє чат за номером — текст скопійовано, вставте</div></div></div>
@@ -1455,6 +1456,7 @@ function inviteVia(p,ph,text,url){ const enc=encodeURIComponent(text);
       <div class="card" data-iv="share"><div class="main"><div class="t">📤 Інше…</div><div class="m">звичайне меню «Поділитися»</div></div></div></div>
     <div class="actions"><button class="btn ghost" id="ivBack">Назад</button></div>`);
   $("#ivBack").onclick=inboxLinks;
+  $("#modal").querySelectorAll("[data-ivn]").forEach(b=>b.onclick=()=>{ ph=b.dataset.ivn; $("#modal").querySelectorAll("[data-ivn]").forEach(x=>x.classList.toggle("on",x===b)) });
   $("#modal").querySelectorAll("[data-iv]").forEach(c=>c.onclick=async()=>{ const v=c.dataset.iv, n=ph.replace(/^\+/,"");
     if(v==="viber"||v==="tg"){ try{ await navigator.clipboard.writeText(text); toast("Текст скопійовано — вставте в чат") }catch(_){} }
     if(v==="viber") location.href="viber://chat?number=%2B"+n;
