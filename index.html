@@ -222,7 +222,7 @@ const isDuo=()=>S.base==="duo"&&S.duoOk;
 const isTestSite=x=>!!x&&(x.test===true||(x.test!==false&&/^\s*(тест|test|пісочниця)(\s|$)/i.test(x.name||"")));
 function testFilter(k){ const b=S.B[k]; if(!b.finRaw) b.finRaw=b.fin; const t=new Set([...b.sites.values()].filter(isTestSite).map(x=>x.id)); b.testIds=t; b.fin=t.size?new Map([...b.finRaw].filter(([,f])=>!t.has(f.site))):b.finRaw }
 function applyBase(){ testFilter("trio"); if(S.B.duo.sites) testFilter("duo"); const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.finAll=S.B[k].finRaw||S.B[k].fin; S.sites=S.B[k].sites; }
-const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers"||c==="photos")?"duo_"+c:c;
+const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers"||c==="photos"||c==="tasks")?"duo_"+c:c;
 // ---- Журнал змін: кожне додавання / зміна / видалення зберігається повністю (як було → як стало) ----
 const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
 const MOVE_KEYS=new Set(["holder","site","qty","updatedAt"]);
@@ -281,6 +281,7 @@ async function init(){
     let f1=0,f2=0;
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
     db.collection("duo_fin").onSnapshot(s=>{mk("fin")(s);if(!s.metadata.fromCache&&!f2++)done()},()=>{});
+    try{ db.collection("duo_tasks").orderBy("date","desc").limit(300).onSnapshot(s=>{ S.tasksD=s.docs.map(d=>({id:d.id,...d.data()})); render() },()=>{}) }catch(_){}
     applyBase(); render();
   }).catch(()=>{ S.duoOk=false; S.duoChecked=true; applyBase(); render(); });
   for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
@@ -297,6 +298,7 @@ async function init(){
   try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
   try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
+  try{ db.collection("tasks").orderBy("date","desc").limit(300).onSnapshot(snap=>{ S.tasksT=snap.docs.map(d=>({id:d.id,...d.data()})); tasksNotify(); render() },()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),"")});
 }
 async function write(fn){
@@ -1787,7 +1789,7 @@ function toolCard(id){
   $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
 // 🔔 Сповіщення власникам: нові повідомлення бригад, записи інших власників, нові тендери, готовий розбір ШІ
-const NOTIF_DEF={inbox:true,fin:true,tz:true,ai:true, i_need:true,i_tools:true,i_done:true,i_other:true,i_join:true, f_in:true,f_out:true,f_accrual:true,f_xfer:true,f_min:0,f_from:"", mv:false,mv_lost:true, quiet:false,qFrom:22,qTo:7};
+const NOTIF_DEF={tasks:true,inbox:true,fin:true,tz:true,ai:true, i_need:true,i_tools:true,i_done:true,i_other:true,i_join:true, f_in:true,f_out:true,f_accrual:true,f_xfer:true,f_min:0,f_from:"", mv:false,mv_lost:true, quiet:false,qFrom:22,qTo:7};
 const notifCfg=()=>{ try{ return {...NOTIF_DEF,...JSON.parse(localStorage.getItem("oblikNotif")||"{}")} }catch(_){ return {...NOTIF_DEF} } };
 S.seen=S.seen||{};
 const inQuiet=c=>{ if(!c.quiet) return false; const h=new Date().getHours(), a=+c.qFrom, b=+c.qTo; return a<b?h>=a&&h<b:h>=a||h<b };
@@ -1803,12 +1805,16 @@ function notifyNew(kind,map,base){ const key=kind+base, seen=S.seen[key]; S.seen
   if(kind==="fin"&&c.fin){ const l=fresh.filter(f=>f.by&&f.by!==S.uid&&!String(f.id).endsWith("_tax")&&(+f.createdAt||0)>Date.now()-15*60e3&&c["f_"+f.type]!==false&&(+f.amount||0)>=(+c.f_min||0)&&(!c.f_from||f.by===c.f_from||normName(uaName(f.byName||"")).startsWith(normName(c.f_from)))); if(!l.length) return;
     const who=f=>uaName(f.byName||"")||"Хтось", T={in:"➕ прихід",out:"➖ витрата",accrual:"🔧 нарахування",xfer:"⇄ залік"};
     notify(`💰 ${base==="duo"?"🤝 ":""}${l.length>1?l.length+" нові записи":"Новий запис"} від ${who(l[0])}`,l.slice(0,4).map(f=>`${T[f.type]||f.type} ${money(f.amount)}${site(f.site)?" · "+site(f.site).name:""}${f.worker&&person(f.worker)?" · "+person(f.worker).name:""}`).join("\n"),"fin"+base) } }
+function tasksNotify(){ const l=S.tasksT||[], key="tasks", seen=S.seen[key]; S.seen[key]=new Set(l.map(t=>t.id+":"+(t.who||""))); if(!seen) return; const c=notifCfg(); if(c.off||!c.tasks) return; const me=meId(); if(!me) return;
+  const fr=l.filter(t=>!t.done&&t.who===me&&!seen.has(t.id+":"+me)&&t.by!==S.uid&&(+t.updatedAt||+t.createdAt||0)>Date.now()-15*60e3);
+  if(fr.length) notify(`✅ ${fr.length>1?fr.length+" нові справи":"Нова справа"} для вас`,fr.slice(0,4).map(t=>t.title+(taskTime(t)?" · "+taskTime(t):"")+(t.date!==dISO()?" · "+fmtDay(t.date):"")).join("\n"),"tasks") }
 function notifSheet(){ const c=notifCfg(), perm=window.Notification?Notification.permission:"unsupported";
   const sw=(k,t,d,sub)=>`<label class="card" style="display:flex;gap:10px;align-items:center;padding:10px 12px;${sub?"margin-left:22px;":""}"><input type="checkbox" data-nc="${k}" ${c[k]?"checked":""} style="width:22px;height:22px"><span style="flex:1"><b style="${sub?"font-weight:500":""}">${t}</b>${d?`<div class="m">${d}</div>`:""}</span></label>`;
   const own=[...S.people.values()].filter(p=>p.role==="owner"&&p.id!==meId()).sort(byName);
   openSheet(`<h2>🔔 Сповіщення</h2>
     ${perm==="granted"?`<div class="banner" style="margin-bottom:8px">✅ Сповіщення на цьому телефоні дозволено</div>`:perm==="denied"?`<div class="banner" style="margin-bottom:8px">⛔ Сповіщення заборонено. Chrome → ⋮ → Налаштування → Сповіщення → дозвольте для konsull1987-lab.github.io</div>`:perm==="unsupported"?`<div class="banner" style="margin-bottom:8px">Цей браузер не підтримує сповіщення. На iPhone — лише з значка на екрані «Додому».</div>`:`<button class="btn" id="ntAsk" style="width:100%;margin-bottom:8px">🔔 Дозволити сповіщення</button>`}
     ${sw("off","🔕 Вимкнути всі","нічого не надсилати","")}
+    <div class="section-t">✅ Справи</div>${sw("tasks","Мені доручили справу","коли інший власник призначає вас виконавцем")}
     <div class="section-t">📨 Від працівників</div>${sw("inbox","Повідомлення бригад","")}
       <div data-dep="inbox">${sw("i_need","🧱 Що привезти","",1)}${sw("i_tools","🧰 Інструмент на об'єкті","",1)}${sw("i_done","📋 Що зроблено","",1)}${sw("i_other","💬 Інше","",1)}${sw("i_join","🆕 Анкети нових людей","",1)}</div>
     <div class="section-t">💰 Записи інших власників</div>${sw("fin","Гроші","")}
@@ -3981,6 +3987,66 @@ $("#banner").addEventListener("click",e=>{ if(e.target.id==="bkNow"){e.preventDe
 $("#nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S.tab=b.dataset.tab;S.select=false;S.selected.clear();window.scrollTo(0,0);render()});
 
 // ---------- 🏠 Сьогодні: що потребує уваги ----------
+// ✅ Справи на сьогодні: вручну, з виконавцем, часом «до» або «з–до» і галочкою
+const dISO=(d=new Date())=>new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const tasksNow=()=>isDuo()?(S.tasksD||[]):(S.tasksT||[]);
+function taskTime(t){ return t.from&&t.to?`${t.from}–${t.to}`:t.to?"до "+t.to:t.from?"з "+t.from:"" }
+function taskLate(t){ if(t.done) return false; const td=dISO(); if(t.date<td) return true; if(t.date>td) return false;
+  const n=new Date(), hm=String(n.getHours()).padStart(2,"0")+":"+String(n.getMinutes()).padStart(2,"0"); return !!(t.to&&t.to<hm) }
+function tasksHTML(){ const td=dISO(), tm=dISO(new Date(Date.now()+864e5)), me=meId();
+  const all=tasksNow(), cut=Date.now()-36e5*12;
+  const l=all.filter(t=>t.date<=td&&(!t.done||(t.date===td||(+t.doneAt||0)>cut))).sort((a,b)=>(a.done-b.done)||(taskLate(b)-taskLate(a))||String(a.to||a.from||"99").localeCompare(String(b.to||b.from||"99"))||(+a.createdAt||0)-(+b.createdAt||0));
+  const nTm=all.filter(t=>t.date===tm&&!t.done).length, nOpen=l.filter(t=>!t.done).length;
+  const row=t=>{ const p=person(t.who), late=taskLate(t), tt=taskTime(t);
+    return `<div class="card" data-task="${t.id}" style="gap:10px;${t.done?"opacity:.55;":""}${late?"border-color:#ef4444;":""}">
+      <input type="checkbox" data-tdone="${t.id}" ${t.done?"checked":""} style="width:24px;height:24px;flex:none" ${S.canWrite?"":"disabled"}>
+      <div class="main"><div class="t" style="${t.done?"text-decoration:line-through":""}">${esc(t.title)}</div>
+        <div class="m">${tt?`<span style="color:${late?"#ef4444":"var(--accent)"}">${late?"⏰ ":"🕒 "}${tt}</span>`:""}${t.date<td&&!t.done?` <span style="color:#ef4444">· з ${fmtDay(t.date)}</span>`:""}${site(t.site)?` · 🏗️ ${esc(site(t.site).name)}`:""}${t.done&&t.doneByName?` · ✅ ${esc(uaName(t.doneByName))}`:""}</div></div>
+      ${p?`<span style="font-size:12.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--line,#2a2f38);white-space:nowrap">${t.who===me?"✋ я":"👤 "+esc(uaName(p.name)||p.name)}</span>`:(!t.done&&S.canWrite&&me?`<button class="btn ghost" data-ttake="${t.id}" style="padding:4px 8px;font-size:12.5px;white-space:nowrap">✋ Візьму</button>`:"")}
+    </div>` };
+  return `<div class="section-t" style="display:flex;align-items:center">✅ Справи на сьогодні<span class="count">${nOpen||""}</span>${S.canWrite?`<button class="btn ghost" id="tkAdd" style="margin-left:auto;padding:4px 10px">＋ Справа</button>`:""}</div>
+    <div class="list" style="margin-bottom:10px">${l.length?l.map(row).join(""):`<div class="empty" style="padding:8px">Немає справ на сьогодні</div>`}
+    ${nTm?`<div class="m" data-ttm="1" style="padding:4px 2px;cursor:pointer">📅 На завтра: ${nTm} →</div>`:""}</div>` }
+function tasksBind(){ const v=$("#view");
+  $("#tkAdd")?.addEventListener("click",()=>taskForm());
+  v.querySelectorAll("[data-task]").forEach(c=>c.onclick=e=>{ if(e.target.closest("[data-tdone],[data-ttake]")) return; taskForm(tasksNow().find(t=>t.id===c.dataset.task)) });
+  v.querySelectorAll("[data-tdone]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const d=b.checked;
+    write(db=>db.collection(R("tasks")).doc(b.dataset.tdone).update(d?{done:true,doneAt:Date.now(),doneBy:S.uid||"",doneByName:S.meName||""}:{done:false,doneAt:null,doneBy:null,doneByName:null})) });
+  v.querySelectorAll("[data-ttake]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); write(db=>db.collection(R("tasks")).doc(b.dataset.ttake).update({who:meId(),updatedAt:Date.now()})).then(ok=>ok&&toast("✋ Справа ваша")) });
+  v.querySelector("[data-ttm]")?.addEventListener("click",()=>tasksDaySheet(dISO(new Date(Date.now()+864e5)))) }
+function tasksDaySheet(day){ const l=tasksNow().filter(t=>t.date===day).sort((a,b)=>String(a.to||a.from||"99").localeCompare(String(b.to||b.from||"99")));
+  openSheet(`<h2>📅 Справи на ${fmtDay(day)}</h2><div class="list">${l.map(t=>`<div class="card" data-tds="${t.id}"><div class="main"><div class="t">${esc(t.title)}</div><div class="m">${[taskTime(t),person(t.who)?"👤 "+person(t.who).name:"",site(t.site)?.name].filter(Boolean).map(esc).join(" · ")}</div></div></div>`).join("")||`<div class="empty">Порожньо</div>`}</div>
+    <div class="actions"><button class="btn ghost" data-close>Закрити</button>${S.canWrite?`<button class="btn" id="tdsAdd">＋ Справа</button>`:""}</div>`);
+  $("#modal").querySelectorAll("[data-tds]").forEach(c=>c.onclick=()=>taskForm(l.find(t=>t.id===c.dataset.tds)));
+  $("#tdsAdd")?.addEventListener("click",()=>taskForm({date:day})) }
+function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Date.now()+864e5)), me=meId();
+  const date=t.date||td, mode=t.from&&t.to?"range":t.to?"till":t.from?"from":"none";
+  const own=owners(), wk=isDuo()?[]:[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false).sort(byName);
+  const who=isNew?(t.who??me):(t.who||"");
+  const opt=p=>`<option value="${p.id}" ${who===p.id?"selected":""}>${p.id===me?"✋ Я — ":""}${esc(p.name)}</option>`;
+  const sites=[...S.sites.values()].filter(x=>x.active!==false).sort(byName);
+  const chip=(d,l)=>`<button type="button" class="btn ghost" data-tkd="${d}" style="padding:5px 10px;${date===d?"border-color:var(--accent);color:var(--accent)":""}">${l}</button>`;
+  openSheet(`<h2>${isNew?"＋ Нова справа":"✏️ Справа"}</h2>
+    <div class="field"><label>Що зробити</label><textarea id="tkT" rows="2" placeholder="Напр.: забрати плитку з Епіцентру">${esc(t.title||"")}</textarea></div>
+    <div class="field"><label>Коли</label><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${chip(td,"Сьогодні")}${chip(tm,"Завтра")}<input type="date" id="tkD" value="${date}" style="flex:1;min-width:130px"></div></div>
+    <div class="field"><label>Час</label><select id="tkM"><option value="none" ${mode==="none"?"selected":""}>— без часу</option><option value="till" ${mode==="till"?"selected":""}>до певної години</option><option value="range" ${mode==="range"?"selected":""}>з … до …</option><option value="from" ${mode==="from"?"selected":""}>з певної години</option></select></div>
+    <div class="row" id="tkTimes"><div class="field" id="tkFw"><label>з</label><input type="time" id="tkF" value="${t.from||"09:00"}"></div><div class="field" id="tkTw"><label>до</label><input type="time" id="tkTo" value="${t.to||"12:00"}"></div></div>
+    <div class="field"><label>Хто виконує</label><div style="display:flex;gap:6px">${me?`<button type="button" class="btn ghost" id="tkMe" style="white-space:nowrap">✋ Я</button>`:""}<select id="tkW" style="flex:1"><option value="">— не призначено</option><optgroup label="👤 Власники">${own.map(opt).join("")}</optgroup>${wk.length?`<optgroup label="🔧 Виконавці">${wk.map(opt).join("")}</optgroup>`:""}</select></div></div>
+    <div class="field"><label>Об'єкт (необов'язково)</label><select id="tkS"><option value="">—</option>${sites.map(x=>`<option value="${x.id}" ${t.site===x.id?"selected":""}>${x.type==="warehouse"?"🏬":"🏗️"} ${esc(x.name)}</option>`).join("")}</select></div>
+    ${!isNew&&t.byName?`<div class="m" style="color:var(--muted);margin:4px 0">Записав: ${esc(uaName(t.byName))}${t.done&&t.doneAt?` · виконано ${fmtDate(t.doneAt)}`:""}</div>`:""}
+    <div class="actions">${!isNew&&S.canWrite?`<button class="btn ghost" id="tkDel" style="color:#ef4444">🗑</button>`:""}<button class="btn ghost" data-close>Скасувати</button>${S.canWrite?`<button class="btn" id="tkOk">${isNew?"Додати":"Зберегти"}</button>`:""}</div>`);
+  const sync=()=>{ const m=$("#tkM").value; $("#tkTimes").style.display=m==="none"?"none":""; $("#tkFw").style.display=m==="range"||m==="from"?"":"none"; $("#tkTw").style.display=m==="range"||m==="till"?"":"none" };
+  $("#tkM").onchange=sync; sync();
+  $("#modal").querySelectorAll("[data-tkd]").forEach(b=>b.onclick=()=>{ $("#tkD").value=b.dataset.tkd; $("#modal").querySelectorAll("[data-tkd]").forEach(x=>{ const on=x===b; x.style.borderColor=on?"var(--accent)":""; x.style.color=on?"var(--accent)":"" }) });
+  $("#tkMe")?.addEventListener("click",()=>{ $("#tkW").value=me; toast("✋ Виконавець — ви") });
+  $("#tkDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити справу?")) return; if(await write(db=>db.collection(R("tasks")).doc(t.id).delete())){ closeSheet(); toast("Видалено") } });
+  $("#tkOk")?.addEventListener("click",async()=>{ const title=$("#tkT").value.trim(); if(!title){ toast("Напишіть, що зробити"); $("#tkT").focus(); return }
+    const m=$("#tkM").value, f=$("#tkF").value, to=$("#tkTo").value;
+    if(m==="range"&&f&&to&&f>=to){ toast("Час «з» має бути раніше за «до»"); return }
+    const d={title, date:$("#tkD").value||td, from:m==="range"||m==="from"?f:"", to:m==="range"||m==="till"?to:"", who:$("#tkW").value, site:$("#tkS").value, updatedAt:Date.now()};
+    const ok=await write(db=>isNew?db.collection(R("tasks")).add({...d,done:false,by:S.uid||"",byName:S.meName||"",createdAt:Date.now()}):db.collection(R("tasks")).doc(t.id).update(d));
+    if(ok){ try{ taClear?.($("#modal")) }catch(_){} closeSheet(); toast(isNew?"✅ Справу додано":"Збережено") } });
+}
 function renderToday(){
   $("#headTools").innerHTML=""; const n2=v=>Math.round(v);
   // борги виконавцям (по обох базах, якщо людина має доступ до общаку на двох)
@@ -3997,7 +4063,7 @@ function renderToday(){
   const ibn=inboxNew().length;
   const tzn=suggNew().length, jh=jobsHTML();
   const pick=[...S.sites.values()].filter(x=>x.active===false&&x.type!=="warehouse").map(x=>({x,n:[...S.tools.values()].filter(t=>t.site===x.id&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0)})).filter(o=>o.n);
-  let h=jh+(pick.length&&!isDuo()?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
+  let h=tasksHTML()+jh+(pick.length&&!isDuo()?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
     ${dl.length?`<div class="list">${dl.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div></div><span class="amt out">${money(n2(v))}</span></div>`).join("")}</div>`:`<div class="empty" style="padding:10px">Боргів немає ✅</div>`}
     <div class="section-t" style="display:flex;margin-top:12px">📝 Потрібно на об'єкти<span class="count">${deliver.reduce((a,d)=>a+d.l.length,0)?deliver.reduce((a,d)=>a+d.l.length,0)+" поз.":""}</span></div>
     ${deliver.length?deliver.map(d=>{ const tag=x=>{ const c=x.how.startsWith("🛒")?"#22c55e":x.how==="купити"?"#f59e0b":"#38bdf8"; return `<span style="font-size:11.5px;padding:1px 7px;border-radius:9px;border:1px solid ${c};color:${c};white-space:nowrap">${esc(x.how)}</span>` };
@@ -4019,6 +4085,7 @@ function renderToday(){
   $("#view").querySelectorAll("[data-job]").forEach(c=>c.onclick=()=>jobOpen(c.dataset.job));
   $("#view").querySelectorAll("[data-pick]").forEach(c=>c.onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(c.dataset.pick)) }); $("#tzsB")?.addEventListener("click",()=>{ S.tab="sites"; S.sitesMode="tz"; S.tzMode="sugg"; render() });
   $("#view").querySelectorAll("[data-tneeds]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); S.siteTab="needs"; siteForm(S.sites.get(c.dataset.tneeds)) });
+  tasksBind();
 }
 
 // ---------- 🔍 Глобальний пошук ----------
@@ -4433,7 +4500,7 @@ window.__fbAI=async(imgs,prompt,onTry)=>{
   throw new Error(errs.join(" | "));
 };
 window.__fbDump=async()=>{ const out={exportedAt:new Date().toISOString(),exportedAtMs:Date.now()};
-  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","offers","meta","photos","duo_fin","duo_sites","duo_files","duo_photos"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
+  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","offers","meta","photos","tasks","duo_fin","duo_sites","duo_files","duo_photos","duo_tasks"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
   return out; };
 let drvTok=null, drvExp=0;
 window.__driveToken=async()=>{ if(drvTok&&Date.now()<drvExp) return drvTok;
