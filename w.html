@@ -25,6 +25,8 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
 <div id="login" style="display:none" class="card">
   <h1>📨 Повідомлення з об'єкта</h1>
   <p class="m">Увійдіть через Google, щоб надсилати списки і фото власникам. Робиться один раз.</p>
+  <a class="btn" id="chrome" style="width:100%;display:none;margin-bottom:10px;text-decoration:none">🌐 Відкрити в Chrome</a>
+  <p class="m" id="chromeHint" style="display:none">Вхід через Google не працює всередині Viber/Telegram — натисніть кнопку вище, сторінка відкриється в Chrome.</p>
   <button class="btn" id="go" style="width:100%">Увійти через Google</button>
   <p class="m" id="err"></p>
 </div>
@@ -56,7 +58,7 @@ import * as CFG from "./firebase-config.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app-check.js";
 import {getFirestore, collection, addDoc} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
-import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut, signInAnonymously} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 const $=s=>document.querySelector(s);
 const app=initializeApp(CFG.firebaseConfig);
 if(CFG.RECAPTCHA_KEY){ try{ initializeAppCheck(app,{provider:new ReCaptchaEnterpriseProvider(CFG.RECAPTCHA_KEY),isTokenAutoRefreshEnabled:true}) }catch(e){} }
@@ -87,10 +89,21 @@ $("#send").onclick=async()=>{
   }catch(e){ $("#res").innerHTML=`<div class="card">❌ Не вдалося надіслати (${e.code||e.message}). Перевірте інтернет і спробуйте ще раз.</div>` }
   b.disabled=false; b.textContent="Надіслати";
 };
-$("#go").onclick=async()=>{ const p=new GoogleAuthProvider(); p.setCustomParameters({prompt:"select_account"}); try{ await signInWithPopup(auth,p) }catch(e){ if(e.code==="auth/popup-blocked"||e.code==="auth/operation-not-supported-in-this-environment") await signInWithRedirect(auth,p); else if(e.code!=="auth/popup-closed-by-user") $("#err").textContent="Не вдалося увійти: "+e.code } };
+$("#go").onclick=async()=>{ const p=new GoogleAuthProvider(); p.setCustomParameters({prompt:"select_account"}); $("#err").textContent="⏳ Відкриваю вхід…";
+  try{ if(inApp) await signInWithRedirect(auth,p); else await signInWithPopup(auth,p); $("#err").textContent="" }
+  catch(e){ if(e.code==="auth/popup-blocked"||e.code==="auth/operation-not-supported-in-this-environment"||e.code==="auth/web-storage-unsupported") { try{ await signInWithRedirect(auth,p) }catch(e2){ $("#err").textContent="Не вдалося увійти ("+e2.code+"). Відкрийте сторінку в Chrome." } }
+    else if(e.code!=="auth/popup-closed-by-user") $("#err").textContent="Не вдалося увійти: "+e.code+". Відкрийте сторінку в Chrome." } };
 $("#out").onclick=e=>{ e.preventDefault(); signOut(auth).then(()=>location.reload()) };
+// вбудований браузер Viber/Telegram/Facebook: Google там вхід блокує — пропонуємо Chrome
+const inApp=/Viber|Telegram|FBAN|FBAV|Instagram|; wv\)|Line\//i.test(navigator.userAgent);
+if(inApp){ const u=location.href.replace(/^https?:\/\//,""); $("#chrome").href=/Android/i.test(navigator.userAgent)?`intent://${u}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(location.href)};end`:location.href; $("#chrome").style.display="block"; $("#chromeHint").style.display="block"; $("#go").className="btn ghost" }
 getRedirectResult(auth).catch(e=>{ $("#err").textContent="Не вдалося увійти: "+(e.code||e.message) });
-onAuthStateChanged(auth,u=>{ user=u; $("#login").style.display=u?"none":"block"; $("#app").style.display=u?"block":"none"; if(u&&!$("#nm").value) $("#nm").value=(u.displayName||"").split(" ")[0] });
+let triedAnon=false;
+onAuthStateChanged(auth,async u=>{ user=u;
+  // без Google-акаунта: тихий анонімний вхід (працює й у Viber). Ім'я працівник вписує сам.
+  if(!u&&!triedAnon){ triedAnon=true; try{ await signInAnonymously(auth); return }catch(e){ /* анонімний вхід вимкнений у Firebase — тоді через Google */ } }
+  $("#login").style.display=u?"none":"block"; $("#app").style.display=u?"block":"none"; if(u&&!$("#nm").value) $("#nm").value=(u.displayName||"").split(" ")[0];
+  $("#out").style.display=u&&!u.isAnonymous?"":"none" });
 </script>
 </body>
 </html>
