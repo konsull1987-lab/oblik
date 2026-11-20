@@ -19,6 +19,7 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
 #th button{position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:24px;height:24px;background:#e11d48;color:#fff}
 .card{background:#171b22;border:1px solid #2c323d;border-radius:14px;padding:14px;margin-top:14px}
 .ok{background:#16352a;border-color:#2f7d5a}
+.skc{display:flex;gap:6px;align-items:center;padding:8px 10px;border:1px solid #2c323d;border-radius:10px;font-size:14px;margin:0;color:#e8eaed}.skc input{width:18px;height:18px;margin:0}.skc:has(input:checked){border-color:#14b8a6;background:#123a36}
 .tk{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #2c323d}.tk:first-of-type{border-top:0}
 .rw{display:flex;justify-content:space-between;padding:4px 0}.late{color:#ef4444}.acc{color:#38bdf8}
 </style>
@@ -37,7 +38,7 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
   <div class="m" id="obj"></div>
   <details class="card" style="margin-top:10px;padding:10px 14px"><summary style="cursor:pointer;font-weight:600">❓ Як користуватися</summary>
     <ol class="m" style="padding-left:18px;line-height:1.5;margin:8px 0 0">
-      <li>Один раз заповніть <b>«Про вас»</b>: прізвище, ім'я, телефон, спеціальність — далі запам'ятається.</li>
+      <li>Один раз заповніть <b>«Про вас»</b>: прізвище, ім'я, телефон і позначте галочками, що вмієте робити — далі запам'ятається.</li>
       <li>Додайте сторінку <b>на робочий стіл</b>: кнопка «📲 Додати на робочий стіл» внизу або Chrome → ⋮ → «Додати на головний екран».</li>
       <li>Виберіть, <b>що надсилаєте</b>:<br>🧱 <b>Що привезти</b> — матеріали чи інструмент, яких бракує;<br>🧰 <b>Інструмент тут</b> — перелік інструменту, що зараз на об'єкті;<br>📋 <b>Що зроблено</b> — обсяги робіт (м², м.п., шт);<br>💬 <b>Інше</b> — усе інше.</li>
       <li>Напишіть текст <b>стовпчиком, кожна позиція з нового рядка</b>, з кількістю: «цемент — 10 мішків», «штукатурка стін — 45 м²». Можна голосом: 🎤 на клавіатурі.</li>
@@ -50,6 +51,7 @@ label{display:block;margin:12px 0 6px;color:#9aa0a6;font-size:14px}
     <label>Прізвище та ім'я *</label><input id="nm" placeholder="напр. Петренко Іван" autocomplete="name">
     <label>Телефон *</label><input id="ph" type="tel" placeholder="097 123 45 67" autocomplete="tel">
     <label>Спеціальність</label><input id="tr" placeholder="напр. плиточник, електрик, різноробочий">
+    <label>🛠 Що ви вмієте робити? * <span class="m">(позначте все, що вмієте)</span></label><div id="sk" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
     <label>Бригада / бригадир</label><input id="cr" placeholder="напр. бригада Петра">
     <div id="joinX" style="display:none"><label>Досвід, років</label><input id="ex" inputmode="numeric" placeholder="напр. 5">
     <label>Місто / село</label><input id="ct" placeholder="напр. Полтава"></div>
@@ -93,21 +95,31 @@ try{ if(q.get("g")==="1"||JOIN||PID){ localStorage.removeItem("wSite"); localSto
 // запам'ятати об'єкт: значок на робочому столі відкриває w.html без параметрів
 try{ if(site){ localStorage.setItem("wSite",site); localStorage.setItem("wSiteN",siteName) } else { site=localStorage.getItem("wSite")||""; siteName=localStorage.getItem("wSiteN")||"" } }catch(_){}
 $("#obj").textContent=siteName?"Об'єкт: "+siteName:"Об'єкт не вказано — напишіть його в тексті";
+// 🛠 ті самі вміння, що й у застосунку власників (index.html → SKILLS)
+const SKILLS=[["helper","🧹 Підсобні роботи"],["demol","🔨 Демонтаж"],["found","🏗️ Фундамент, бетон, мурування"],["roof","🏠 Покрівля"],["facade","🧱 Фасад: утеплення, декоративна штукатурка"],["plaster","🪣 Штукатурка, шпаклівка, фарбування"],["drywall","🔲 Гіпсокартон, стелі"],["tile","◻️ Плитка"],["floor","🟫 Стяжка, підлоги, ламінат"],["plumb","🚿 Сантехніка, опалення"],["elec","⚡ Електромонтаж"],["windows","🚪 Вікна, двері, відкоси"],["weld","🔥 Зварювання, металоконструкції"],["wood","🪚 Столярка, дерев'яні конструкції"],["land","🌳 Благоустрій, бруківка, паркани"],["driver","🚚 Водій, спецтехніка"]];
 let prof={}; try{ prof=JSON.parse(localStorage.getItem("wProf")||"{}"); if(!prof.name&&localStorage.getItem("wName")) prof.name=localStorage.getItem("wName") }catch(_){}
 // 🔑 ключ особистого кабінету (завдання + розрахунок) — з посилання, далі пам'ятаємо
 let KEY=q.get("k")||""; try{ if(KEY) localStorage.setItem("wKey",KEY); else KEY=localStorage.getItem("wKey")||"" }catch(_){}
 if(PID){ prof.pid=PID; if(!prof.name&&PN) prof.name=PN; try{ localStorage.setItem("wProf",JSON.stringify(prof)) }catch(_){} }
 if(JOIN){ $("#joinX").style.display="block"; $("#pfOk").textContent="📨 Надіслати анкету"; document.querySelector("#pfBox b").textContent="🆕 Анкета нового працівника" }
-const showProf=()=>{ const ok=prof.name&&prof.phone&&!(JOIN&&!prof.joined); $("#pfBox").style.display=ok?"none":"block"; $("#pfView").style.display=ok?"block":"none";
-  $("#pfTxt").innerHTML=ok?`👤 <b>${prof.name.replace(/</g,"&lt;")}</b> · ${prof.phone.replace(/</g,"&lt;")}${prof.trade?" · "+prof.trade.replace(/</g,"&lt;"):""}`:"";
+const skSel=()=>[...document.querySelectorAll("#sk input:checked")].map(x=>x.value);
+const showProf=()=>{ const ok=prof.name&&prof.phone&&!(JOIN&&!prof.joined)&&Array.isArray(prof.skills)&&prof.skills.length;
+  $("#sk").innerHTML=SKILLS.map(([k,l])=>`<label class="skc"><input type="checkbox" value="${k}" ${(prof.skills||[]).includes(k)?"checked":""}>${l}</label>`).join(""); $("#pfBox").style.display=ok?"none":"block"; $("#pfView").style.display=ok?"block":"none";
+  $("#pfTxt").innerHTML=ok?`👤 <b>${prof.name.replace(/</g,"&lt;")}</b> · ${prof.phone.replace(/</g,"&lt;")}${prof.trade?" · "+prof.trade.replace(/</g,"&lt;"):""}<div class="m" style="margin-top:4px">🛠 ${(prof.skills||[]).map(k=>(SKILLS.find(x=>x[0]===k)||[,""])[1]).join(" · ")}</div>`:"";
   $("#nm").value=prof.name||""; $("#ph").value=prof.phone||""; $("#tr").value=prof.trade||""; $("#cr").value=prof.crew||""; $("#ex").value=prof.exp||""; $("#ct").value=prof.city||"" };
 $("#pfEd").onclick=()=>{ $("#pfBox").style.display="block"; $("#pfView").style.display="none" };
 $("#pfOk").onclick=async()=>{ const name=$("#nm").value.trim(), phone=$("#ph").value.trim(); if(!name){ alert("Вкажіть прізвище та ім'я"); return } if(phone.replace(/\D/g,"").length<9){ alert("Вкажіть номер телефону"); return }
-  prof={...prof,name,phone,trade:$("#tr").value.trim(),crew:$("#cr").value.trim(),exp:$("#ex").value.trim(),city:$("#ct").value.trim()};
+  const skills=skSel(); if(!skills.length){ alert("Позначте хоча б одне, що ви вмієте робити"); return }
+  const skNew=JSON.stringify(skills)!==JSON.stringify(prof.skillsSent||null);
+  prof={...prof,name,phone,skills,trade:$("#tr").value.trim(),crew:$("#cr").value.trim(),exp:$("#ex").value.trim(),city:$("#ct").value.trim()};
   if(JOIN&&!prof.joined){ const b=$("#pfOk"); b.disabled=true; b.textContent="Надсилаю…";
-    try{ await addDoc(collection(fs,"inbox"),{site:"",siteName:"",kind:"join",text:"",photos:[],from:name.slice(0,80),phone:phone.slice(0,30),trade:prof.trade.slice(0,60),crew:prof.crew.slice(0,60),exp:String(prof.exp).slice(0,20),city:String(prof.city).slice(0,60),email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new"}); prof.joined=1;
+    try{ await addDoc(collection(fs,"inbox"),{site:"",siteName:"",kind:"join",text:"",photos:[],from:name.slice(0,80),phone:phone.slice(0,30),trade:prof.trade.slice(0,60),crew:prof.crew.slice(0,60),exp:String(prof.exp).slice(0,20),city:String(prof.city).slice(0,60),skills,email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new"}); prof.joined=1; prof.skillsSent=skills;
       $("#joinRes").innerHTML=`<div class="card ok">✅ Анкету надіслано. Тепер нижче можна надсилати, що треба привезти, обсяги робіт і фото.</div>` }
     catch(e){ b.disabled=false; b.textContent="📨 Надіслати анкету"; $("#joinRes").innerHTML=`<div class="card">❌ Не вдалося (${e.code||e.message}). Спробуйте ще раз.</div>`; return } }
+  else if(skNew){ const b=$("#pfOk"); b.disabled=true; b.textContent="Надсилаю…";
+    try{ await addDoc(collection(fs,"inbox"),{site:"",siteName:"",kind:"skills",text:"🛠 Вмію: "+skills.map(k=>(SKILLS.find(x=>x[0]===k)||[,k])[1]).join(", "),photos:[],from:name.slice(0,80),phone:phone.slice(0,30),pid:String(prof.pid||"").slice(0,40),trade:String(prof.trade||"").slice(0,60),skills,email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new"}); prof.skillsSent=skills }
+    catch(e){ alert("Вміння не надіслано ("+(e.code||e.message)+"). Спробуйте ще раз, коли буде інтернет.") }
+    b.disabled=false; b.textContent="Зберегти" }
   try{ localStorage.setItem("wProf",JSON.stringify(prof)) }catch(_){} showProf() };
 showProf();
 let kind="need", imgs=[], user=null;

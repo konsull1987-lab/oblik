@@ -297,7 +297,7 @@ async function init(){
   setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) } },1500);
   try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
-  try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); tasksFromInbox(); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
+  try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); tasksFromInbox(); skillsFromInbox(); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
   try{ db.collection("tasks").orderBy("date","desc").limit(300).onSnapshot(snap=>{ S.tasksT=snap.docs.map(d=>({id:d.id,...d.data()})); tasksNotify(); render() },()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),"")});
 }
@@ -918,17 +918,29 @@ function renderPeople(){
   const all=[...S.people.values()].sort(byName);
   const cnt={}; for(const t of S.tools.values()) if(t.holder) cnt[t.holder]=(cnt[t.holder]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте власників (себе й напарників) та виконавців кнопкою «+».</div>`; return; }
-  let h="";
+  const pcard=(p,cls)=>{ const sk=p.role==="owner"?[]:skillsOf(p); return `<div class="card" data-person="${p.id}" data-pn="${esc((p.name+" "+(p.trade||"")+" "+(p.phone||"")+" "+sk.map(k=>SKILL[k]).join(" ")).toLowerCase())}"><div class="stripe ${cls}"></div><div class="main"><div class="t">${p.crew?"👥 ":""}${esc(p.name)}${p.helper?" 🧹":""}</div>${p.crew?`<div class="m">${crewNames(p)||"склад не вказано"}</div>`:""}${sk.length?`<div class="m" style="font-size:12.5px">${sk.map(k=>SKILL[k].split(" ")[0]+" "+SKILL[k].split(" ").slice(1).join(" ").split(/[,:]/)[0]).join(" · ")}${Array.isArray(p.skills)&&p.skills.length?"":" <span style=\"color:var(--muted)\">(за спеціальністю)</span>"}</div>`:""}${p.phone||p.since?`<div class="m">${[p.phone?esc(p.phone):"",p.since?"з "+fmtDay(p.since):""].filter(Boolean).join(" · ")}</div>`:""}</div>${p.phone?`<a class="btn ghost sm" href="${telHref(p.phone)}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none" title="Подзвонити">📞</a>`:""}<span class="count">${cnt[p.id]||0} од.</span></div>` };
+  // 🔍 пошук по імені + категорії за вміннями
+  const wk=all.filter(p=>p.role!=="owner"&&!p.crew&&p.active!==false), sc={}; for(const p of wk) for(const k of skillsOf(p)) sc[k]=(sc[k]||0)+1;
+  let h=`<input type="search" id="pQ" placeholder="🔍 Пошук: ім'я, телефон, вміння" value="${esc(S.pq||"")}" style="margin-bottom:8px">
+    <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:4px">${[["","Усі"],...SKILLS].map(([k,l])=>`<button class="btn ghost sm" data-psk="${k}" style="white-space:nowrap;flex:none;${(S.pSkill||"")===k?"border-color:var(--accent);color:var(--accent)":""}">${k?esc(l.split(/[,:]/)[0]):l}${k?` <b>${sc[k]||0}</b>`:""}</button>`).join("")}</div>`;
+  if(S.pSkill){ const l=wk.filter(p=>skillsOf(p).includes(S.pSkill)).sort(byName);
+    h+=`<div class="section-t">${esc(SKILL[S.pSkill])} · ${l.length}</div><div class="list" id="pList">${l.map(p=>pcard(p,"wrk")).join("")||`<div class="empty">Поки нікого.<br><span class="m">Надішліть людям посилання — вони відмітять свої вміння в анкеті. Або відкрийте людину й позначте вміння вручну.</span></div>`}</div>`;
+    $("#view").innerHTML=h; peopleBind(); return }
+  h+=`<div id="pList">`;
   for(const [role,label,cls] of [["owner","Власники","own"],["crew","👥 Бригади","wrk"],["worker","Виконавці","wrk"]]){
     const l=all.filter(p=>role==="crew"?p.crew:role==="helper"?p.role==="worker"&&!p.crew&&p.helper:p.role===role&&!p.crew&&!(role==="worker"&&p.helper)); if(!l.length)continue;
-    h+=`<div class="section-t">${label}</div><div class="list">`+l.map(p=>`<div class="card" data-person="${p.id}"><div class="stripe ${cls}"></div><div class="main"><div class="t">${p.crew?"👥 ":""}${esc(p.name)}</div>${p.crew?`<div class="m">${crewNames(p)||"склад не вказано"}</div>`:""}${p.phone||p.since?`<div class="m">${[p.phone?esc(p.phone):"",p.since?"з "+fmtDay(p.since):""].filter(Boolean).join(" · ")}</div>`:""}</div>${p.phone?`<a class="btn ghost sm" href="${telHref(p.phone)}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none" title="Подзвонити">📞</a>`:""}<span class="count">${cnt[p.id]||0} од.</span></div>`).join("")+`</div>`;
+    h+=`<div class="section-t">${label}</div><div class="list">`+l.map(p=>pcard(p,cls)).join("")+`</div>`;
   }
   // 🧹 Підсобники — окрема категорія: зробив і одразу отримав гроші, без нарахувань і боргів
   const hl=all.filter(p=>p.role==="worker"&&!p.crew&&p.helper);
   h+=`<div class="section-t">🧹 Підсобники</div><div class="list"><div class="card" id="helpCat" style="cursor:pointer"><div class="stripe wrk"></div><div class="main"><div class="t">🧹 Підсобники · ${hl.filter(p=>p.active!==false).length}</div><div class="m">${hl.length?esc(hl.filter(p=>p.active!==false).slice(0,4).map(p=>p.name).join(", "))+(hl.length>4?"…":""):"розрахунок одразу, без нарахувань — натисніть, щоб додати"}</div></div><span class="count">→</span></div></div>`;
-  $("#view").innerHTML=h;
+  $("#view").innerHTML=h+`</div>`;
   $("#helpCat")?.addEventListener("click",e=>{ e.stopPropagation(); helpersSheet() });
+  peopleBind();
 }
+function peopleBind(){ const f=()=>{ const q=(S.pq||"").trim().toLowerCase(); $("#view").querySelectorAll("[data-pn]").forEach(c=>c.style.display=!q||q.split(/\s+/).every(w=>c.dataset.pn.includes(w))?"":"none") };
+  const i=$("#pQ"); if(i){ i.oninput=e=>{ S.pq=e.target.value; f() }; f() }
+  $("#view").querySelectorAll("[data-psk]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); S.pSkill=b.dataset.psk; render() }) }
 function helpersSheet(){ const all=[...S.people.values()].filter(p=>p.role==="worker"&&!p.crew).sort(byName), hl=all.filter(p=>p.helper), wl=all.filter(p=>!p.helper&&p.active!==false);
   openSheet(`<h2>🧹 Підсобники</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Зробив — одразу отримав гроші. Оплата пишеться витратою «Підсоба», без нарахувань, боргів і нагадувань.</div>
     <div class="list">${hl.map(p=>`<div class="card" style="gap:8px"><div class="main" data-hp="${p.id}" style="cursor:pointer"><div class="t">${esc(p.name)}${p.active===false?` <span class="tag">архів</span>`:""}</div>${p.phone?`<div class="m">${esc(p.phone)}</div>`:""}</div>${S.canWrite?`<button class="btn ghost sm" data-hx="${p.id}" title="Повернути у виконавці">↩ у виконавці</button>`:""}</div>`).join("")||`<div class="empty">Поки нікого</div>`}</div>
@@ -1442,7 +1454,17 @@ function advanceSheet(siteId,preWorker){ const st=site(siteId); if(!st) return;
   draw() }
 
 // 📨 Вхідні від працівників (сторінка w.html) — нічого не додається без власника
-const INBOX_KIND={join:"🆕 Анкета",need:"🧱 Що привезти",tools:"🧰 Інструмент на об'єкті",done:"📋 Що зроблено",other:"💬 Інше"};
+// 🛠 Вміння людей (ті самі ключі в анкеті працівника w.html)
+const SKILLS=[["helper","🧹 Підсобні роботи"],["demol","🔨 Демонтаж"],["found","🏗️ Фундамент, бетон, мурування"],["roof","🏠 Покрівля"],["facade","🧱 Фасад: утеплення, декоративна штукатурка"],["plaster","🪣 Штукатурка, шпаклівка, фарбування"],["drywall","🔲 Гіпсокартон, стелі"],["tile","◻️ Плитка"],["floor","🟫 Стяжка, підлоги, ламінат"],["plumb","🚿 Сантехніка, опалення"],["elec","⚡ Електромонтаж"],["windows","🚪 Вікна, двері, відкоси"],["weld","🔥 Зварювання, металоконструкції"],["wood","🪚 Столярка, дерев'яні конструкції"],["land","🌳 Благоустрій, бруківка, паркани"],["driver","🚚 Водій, спецтехніка"]];
+const SKILL=Object.fromEntries(SKILLS);
+const SKILL_RX={helper:/підсоб|подсоб|різноро|разнораб|помічн/,demol:/демонт/,found:/фундам|бетон|мур|кладк|камен/,roof:/покрів|кровл|дах/,facade:/фасад|утепл|короїд|декор/,plaster:/штукат|шпакл|шпакл|маляр|фарб|оздоб|отдел|відділ/,drywall:/гіпсок|гипсок|гкл|стел/,tile:/плит/,floor:/стяжк|підлог|пол |ламін/,plumb:/сантех|опален|водопров|каналіз/,elec:/електр|электр|провод|розетк/,windows:/вікн|окн|двер|відкос/,weld:/звар|свар|метал/,wood:/столя|тесля|дерев/,land:/бруків|плитк[аи] вул|благоус|паркан|забор/,driver:/водій|водит|маніпул|екскав|кран/};
+const skillGuess=t=>{ const x=" "+String(t||"").toLowerCase()+" "; return Object.keys(SKILL_RX).filter(k=>SKILL_RX[k].test(x)) };
+const skillsOf=p=>{ const l=Array.isArray(p?.skills)&&p.skills.length?p.skills:skillGuess(p?.trade+" "+(p?.helper?"":"")) /*поки людина не відповіла — вгадуємо зі спеціальності*/; return p?.helper&&!l.includes("helper")?["helper",...l]:l };
+// людина відповіла в анкеті → записуємо вміння в її картку
+function skillsFromInbox(){ if(S.canWrite===false) return; for(const m of S.inbox||[]){ if(!Array.isArray(m.skills)||!m.skills.length) continue; const p=inboxPerson(m); if(!p) continue;
+  const sk=m.skills.filter(k=>SKILL[k]); if(+p.skillsAt>=+m.at||S._skIb?.[m.id]) continue; (S._skIb=S._skIb||{})[m.id]=1;
+  S.db?.collection("people").doc(p.id).update({skills:sk,skillsAt:+m.at||Date.now()}).catch(()=>{}) } }
+const INBOX_KIND={skills:"🛠 Вміння",join:"🆕 Анкета",need:"🧱 Що привезти",tools:"🧰 Інструмент на об'єкті",done:"📋 Що зроблено",other:"💬 Інше"};
 const inboxNew=()=>(S.inbox||[]).filter(m=>m.status==="new");
 const imgFromData=d=>({mime:"image/jpeg",b64:String(d).split(",")[1]||"",thumb:d});
 function inboxSheet(){ const l=S.inbox||[];
@@ -1500,7 +1522,7 @@ const digits=x=>String(x||"").replace(/\D/g,"").slice(-9);
 const inboxPerson=m=>{ if(m.pid&&person(m.pid)) return person(m.pid); const d=digits(m.phone); return [...S.people.values()].find(p=>d&&[p.phone,...(p.phones||[]).map(x=>x.tel)].some(t=>digits(t)===d))||[...S.people.values()].find(p=>normName(p.name)===normName(m.from||"")) };
 function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; const st=site(m.site), who=inboxPerson(m);
   openSheet(`<h2>📨 ${esc(m.from||"")}</h2><div class="m" style="margin-bottom:4px">${esc(INBOX_KIND[m.kind]||"")} · ${esc(st?.name||m.siteName||"без об'єкта")} · ${new Date(m.at).toLocaleString("uk-UA")}</div>
-    <div class="m" style="margin-bottom:8px">${m.phone?`📞 <a href="${telHref(m.phone)}">${esc(m.phone)}</a>`:""}${m.trade?" · "+esc(m.trade):""}${m.exp?" · досвід "+esc(m.exp):""}${m.city?" · "+esc(m.city):""}${m.crew?" · "+esc(m.crew):""}${who?` · ✅ у «Людях»: <b>${esc(who.name)}</b>`:S.canWrite&&m.from?` · <a href="#" id="ibAddP" onclick="return false">👤 Додати в «Люди»</a>`:""}</div>
+    <div class="m" style="margin-bottom:8px">${m.phone?`📞 <a href="${telHref(m.phone)}">${esc(m.phone)}</a>`:""}${m.trade?" · "+esc(m.trade):""}${Array.isArray(m.skills)&&m.skills.length?`<div style="margin-top:4px">🛠 ${m.skills.filter(k=>SKILL[k]).map(k=>esc(SKILL[k])).join(" · ")}</div>`:""}${m.exp?" · досвід "+esc(m.exp):""}${m.city?" · "+esc(m.city):""}${m.crew?" · "+esc(m.crew):""}${who?` · ✅ у «Людях»: <b>${esc(who.name)}</b>`:S.canWrite&&m.from?` · <a href="#" id="ibAddP" onclick="return false">👤 Додати в «Люди»</a>`:""}</div>
     ${m.text?`<div class="card" style="display:block;cursor:default;white-space:pre-line;margin-bottom:8px">${esc(m.text)}</div>`:""}
     ${m.photos?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${m.photos.map((p,i)=>`<img src="${p}" data-ph="${i}" style="width:96px;height:96px;object-fit:cover;border-radius:10px;cursor:pointer">`).join("")}</div>`:""}
     ${!st&&m.kind!=="join"?`<div class="field"><label>Об'єкт</label><select id="ibSite">${siteOptions("","— виберіть")}</select></div>`:""}
@@ -1511,7 +1533,7 @@ function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return; 
     <div class="actions"><button class="btn ghost" id="ibBack">Назад</button></div>`);
   $("#ibBack").onclick=inboxSheet;
   $("#ibAddP2")?.addEventListener("click",()=>$("#ibAddP")?.click());
-  $("#ibAddP")?.addEventListener("click",async()=>{ const data={name:m.from,role:"worker",phone:m.phone||"",phones:m.phone?[{tel:m.phone,label:""}]:[],trade:m.trade||"",note:[m.crew,m.exp&&"досвід "+m.exp,m.city,m.kind==="join"?"з анкети":"додано з повідомлення"].filter(Boolean).join(" · "),since:todayISO(),active:true};
+  $("#ibAddP")?.addEventListener("click",async()=>{ const data={name:m.from,role:"worker",phone:m.phone||"",phones:m.phone?[{tel:m.phone,label:""}]:[],trade:m.trade||"",...(Array.isArray(m.skills)&&m.skills.length?{skills:m.skills.filter(k=>SKILL[k]),skillsAt:+m.at||Date.now(),...(m.skills.length===1&&m.skills[0]==="helper"?{helper:true}:{})}:{}),note:[m.crew,m.exp&&"досвід "+m.exp,m.city,m.kind==="join"?"з анкети":"додано з повідомлення"].filter(Boolean).join(" · "),since:todayISO(),active:true};
     if(await write(db=>db.collection("people").add(data))){ toast("Додано в «Люди»"); setTimeout(()=>inboxMsg(id),400) } });
   $("#modal").querySelectorAll("[data-ph]").forEach(i=>i.onclick=()=>{ const w=window.open(); if(w) w.document.write(`<img src="${m.photos[+i.dataset.ph]}" style="max-width:100%">`) });
   const mark=st2=>write(db=>db.doc("inbox/"+m.id).update({status:st2,doneAt:Date.now()})).then(()=>{ m.status=st2 });
@@ -2139,6 +2161,7 @@ function personForm(p){
       <div class="field"><div class="seg" id="segR"><button type="button" data-v="owner" class="${p.role==="owner"?"on":""}">👤 Власник</button><button type="button" data-v="worker" class="${p.role==="worker"?"on":""}">🔧 Виконавець</button></div></div>
       <label class="m" id="crewTgl" style="display:${p.role==="worker"?"flex":"none"};gap:8px;align-items:center;margin:0 0 10px;font-size:14px"><input type="checkbox" id="isCrew" ${p.crew?"checked":""} style="width:20px;height:20px"> 👥 Це бригада (2–3 людини, спільна оплата)</label>
       <label class="m" id="helpTgl" style="display:${p.role==="worker"&&!p.crew?"flex":"none"};gap:8px;align-items:center;margin:0 0 10px;font-size:14px"><input type="checkbox" id="isHelp" ${p.helper?"checked":""} style="width:20px;height:20px"> 💵 Підсоба — розрахунок одразу (без нарахувань і боргів)</label>
+      <div class="field" id="skBox" style="display:${p.role==="owner"?"none":"block"}"><label>🛠 Що вміє ${Array.isArray(p.skills)&&p.skills.length&&p.skillsAt?`<span class="m">(з анкети ${fmtDay(new Date(+p.skillsAt).toISOString().slice(0,10))})</span>`:""}</label><div style="display:flex;flex-wrap:wrap;gap:6px">${SKILLS.map(([k,l])=>`<label class="btn ghost sm" style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" class="pSk" value="${k}" ${skillsOf(p).includes(k)?"checked":""} style="width:18px;height:18px">${esc(l)}</label>`).join("")}</div></div>
       <div class="field"><label id="nmLbl">${p.crew?"Назва бригади *":"Ім'я *"}</label><input name="name" required value="${esc(p.name)}" placeholder="${p.crew?"напр. Бригада Юри":""}"></div>
       ${!isNew&&p.crew&&S.canWrite?`<button type="button" class="btn ghost sm" id="unCrew" style="width:100%;margin-bottom:10px">👤 Це була окрема людина — розділити на людину і бригаду</button>`:""}
       <div class="field" id="crewBox" style="display:${p.crew?"block":"none"}"><label>Хто в бригаді</label>
@@ -2174,7 +2197,7 @@ function personForm(p){
   $("#showP")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",person:p.id,site:"",cat:"",holderType:"all",q:""});render()});
   $("#pForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role,since:f.since||"",phones:[...document.querySelectorAll("#phList .phr")].map(r=>({label:r.querySelector(".phL").value.trim(),tel:r.querySelector(".phT").value.trim()})).filter(x=>x.tel)};
-    const crew=role==="worker"&&$("#isCrew").checked; data.crew=crew; data.helper=role==="worker"&&!crew&&$("#isHelp").checked; data.members=crew?[...document.querySelectorAll(".crewM:checked")].map(x=>x.value):[];
+    const crew=role==="worker"&&$("#isCrew").checked; data.crew=crew; data.helper=role==="worker"&&!crew&&$("#isHelp").checked; if(role!=="owner"){ const sk=[...document.querySelectorAll(".pSk:checked")].map(x=>x.value); if(sk.join()!==(Array.isArray(p.skills)?p.skills:[]).join()||sk.length) data.skills=sk } data.members=crew?[...document.querySelectorAll(".crewM:checked")].map(x=>x.value):[];
     if(!data.name)return;
     if(!isNew&&!p.crew&&crew){ // людину не перетворюємо на бригаду — створюємо окрему бригаду, а людина лишається сама собою
       const cname=data.name===p.name?p.name+" — бригада":data.name, members=[...new Set([p.id,...data.members])];
