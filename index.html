@@ -1467,14 +1467,17 @@ function skillsFromInbox(){ if(S.canWrite===false) return; for(const m of S.inbo
 const INBOX_KIND={skills:"🛠 Вміння",join:"🆕 Анкета",need:"🧱 Що привезти",tools:"🧰 Інструмент на об'єкті",done:"📋 Що зроблено",other:"💬 Інше"};
 const inboxNew=()=>(S.inbox||[]).filter(m=>m.status==="new");
 const imgFromData=d=>({mime:"image/jpeg",b64:String(d).split(",")[1]||"",thumb:d});
-function inboxSheet(){ const l=S.inbox||[];
+function inboxSheet(){ const td=dISO(), oldDone=m=>m.status!=="new"&&dISO(new Date(+m.doneAt||+m.at||0))<td; // опрацьовані до сьогодні ховаємо (у базі лишаються)
+  const all=S.inbox||[], hid=all.filter(oldDone).length, l=S.ibAll?all:all.filter(m=>!oldDone(m));
   openSheet(`<h2>📨 Від працівників</h2>
     <div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="ibLinks">🔗 Запросити (бригаду, майстра, нову людину)</button></div>
     ${l.length?`<div class="list">${l.map(m=>`<div class="card" data-ib="${m.id}" style="${m.status==="new"?"":"opacity:.55"}"><div class="main"><div class="t">${m.status==="new"?"🔵 ":"✓ "}${esc(inboxPerson(m)?.name||m.from||"?")} · ${esc(INBOX_KIND[m.kind]||"")}</div>
       <div class="m" style="font-size:12.5px">${esc(site(m.site)?.name||m.siteName||"без об'єкта")} · ${new Date(m.at).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}${m.photos?.length?" · 📷 "+m.photos.length:""}</div>
-      <div class="m" style="font-size:13px;white-space:pre-line">${esc(String(m.text||"").slice(0,120))}</div></div></div>`).join("")}</div>`:`<div class="empty">Повідомлень ще немає.<br><span class="m">Надішліть бригаді посилання — вони зможуть скидати списки й фото сюди.</span></div>`}
+      <div class="m" style="font-size:13px;white-space:pre-line">${esc(String(m.text||"").slice(0,120))}</div></div></div>`).join("")}</div>`:`<div class="empty">${hid?"Нових повідомлень немає.":"Повідомлень ще немає."}<br><span class="m">Надішліть бригаді посилання — вони зможуть скидати списки й фото сюди.</span></div>`}
+    ${hid?`<div class="m" id="ibOld" style="text-align:center;padding:8px;cursor:pointer;color:var(--muted)">${S.ibAll?"▲ Сховати старі опрацьовані":`🗂 Старі опрацьовані: ${hid} — показати`}</div>`:""}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#modal").querySelectorAll("[data-ib]").forEach(c=>c.onclick=()=>inboxMsg(c.dataset.ib));
+  $("#ibOld")?.addEventListener("click",()=>{ S.ibAll=!S.ibAll; inboxSheet() });
   $("#ibLinks").onclick=inboxLinks }
 function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[^/]*$/,"")+"w.html";
   const ss=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort(byName), ws=[...S.people.values()].filter(p=>p.role!=="owner"&&p.active!==false).sort(byName);
