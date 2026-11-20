@@ -895,7 +895,7 @@ function renderSites(){
   const tot=siteTotals();
   const nest=!sq, isKid=x=>nest&&x.parent&&S.sites.has(x.parent), CP=custPaid(tot);
   const card=(s,kid)=>{ const kids=nest&&!kid?siteKids(s.id):[], F=kids.length?famTotals(s.id,tot):null, t=F||tot[s.id], p=t?t.in-t.out:0, debt=F?(F.contract>0?F.contract-F.in:0):(+s.contract||0)>0?(+s.contract)-(CP[s.id]?.paid??(t?.in||0)):0;
-    return `<div class="card" data-site="${s.id}" ${kid?`style="margin-left:22px;padding-top:8px;padding-bottom:8px"`:""}><div class="main"><div class="t">${kid?"↳ ":s.type==="warehouse"?"🏬 ":"🏗️ "}${!nest&&s.parent&&S.sites.get(s.parent)?`<span class="m">${esc(S.sites.get(s.parent).name)} › </span>`:""}${esc(s.name)}${kids.length?` <span class="tag site">📂 ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</span>`:""}${kid&&s.active===false?` <span class="tag">архів</span>`:""}${isTestSite(s)?` <span class="tag">🧪 тест · не рахується</span>`:""}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
+    return `<div class="card" data-site="${s.id}" ${kid?`style="margin-left:22px;padding-top:8px;padding-bottom:8px"`:""}><div class="main"><div class="t">${kid?"↳ "+(isDuoKid(s)?"🤝 ":""):s.type==="warehouse"?"🏬 ":"🏗️ "}${!nest&&s.parent&&S.sites.get(s.parent)?`<span class="m">${esc(S.sites.get(s.parent).name)} › </span>`:""}${esc(s.name)}${kids.length?` <span class="tag site">📂 ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</span>`:""}${kid&&s.active===false?` <span class="tag">архів</span>`:""}${isTestSite(s)?` <span class="tag">🧪 тест · не рахується</span>`:""}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
     ${t?`<div class="m">прихід <span class="in">${money(t.in)}</span> · витрати <span class="out">${money(t.out)}</span> · прибуток <b class="${p<0?"out":""}">${money(p)}</b></div>`:""}
     ${debt>0?`<div class="m">👤 ${esc(siteCust(s)||"замовник")} винен${F?" усього":""} <b class="in">${money(debt)}</b></div>`:""}
     ${s.note&&!kid?`<div class="m">${esc(s.note)}</div>`:""}</div>${isDuo()?"":`<span class="count">${(kids.length?siteFam(s.id).reduce((a,k)=>a+(cnt[k]||0),0):cnt[s.id])||0} од.</span>`}</div>`+kids.map(k=>card(k,1)).join("") };
@@ -2057,16 +2057,16 @@ function moveForm(ids,opt){ opt=opt||{};
 }
 
 // 📂 приєднати наявні об'єкти як ділянки великого (нічого не переноситься і не видаляється)
-function siteAttach(root){ const l=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.id!==root.id&&!siteKids(x.id).length&&x.parent!==root.id).sort((a,b)=>(b.active!==false)-(a.active!==false)||byName(a,b));
-  openSheet(`<h2>📂 Ділянки «${esc(root.name)}»</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Позначте об'єкти, які є частинами «${esc(root.name)}». Їхні гроші, оплата й виконавці лишаються окремо, а разом видно загальний підсумок і борг замовника.</div>
-    ${siteKids(root.id).length?`<div class="section-t">Уже входять</div><div class="list">${siteKids(root.id).map(x=>`<label class="card" style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-sat="${x.id}" checked style="width:22px;height:22px"><span class="t" style="flex:1">${esc(x.name)}</span></label>`).join("")}</div>`:""}
-    <input type="search" id="satQ" placeholder="🔍 Пошук об'єкта" style="margin:8px 0"><div class="list" id="satL">${l.map(x=>`<label class="card" data-satn="${esc(x.name+" "+(x.customer||""))}" style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-sat="${x.id}" style="width:22px;height:22px"><span style="flex:1"><span class="t">${esc(x.name)}${x.active===false?` <span class="tag">архів</span>`:""}</span>${x.parent&&site(x.parent)?`<div class="m">зараз у «${esc(site(x.parent).name)}»</div>`:x.customer?`<div class="m">👤 ${esc(x.customer)}</div>`:""}</span></label>`).join("")||`<div class="empty">Немає інших об'єктів</div>`}</div>
+function siteAttach(root){ const l=[...S.sites.values(),...(duoX()?[...duoX().values()]:[])].filter(x=>x.type!=="warehouse"&&x.id!==root.id&&!siteKids(x.id).length&&x.parent!==root.id).sort((a,b)=>(b.active!==false)-(a.active!==false)||byName(a,b));
+  openSheet(`<h2>📂 Ділянки «${esc(root.name)}»</h2><div class="m" style="color:var(--muted);margin-bottom:8px">${duoX()?"🤝 — об'єкти «Общаку на двох»: їх видно в підсумку лише вам із Сергієм, Дмитро не бачить. ":""}Позначте об'єкти, які є частинами «${esc(root.name)}». Їхні гроші, оплата й виконавці лишаються окремо, а разом видно загальний підсумок і борг замовника.</div>
+    ${siteKids(root.id).length?`<div class="section-t">Уже входять</div><div class="list">${siteKids(root.id).map(x=>`<label class="card" style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-sat="${x.id}" checked style="width:22px;height:22px"><span class="t" style="flex:1">${isDuoKid(x)?"🤝 ":""}${esc(x.name)}</span></label>`).join("")}</div>`:""}
+    <input type="search" id="satQ" placeholder="🔍 Пошук об'єкта" style="margin:8px 0"><div class="list" id="satL">${l.map(x=>`<label class="card" data-satn="${esc(x.name+" "+(x.customer||""))}" style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-sat="${x.id}" style="width:22px;height:22px"><span style="flex:1"><span class="t">${isDuoKid(x)?"🤝 ":""}${esc(x.name)}${isDuoKid(x)?` <span class="tag">на двох</span>`:""}${x.active===false?` <span class="tag">архів</span>`:""}</span>${x.parent&&site(x.parent)?`<div class="m">зараз у «${esc(site(x.parent).name)}»</div>`:x.customer?`<div class="m">👤 ${esc(x.customer)}</div>`:""}</span></label>`).join("")||`<div class="empty">Немає інших об'єктів</div>`}</div>
     <div class="actions"><button class="btn ghost" id="satBack">Назад</button><button class="btn" id="satOk">Зберегти</button></div>`);
   $("#satQ").oninput=e=>{ const q=e.target.value.trim(); $("#modal").querySelectorAll("[data-satn]").forEach(c=>c.style.display=!q||wordHit(c.dataset.satn,q)?"":"none") };
   $("#satBack").onclick=()=>siteForm(S.sites.get(root.id)||root);
   $("#satOk").onclick=async()=>{ const ch=[...$("#modal").querySelectorAll("[data-sat]")].map(c=>({id:c.dataset.sat,on:c.checked,was:S.sites.get(c.dataset.sat)?.parent===root.id})).filter(x=>x.on!==x.was);
     if(!ch.length){ siteForm(S.sites.get(root.id)||root); return }
-    if(await write(async db=>{ for(const x of ch) await db.doc("sites/"+x.id).update({parent:x.on?root.id:""}) })){ toast(`✅ Ділянок: ${siteKids(root.id).length+ch.filter(x=>x.on).length-ch.filter(x=>!x.on).length}`); S.siteTab="money"; setTimeout(()=>siteForm(S.sites.get(root.id)||root),300) } } }
+    if(await write(async db=>{ for(const x of ch){ if(duoX()?.has(x.id)&&!S.sites.has(x.id)) await S.db.doc("duo_sites/"+x.id).update({parent:x.on?root.id:""}); else await db.doc("sites/"+x.id).update({parent:x.on?root.id:""}) } })){ toast(`✅ Ділянок: ${siteKids(root.id).length+ch.filter(x=>x.on).length-ch.filter(x=>!x.on).length}`); S.siteTab="money"; setTimeout(()=>siteForm(S.sites.get(root.id)||root),300) } } }
 function mergeSite(src){
   const l=[...S.sites.values()].filter(x=>x.id!==src.id&&x.type!=="warehouse").sort((a,b)=>(b.active!==false)-(a.active!==false)||(a.order||0)-(b.order||0));
   openSheet(`<h2>🔀 Об'єднати «${esc(src.name)}»</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Виберіть, КУДИ перенести все з «${esc(src.name)}» (платежі, документи, інструмент, «Потрібно», КП/смети). Потім «${esc(src.name)}» буде видалено.</div>
@@ -2093,6 +2093,7 @@ function mergeSite(src){
 function siteForm(s,pre){
   const isNew=!s; s=s||{type:"site",...(pre||{})};
   const par=s.parent&&S.sites.get(s.parent)?S.sites.get(s.parent):null, myKids=isNew?[]:siteKids(s.id);
+  const parTrio=!par&&s.parent&&isDuo()?S.B.trio.sites?.get(s.parent):null; // ця ділянка «на двох» входить в об'єкт «на трьох»
   const cnt=[...S.tools.values()].filter(t=>t.site===s.id).length;
   const isSite=s.type!=="warehouse", tabs=isNew?[]:(isSite?[["money","💰 Гроші"],["tools","🧰 Інструмент"],["needs","📝 Потрібно"],["works","📋 Роботи"],["photos","📷 Фото"],["docs","📁 Документи"],["data","⚙️ Дані"]]:[["tools","🧰 Інструмент"],["data","⚙️ Дані"]]);
   let tab=isNew?"data":(tabs.some(t=>t[0]===S.siteTab)?S.siteTab:tabs[0][0]);
@@ -2104,6 +2105,7 @@ function siteForm(s,pre){
     for(const t of tabs){ if(t[0]==="tools"&&toolsHere.length) t[1]+=" "+toolsHere.length; if(t[0]==="needs"&&nl) t[1]+=" "+nl; if(t[0]==="works"&&ap) t[1]+=` ${apd}/${ap}` } }
   openSheet(`<h2>${isNew?(par?"Нова ділянка об'єкта":"Новий склад / об'єкт"):(isSite?"🏗️ ":"🏬 ")+esc(s.name)}</h2>
     ${!isNew&&s.custPhone?`<div class="m" style="margin:-4px 0 8px">👤 ${esc(s.customer||"Замовник")} · <a href="${telHref(s.custPhone)}" style="color:var(--accent)">📞 ${esc(s.custPhone)}</a></div>`:""}
+    ${parTrio?`<div class="m" id="sParT" style="margin:-4px 0 8px;cursor:pointer">↳ ділянка об'єкта <b style="color:var(--accent)">📂 ${esc(parTrio.name)}</b> (на трьох; Дмитро цю ділянку не бачить) →</div>`:""}
     ${par?`<div class="m" id="sPar" style="margin:-4px 0 8px;cursor:pointer">↳ частина об'єкта <b style="color:var(--accent)">📂 ${esc(par.name)}</b>${!s.customer&&par.customer?` · 👤 ${esc(par.customer)}`:""} →</div>`:""}
     ${tabs.length?`<div class="seg" id="segS" style="margin-bottom:10px;overflow-x:auto;flex-wrap:nowrap">${tabs.map(([k,l])=>`<button type="button" data-v="${k}" class="${tab===k?"on":""}" style="white-space:nowrap">${l}</button>`).join("")}</div>`:""}
     ${!isNew&&isSite?T("money",(()=>{const t=isTestSite(s)?finHere.reduce((a,f)=>{ if(f.type==="in") a.in+=+f.amount||0; else if(f.type==="out") a.out+=+f.amount||0; return a },{in:0,out:0}):siteTotals()[s.id];return `${isTestSite(s)?`<div class="banner" style="margin-bottom:8px">🧪 Тестовий об'єкт — платежі, нарахування й борги звідси <b>не входять</b> у баланси, аналітику, «Сьогодні» і борги людей.</div>`:""}<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}
@@ -2132,7 +2134,7 @@ function siteForm(s,pre){
       ${s.type!=="warehouse"?`<div class="field"><label>📞 Телефон замовника</label><div style="display:flex;gap:6px"><input name="custPhone" type="tel" value="${esc(s.custPhone||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost" id="sPickC" style="white-space:nowrap">📇 З контактів</button>`:""}${s.custPhone?`<a class="btn ghost" href="${telHref(s.custPhone)}" style="text-decoration:none">📞</a>`:""}</div></div>
         <div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я / назва"></div>
         <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${ctrBase(s)||""}" placeholder="0">${+s.adj?`<div class="m" style="font-size:12px">⚖️ коригування ${+s.adj>0?"+":""}${money(+s.adj)} → разом ${money(s.contract)}</div>`:""}</div></div>
-        ${myKids.length?`<div class="field"><label>📂 Ділянки цього об'єкта</label><div class="m">${myKids.map(k=>esc(k.name)).join(", ")}</div></div>`:`<div class="field"><label>📂 Входить у великий об'єкт (ділянка)</label><select name="parent"><option value="">— ні, самостійний</option>${[...S.sites.values()].filter(x=>x.type!=="warehouse"&&!x.parent&&x.id!==s.id&&(x.active!==false||x.id===s.parent)).sort(byName).map(x=>`<option value="${x.id}" ${s.parent===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select><div class="m" style="font-size:12px;margin-top:3px">Гроші ділянки рахуються окремо і разом з головним об'єктом. Замовника можна не вписувати — візьметься з головного.</div></div>`}
+        ${myKids.length?`<div class="field"><label>📂 Ділянки цього об'єкта</label><div class="m">${myKids.map(k=>esc(k.name)).join(", ")}</div></div>`:`<div class="field"><label>📂 Входить у великий об'єкт (ділянка)</label><select name="parent"><option value="">— ні, самостійний</option>${parTrio?`<option value="${parTrio.id}" selected>📂 ${esc(parTrio.name)} (на трьох)</option>`:""}${[...S.sites.values()].filter(x=>x.type!=="warehouse"&&!x.parent&&x.id!==s.id&&(x.active!==false||x.id===s.parent)).sort(byName).map(x=>`<option value="${x.id}" ${s.parent===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select><div class="m" style="font-size:12px;margin-top:3px">Гроші ділянки рахуються окремо і разом з головним об'єктом. Замовника можна не вписувати — візьметься з головного.</div></div>`}
         ${!isNew&&!s.parent&&S.canWrite?`<div class="actions" style="margin:0 0 8px"><button type="button" class="btn ghost" id="sKid" style="flex:1">＋ Нова ділянка</button><button type="button" class="btn ghost" id="sAttach" style="flex:1">📂 Приєднати наявні</button></div>`:""}`:""}
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="active" style="width:22px;height:22px" ${s.active!==false?"checked":""}> Активний (знятий — йде в архів)</label></div>
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="test" style="width:22px;height:22px" ${isTestSite(s)?"checked":""}> 🧪 Тестовий (пісочниця) — гроші не рахуються ніде</label></div>
@@ -2173,6 +2175,7 @@ function siteForm(s,pre){
   });
   $("#mrgS")?.addEventListener("click",()=>mergeSite(s));
   $("#sPar")?.addEventListener("click",()=>{ S.siteTab="money"; siteForm(par) });
+  $("#sParT")?.addEventListener("click",()=>{ setBase("trio"); S.siteTab="money"; siteForm(S.sites.get(parTrio.id)) });
   $("#sCorr")?.addEventListener("click",()=>custCorr(s));
   // 📇 телефон замовника з телефонної книги (Chrome на Android); ім'я підставляємо, якщо поле порожнє
   $("#sPickC")?.addEventListener("click",async()=>{ try{ const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
@@ -2181,7 +2184,7 @@ function siteForm(s,pre){
     toast(tel.length>1?`Взято перший номер із ${tel.length}`:"Номер додано") }catch(e){ toast("Не вдалося відкрити контакти") } });
   $("#sKid")?.addEventListener("click",()=>siteForm(null,{parent:s.id,customer:""}));
   $("#sAttach")?.addEventListener("click",()=>siteAttach(s));
-  $("#modal").querySelectorAll("[data-kid]").forEach(c=>c.onclick=()=>{ S.siteTab="money"; siteForm(S.sites.get(c.dataset.kid)) });
+  $("#modal").querySelectorAll("[data-kid]").forEach(c=>c.onclick=()=>{ S.siteTab="money"; const id=c.dataset.kid; if(!S.sites.has(id)&&duoX()?.has(id)){ setBase("duo"); toast("🤝 Ділянка з «Общаку на двох»") } siteForm(S.sites.get(id)) });
   $("#delS")?.addEventListener("click",async()=>{
     if(cnt){toast("Спочатку перемістіть звідси інструмент ("+cnt+")");return}
     if(myKids.length){toast("Це головний об'єкт для "+myKids.length+" ділянок — спершу відв'яжіть їх");return}
@@ -2298,24 +2301,28 @@ const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMo
 const fmtDay=iso=>{if(!iso)return"без дати";const [y,m,d]=iso.split("-");return `${d}.${m}.${y}`};
 const MONTHS=["січень","лютий","березень","квітень","травень","червень","липень","серпень","вересень","жовтень","листопад","грудень"];
 // 📂 Великі об'єкти: ділянки (підоб'єкти) з полем parent. Головний об'єкт збирає гроші й борги всіх ділянок.
-const siteKids=id=>id?[...S.sites.values()].filter(x=>x.parent===id&&x.id!==id).sort(byName):[];
+// ділянки з «Общаку на двох» під об'єктом «на трьох» — бачать лише Андрій і Сергій (S.duoOk), Дмитру ці дані недоступні
+const duoX=()=>S.duoOk&&!isDuo()?S.B.duo.sites:null;
+const isDuoKid=x=>!!(x&&duoX()?.has(x.id)&&!S.sites.has(x.id));
+const siteAny=id=>S.sites.get(id)||duoX()?.get(id);
+const siteKids=id=>id?[...S.sites.values(),...(duoX()?[...duoX().values()]:[])].filter(x=>x.parent===id&&x.id!==id).sort(byName):[];
 const siteRoot=x=>x?.parent&&S.sites.get(x.parent)?S.sites.get(x.parent):x;
 const siteFam=id=>[id,...siteKids(id).map(x=>x.id)];
 const siteFull=x=>x?(x.parent&&S.sites.get(x.parent)?S.sites.get(x.parent).name+" › ":"")+x.name:"";
 const siteCust=x=>x?.customer||siteRoot(x)?.customer||"";
 // 💰 оплата замовника на головний об'єкт: спершу закриває його власний договір, решта — борги ділянок по черзі (у порядку створення), скільки вистачить
-function custPaid(tot){ tot=tot||siteTotals(); const r={}; for(const x of S.sites.values()){ const i=tot[x.id]?.in||0; r[x.id]={paid:i,got:0,gave:0} }
+function custPaid(tot){ tot=tot||siteTotals(); const r={}; for(const x of [...S.sites.values(),...(duoX()?[...duoX().values()]:[])]){ const i=tot[x.id]?.in||0; r[x.id]={paid:i,got:0,gave:0} }
   for(const root of S.sites.values()){ if(root.parent&&S.sites.has(root.parent)) continue; const kids=siteKids(root.id).sort((a,b)=>(a.order||0)-(b.order||0)||byName(a,b)); if(!kids.length) continue;
     const pin=r[root.id].paid, pc=+root.contract||0; let left=pc>0?Math.max(0,pin-pc):pin;
     for(const k of kids){ if(left<=0) break; const c=+k.contract||0; if(!(c>0)) continue; const need=c-r[k.id].paid; if(need<=0) continue; const take=Math.min(need,left); r[k.id].paid+=take; r[k.id].got+=take; left-=take; r[root.id].gave+=take }
     r[root.id].paid-=r[root.id].gave }
   return r }
-function famTotals(id,tot){ tot=tot||siteTotals(); const r={in:0,out:0,contract:0,acc:0,wpaid:0,n:0}; for(const k of siteFam(id)){ const t=tot[k]; if(t){ r.in+=t.in; r.out+=t.out; r.n+=t.n } r.contract+=+(S.sites.get(k)?.contract)||0 } return r }
-function famWorkDebt(ids){ const set=new Set(ids); let a=0; for(const f of S.fin.values()){ if(!set.has(f.site)||!f.worker||person(f.worker)?.helper||isHelperPay(f)) continue; if(f.type==="accrual") a+=+f.amount||0; else if(f.type==="out") a-=+f.amount||0 } return a }
+function famTotals(id,tot){ tot=tot||siteTotals(); const r={in:0,out:0,contract:0,acc:0,wpaid:0,n:0}; for(const k of siteFam(id)){ const t=tot[k]; if(t){ r.in+=t.in; r.out+=t.out; r.n+=t.n } r.contract+=+(siteAny(k)?.contract)||0 } return r }
+function famWorkDebt(ids){ const set=new Set(ids); let a=0; for(const f of [...S.fin.values(),...(duoX()?[...S.B.duo.fin.values()]:[])]){ if(!set.has(f.site)||!f.worker||person(f.worker)?.helper||isHelperPay(f)) continue; if(f.type==="accrual") a+=+f.amount||0; else if(f.type==="out") a-=+f.amount||0 } return a }
 function famHTML(s){ const kids=siteKids(s.id); if(!kids.length) return ""; const tot=siteTotals(), all=famTotals(s.id,tot), p=all.in-all.out, cd=all.contract>0?all.contract-all.in:null, wd=famWorkDebt(siteFam(s.id));
   const cp=custPaid(tot);
   const row=(x,own)=>{ const t=tot[x.id]||{in:0,out:0}, c=+x.contract||0, P=cp[x.id]||{paid:t.in,got:0,gave:0}, d=c>0?c-P.paid:null, w=famWorkDebt([x.id]);
-    return `<div class="hist" ${own?"":`data-kid="${x.id}"`} style="cursor:${own?"default":"pointer"}"><div style="display:flex;gap:8px"><b style="flex:1">${own?"🏗️ "+esc(x.name)+" <span class=\"m\">(загальне)</span>":"↳ "+esc(x.name)}${x.active===false?` <span class="tag">архів</span>`:""}</b><b class="${t.in-t.out<0?"out":"in"}">${money(t.in-t.out)}</b></div>
+    return `<div class="hist" ${own?"":`data-kid="${x.id}"`} style="cursor:${own?"default":"pointer"}"><div style="display:flex;gap:8px"><b style="flex:1">${own?"🏗️ "+esc(x.name)+" <span class=\"m\">(загальне)</span>":"↳ "+(isDuoKid(x)?"🤝 ":"")+esc(x.name)}${x.active===false?` <span class="tag">архів</span>`:""}</b><b class="${t.in-t.out<0?"out":"in"}">${money(t.in-t.out)}</b></div>
       <div class="m">прихід ${money(t.in)}${P.gave>0.5?` (з них ${money(P.gave)} закрили ділянки)`:""}${P.got>0.5?` + ${money(P.got)} з оплати на «${esc(s.name)}»`:""} · витрати ${money(t.out)}${d!=null?` · ${d>0?`замовник винен <b class="in">${money(d)}</b>`:d<0?`переплата ${money(-d)}`:"оплачено ✓"}`:""}${w>0.5?` · 👷 винні <b class="out">${money(w)}</b>`:""}</div></div>` };
   return `<div class="card" style="display:block;cursor:default;margin-bottom:8px;border-color:var(--accent)"><div style="display:flex"><b style="flex:1">📂 Разом по всьому об'єкту · ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</b><b class="${p<0?"out":"in"}">${money(p)}</b></div>
     <div class="m">прихід <span class="in">${money(all.in)}</span> · витрати <span class="out">${money(all.out)}</span></div>
@@ -2342,7 +2349,9 @@ function custCorr(st){ const t=siteTotals()[st.id]||{in:0}, cp=custPaid()[st.id]
 function workerCorr(id){ const p=person(id), x=workerTotals()[id]||{acc:0,paid:0};
   corrSheet({title:"🔧 "+p.name,who:"ми",debt:x.acc-x.paid,back:()=>workerSheet(id),
     save:(delta,note)=>write(db=>db.collection("fin").add({type:"accrual",kind:"Коригування",worker:id,site:"",amount:delta,date:todayISO(),note:"⚖️ "+note,by:S.uid||"",byName:S.meName||"",createdAt:Date.now(),updatedAt:Date.now()})) }) }
-function siteTotals(src){const t={};for(const f of (src||S.fin).values()){if(!f.site||f.type==="accrual")continue;const x=t[f.site]||(t[f.site]={in:0,out:0,n:0});x[f.type==="in"?"in":"out"]+=+f.amount||0;x.n++}return t}
+function siteTotals(src){ if(!src&&duoX()){ const a=siteTotals(S.fin), b=siteTotals(S.B.duo.fin); return {...b,...a} }
+  return siteTotals0(src) }
+function siteTotals0(src){const t={};for(const f of (src||S.fin).values()){if(!f.site||f.type==="accrual")continue;const x=t[f.site]||(t[f.site]={in:0,out:0,n:0});x[f.type==="in"?"in":"out"]+=+f.amount||0;x.n++}return t}
 function balancesFor(fin,sites,ows){
   const b={}; for(const o of ows) b[o.id]=0; const st={};
   for(const f of fin.values()){ if(f.type==="accrual")continue;
@@ -4686,7 +4695,7 @@ $("#view").addEventListener("click",e=>{
   const hf=e.target.closest(".hist[data-fin]"); if(hf){ if(S.canWrite) finForm(S.fin.get(hf.dataset.fin)); return }
   const c=e.target.closest(".card"); if(!c)return;
   if(c.dataset.tool){ if(S.select){const id=c.dataset.tool; S.selected.has(id)?S.selected.delete(id):S.selected.add(id); render(); } else toolCard(c.dataset.tool); }
-  else if(c.dataset.site) siteForm(S.sites.get(c.dataset.site));
+  else if(c.dataset.site){ const id=c.dataset.site; if(!S.sites.has(id)&&duoX()?.has(id)){ setBase("duo"); toast("🤝 Ділянка з «Общаку на двох»") } siteForm(S.sites.get(id)) }
   else if(c.dataset.doc){ docView(c.dataset.doc); }
   else if(c.dataset.ct){ contractView(c.dataset.ct); }
   else if(c.dataset.fin){ if(S.canWrite) finForm(S.fin.get(c.dataset.fin)); }
