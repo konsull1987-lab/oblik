@@ -71,6 +71,8 @@ nav button.on{color:var(--accent);font-weight:600}
 .btn.sm{padding:7px 10px;font-size:13px}
 .btn:disabled{opacity:.5}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+body.dock .sheet{max-height:57vh}
+#imgDock{position:fixed;top:0;left:0;right:0;height:42vh;z-index:30;background:#000;display:flex;flex-direction:column;border-bottom:2px solid var(--accent)}
 .sheet{background:var(--card);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(18px + env(safe-area-inset-bottom))}
 .sheet h2{margin:0 0 12px;font-size:18px}
 .field{margin-bottom:10px}
@@ -1924,6 +1926,14 @@ async function sitePhotos(s){ const box=$("#phBox"); if(!box) return;
   box.querySelectorAll("[data-phv]").forEach(img=>img.onclick=()=>photoView(all,+img.dataset.phv,s));
   (async()=>{ for(const img of [...box.querySelectorAll("[data-lazy]")].slice(0,40)){ try{ const r=await fileBlob(img.dataset.lazy); if(r&&/^image\//.test(r.blob.type||r.meta?.type||"image/")){ const u=URL.createObjectURL(r.blob); img.src=u; const p=all[+img.dataset.phv]; if(p) p.src=u } }catch(_){} } })() }
 // 🔍 перегляд фото поверх відкритого вікна (нічого не закриває): дотик — збільшити/зменшити, ✕ — закрити
+// 📌 фото закріплене зверху, а список робіт гортається знизу — звіряти без стрибків угору
+function imgDock(list,i=0){ if(!list?.length) return; let k=i, big=false; let o=$("#imgDock"); if(!o){ o=document.createElement("div"); o.id="imgDock"; document.body.appendChild(o) } document.body.classList.add("dock");
+  const off=()=>{ o.remove(); document.body.classList.remove("dock"); clearInterval(S._dockT) };
+  const draw=()=>{ o.innerHTML=`<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;color:#fff;font-size:13px"><span style="flex:1">📷 ${list.length>1?`${k+1}/${list.length} · `:""}дотик — ${big?"зменшити":"збільшити"}</span>${list.length>1?`<button class="btn ghost sm" data-id="-1">◀</button><button class="btn ghost sm" data-id="1">▶</button>`:""}<button class="btn sm" data-id="x">✕</button></div>
+    <div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch"><img src="${list[k]}" style="${big?"width:230%;max-width:none":"width:100%"};display:block"></div>`;
+    o.querySelector("img").onclick=()=>{ big=!big; draw() };
+    o.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{ const v=b.dataset.id; if(v==="x"){ off(); return } k=(k+ +v+list.length)%list.length; big=false; draw() }) };
+  draw(); clearInterval(S._dockT); S._dockT=setInterval(()=>{ if(!$("#wrGo")) off() },700) }
 function imgOverlay(list,i=0){ if(!list?.length) return; let k=i, big=false; const o=document.createElement("div"); o.style.cssText="position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column";
   const draw=()=>{ o.innerHTML=`<div style="display:flex;align-items:center;gap:8px;padding:10px;color:#fff"><b style="flex:1">📷 ${k+1}/${list.length} · дотик — збільшити</b>${list.length>1?`<button class="btn ghost sm" data-io="-1">◀</button><button class="btn ghost sm" data-io="1">▶</button>`:""}<button class="btn sm" data-io="x">✕ Закрити</button></div>
     <div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y pinch-zoom"><img src="${list[k]}" style="${big?"width:250%;max-width:none":"width:100%"};display:block"></div>`;
@@ -2445,7 +2455,7 @@ function workReport(workerId,opts){
       <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="wrF" accept="application/*,text/*" style="display:none"></label>
         <label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="wrC" accept="image/*" capture="environment" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
       ${st.file?`<div class="m" style="margin:-4px 0 8px">📎 ${esc(st.file.name)}</div>`:""}
-      ${st.shots?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 8px">${st.shots.map((x,i)=>`<img src="${x}" data-wsh="${i}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line,#2a2f38)">`).join("")}<span class="m" style="align-self:center;font-size:12px">← натисніть, щоб відкрити</span></div>`:""}
+      ${st.shots?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 8px">${st.shots.map((x,i)=>`<img src="${x}" data-wsh="${i}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line,#2a2f38)">`).join("")}<button type="button" class="btn ghost sm" data-wdock="1" style="align-self:center">📌 Поруч зі списком</button></div>`:""}
       <button class="btn" id="wrGo" style="width:100%">🔍 Розібрати й перевірити</button>
       <div id="wrRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -2466,7 +2476,7 @@ function workReport(workerId,opts){
       draw() };
     $("#wrF").onchange=e=>pick(e.target.files[0]); $("#wrC").onchange=e=>pick(e.target.files[0]);
     $("#wrGo").onclick=go;
-    S._wshots=st.shots||[]; if(!window._wshL){ window._wshL=1; document.addEventListener("click",e=>{ const x=e.target.closest?.("[data-wsh]"); if(x&&S._wshots?.length){ e.preventDefault(); imgOverlay(S._wshots,+x.dataset.wsh) } }) }
+    S._wshots=st.shots||[]; if(!window._wshL){ window._wshL=1; document.addEventListener("click",e=>{ const x=e.target.closest?.("[data-wsh]"); if(x&&S._wshots?.length){ e.preventDefault(); imgOverlay(S._wshots,+x.dataset.wsh) } const d=e.target.closest?.("[data-wdock]"); if(d&&S._wshots?.length){ e.preventDefault(); imgDock(S._wshots,0) } }) }
     if(st.rows.length) drawRows();
   };
   const estList=()=>st.est.map((e,i)=>`${i}. ${e.src} | ${e.name}${e.alt?` (також: ${e.alt})`:""} | ${e.unit} | ${e.price}`).join("\n");
@@ -2494,7 +2504,7 @@ total — загальна сума, якщо виконавець її напи
     const on=st.rows.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+r.pay,0)), theirSum=n2(on.reduce((a,r)=>a+(r.sum||n2(r.qty*r.price)),0));
     const errs=on.filter(r=>r.err).length, need=on.filter(r=>r.need).length;
     const estOpt=r=>{ const e=r.est>=0?st.est[r.est]:null; return `<button type="button" class="btn ghost sm" data-pick="${st.rows.indexOf(r)}" style="width:100%;text-align:left;font-size:12.5px">🔍 ${e?`${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}`:"Вибрати роботу з кошторису/прайсу…"}</button>` };
-    $("#wrRes").innerHTML=(st.shots?.length?`<button class="btn ghost" data-wsh="0" style="width:100%;margin:8px 0 4px;position:sticky;top:0;z-index:2">📷 Звірити з фото звіту${st.shots.length>1?` (${st.shots.length})`:""}</button>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
+    $("#wrRes").innerHTML=(st.shots?.length?`<div style="display:flex;gap:6px;margin:8px 0 4px;position:sticky;top:0;z-index:2;background:var(--card)"><button class="btn" data-wdock="1" style="flex:1">📌 Фото поруч зі списком</button><button class="btn ghost" data-wsh="0" style="flex:0 0 auto">🔍 На весь екран</button></div>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span style="flex:0 0 auto">${esc(r.unit)} ×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
