@@ -2090,6 +2090,8 @@ function mergeSite(src){
       await db.doc("sites/"+src.id).delete() });
     if(ok){ closeSheet(); toast(`✅ «${src.name}» об'єднано з «${dst.name}»`) } });
 }
+// 📞 рядок контакту об'єкта: хто + телефон (+ з телефонної книги)
+const scRow=(c={})=>`<div class="scR" style="display:flex;gap:6px;margin-bottom:6px"><input class="scN" value="${esc(c.name||"")}" placeholder="хто (напр. технагляд)" style="flex:1;min-width:0"><input class="scT" type="tel" value="${esc(c.tel||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost sm scP" title="З контактів">📇</button>`:""}<button type="button" class="btn ghost sm scX">✕</button></div>`;
 function siteForm(s,pre){
   const isNew=!s; s=s||{type:"site",...(pre||{})};
   const par=s.parent&&S.sites.get(s.parent)?S.sites.get(s.parent):null, myKids=isNew?[]:siteKids(s.id);
@@ -2104,7 +2106,7 @@ function siteForm(s,pre){
   if(!isNew&&isSite){ const nl=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1)).length, ap=s.approved?.items?.length||0, apd=(()=>{ const d=new Set(s.approvedDone||[]), g=apProgress(s); (s.approved?.items||[]).forEach((r,i)=>{ if(g[i]&&g[i]>=(+r.qty||0)*0.999) d.add(i) }); return d.size })();
     for(const t of tabs){ if(t[0]==="tools"&&toolsHere.length) t[1]+=" "+toolsHere.length; if(t[0]==="needs"&&nl) t[1]+=" "+nl; if(t[0]==="works"&&ap) t[1]+=` ${apd}/${ap}` } }
   openSheet(`<h2>${isNew?(par?"Нова ділянка об'єкта":"Новий склад / об'єкт"):(isSite?"🏗️ ":"🏬 ")+esc(s.name)}</h2>
-    ${!isNew&&s.custPhone?`<div class="m" style="margin:-4px 0 8px">👤 ${esc(s.customer||"Замовник")} · <a href="${telHref(s.custPhone)}" style="color:var(--accent)">📞 ${esc(s.custPhone)}</a></div>`:""}
+    ${!isNew&&(s.custPhone||(s.contacts||[]).length)?`<div class="m" style="margin:-4px 0 8px;line-height:1.7">${s.custPhone?`👤 ${esc(s.customer||"Замовник")} · <a href="${telHref(s.custPhone)}" style="color:var(--accent)">📞 ${esc(s.custPhone)}</a>`:""}${(s.contacts||[]).map(c=>`<br>${esc(c.name||"контакт")} · <a href="${telHref(c.tel)}" style="color:var(--accent)">📞 ${esc(c.tel)}</a>`).join("")}</div>`:""}
     ${parTrio?`<div class="m" id="sParT" style="margin:-4px 0 8px;cursor:pointer">↳ ділянка об'єкта <b style="color:var(--accent)">📂 ${esc(parTrio.name)}</b> (на трьох; Дмитро цю ділянку не бачить) →</div>`:""}
     ${par?`<div class="m" id="sPar" style="margin:-4px 0 8px;cursor:pointer">↳ частина об'єкта <b style="color:var(--accent)">📂 ${esc(par.name)}</b>${!s.customer&&par.customer?` · 👤 ${esc(par.customer)}`:""} →</div>`:""}
     ${tabs.length?`<div class="seg" id="segS" style="margin-bottom:10px;overflow-x:auto;flex-wrap:nowrap">${tabs.map(([k,l])=>`<button type="button" data-v="${k}" class="${tab===k?"on":""}" style="white-space:nowrap">${l}</button>`).join("")}</div>`:""}
@@ -2132,6 +2134,7 @@ function siteForm(s,pre){
       <div class="field"><label>Назва *</label><input name="name" required value="${esc(s.name)}" placeholder="напр. Склад на Зіньківській / ЖК Сонячний"></div>
       <div class="field"><label>Адреса, примітка</label><input name="note" value="${esc(s.note)}"></div>
       ${s.type!=="warehouse"?`<div class="field"><label>📞 Телефон замовника</label><div style="display:flex;gap:6px"><input name="custPhone" type="tel" value="${esc(s.custPhone||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost" id="sPickC" style="white-space:nowrap">📇 З контактів</button>`:""}${s.custPhone?`<a class="btn ghost" href="${telHref(s.custPhone)}" style="text-decoration:none">📞</a>`:""}</div></div>
+        <div class="field"><label>📞 Інші контакти <span class="m">(технагляд, менеджер…)</span></label><div id="scList">${(s.contacts||[]).map(c=>scRow(c)).join("")}</div><button type="button" class="btn ghost sm" id="scAdd" style="width:100%">＋ Ще номер</button></div>
         <div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я / назва"></div>
         <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${ctrBase(s)||""}" placeholder="0">${+s.adj?`<div class="m" style="font-size:12px">⚖️ коригування ${+s.adj>0?"+":""}${money(+s.adj)} → разом ${money(s.contract)}</div>`:""}</div></div>
         ${myKids.length?`<div class="field"><label>📂 Ділянки цього об'єкта</label><div class="m">${myKids.map(k=>esc(k.name)).join(", ")}</div></div>`:`<div class="field"><label>📂 Входить у великий об'єкт (ділянка)</label><select name="parent"><option value="">— ні, самостійний</option>${parTrio?`<option value="${parTrio.id}" selected>📂 ${esc(parTrio.name)} (на трьох)</option>`:""}${[...S.sites.values()].filter(x=>x.type!=="warehouse"&&!x.parent&&x.id!==s.id&&(x.active!==false||x.id===s.parent)).sort(byName).map(x=>`<option value="${x.id}" ${s.parent===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select><div class="m" style="font-size:12px;margin-top:3px">Гроші ділянки рахуються окремо і разом з головним об'єктом. Замовника можна не вписувати — візьметься з головного.</div></div>`}
@@ -2169,7 +2172,7 @@ function siteForm(s,pre){
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),custPhone:(f.custPhone||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),custPhone:(f.custPhone||"").trim(),contacts:[...document.querySelectorAll("#scList .scR")].map(r=>({name:r.querySelector(".scN").value.trim(),tel:r.querySelector(".scT").value.trim()})).filter(c=>c.tel).slice(0,20),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено"); if(!isNew&&s.active!==false&&data.active===false) setTimeout(()=>toolsLeftPrompt(s.id),400)}
   });
@@ -2178,6 +2181,10 @@ function siteForm(s,pre){
   $("#sParT")?.addEventListener("click",()=>{ setBase("trio"); S.siteTab="money"; siteForm(S.sites.get(parTrio.id)) });
   $("#sCorr")?.addEventListener("click",()=>custCorr(s));
   // 📇 телефон замовника з телефонної книги (Chrome на Android); ім'я підставляємо, якщо поле порожнє
+  $("#scAdd")?.addEventListener("click",()=>{ $("#scList").insertAdjacentHTML("beforeend",scRow()); $("#scList .scR:last-child .scN").focus() });
+  $("#scList")?.addEventListener("click",async e=>{ const r=e.target.closest(".scR"); if(!r) return;
+    if(e.target.closest(".scX")){ r.remove(); return }
+    if(e.target.closest(".scP")){ try{ const x=(await navigator.contacts.select(["name","tel"],{multiple:false}))?.[0]; if(!x) return; const t=(x.tel||[]).map(v=>String(v||"").trim()).filter(Boolean)[0]; if(!t){ toast("У контакту немає номера"); return } r.querySelector(".scT").value=t; const nm=(x.name||[])[0]; if(nm&&!r.querySelector(".scN").value.trim()) r.querySelector(".scN").value=nm.trim() }catch(_){ toast("Не вдалося відкрити контакти") } } });
   $("#sPickC")?.addEventListener("click",async()=>{ try{ const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
     const tel=(c.tel||[]).map(x=>String(x||"").trim()).filter(Boolean); if(!tel.length){ toast("У контакту немає номера"); return }
     const F=n=>$("#siteForm [name="+n+"]"); F("custPhone").value=tel[0]; const nm=(c.name||[])[0]; if(nm&&!F("customer").value.trim()) F("customer").value=nm.trim();
