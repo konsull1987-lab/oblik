@@ -1923,6 +1923,13 @@ async function sitePhotos(s){ const box=$("#phBox"); if(!box) return;
   $("#phCam")?.addEventListener("change",e=>{ add([...e.target.files]); e.target.value="" }); $("#phGal")?.addEventListener("change",e=>{ add([...e.target.files]); e.target.value="" });
   box.querySelectorAll("[data-phv]").forEach(img=>img.onclick=()=>photoView(all,+img.dataset.phv,s));
   (async()=>{ for(const img of [...box.querySelectorAll("[data-lazy]")].slice(0,40)){ try{ const r=await fileBlob(img.dataset.lazy); if(r&&/^image\//.test(r.blob.type||r.meta?.type||"image/")){ const u=URL.createObjectURL(r.blob); img.src=u; const p=all[+img.dataset.phv]; if(p) p.src=u } }catch(_){} } })() }
+// 🔍 перегляд фото поверх відкритого вікна (нічого не закриває): дотик — збільшити/зменшити, ✕ — закрити
+function imgOverlay(list,i=0){ if(!list?.length) return; let k=i, big=false; const o=document.createElement("div"); o.style.cssText="position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column";
+  const draw=()=>{ o.innerHTML=`<div style="display:flex;align-items:center;gap:8px;padding:10px;color:#fff"><b style="flex:1">📷 ${k+1}/${list.length} · дотик — збільшити</b>${list.length>1?`<button class="btn ghost sm" data-io="-1">◀</button><button class="btn ghost sm" data-io="1">▶</button>`:""}<button class="btn sm" data-io="x">✕ Закрити</button></div>
+    <div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y pinch-zoom"><img src="${list[k]}" style="${big?"width:250%;max-width:none":"width:100%"};display:block"></div>`;
+    o.querySelector("img").onclick=()=>{ big=!big; draw() };
+    o.querySelectorAll("[data-io]").forEach(b=>b.onclick=()=>{ const v=b.dataset.io; if(v==="x"){ o.remove(); return } k=(k+ +v+list.length)%list.length; big=false; draw() }) };
+  draw(); document.body.appendChild(o) }
 async function photoView(all,i,s){ const p=all[i]; if(!p) return; let src=p.src;
   const ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;z-index:1100;background:#000;display:flex;flex-direction:column";
   const draw=()=>{ ov.innerHTML=`<div style="display:flex;gap:8px;align-items:center;padding:10px;color:#fff"><span style="flex:1;font-size:13px">${new Date(p.at).toLocaleString("uk-UA")}${p.from?" · "+esc(p.from):p.byName?" · "+esc(uaName(p.byName)):""}${p.note?" · "+esc(p.note):""}</span>${S.canWrite&&p.id?`<button class="btn ghost sm" data-pd>🗑</button>`:""}<button class="btn ghost sm" data-px>✕</button></div>
@@ -2415,7 +2422,7 @@ function workReport(workerId,opts){
   // ціни для робіт без ціни: спершу кошторис об'єкта, потім загальний прайс фірми
   const estFor=site=>{ const a=siteEstimate(site).map(e=>({...e,src:"кошторис"})); return [...a,...priceList().filter(p=>+p.price>0).map(p=>({name:p.name,unit:p.unit,price:+p.price,src:"прайс",cat:p.cat,alt:p.alt||""}))] };
   loadAliases();
-  let st={worker:workerId||"",site:opts?.site||"",date:todayISO(),pct:pctGet(),text:opts?.text||"",file:opts?.imgs?.length?{name:`фото від працівника (${opts.imgs.length})`}:null,fileParts:opts?.imgs?.length?opts.imgs.map(({mime,b64})=>({mime,b64})):[],rows:[],their:0,est:estFor(opts?.site||"")};
+  let st={worker:workerId||"",site:opts?.site||"",date:todayISO(),pct:pctGet(),text:opts?.text||"",file:opts?.imgs?.length?{name:`фото від працівника (${opts.imgs.length})`}:null,fileParts:opts?.imgs?.length?opts.imgs.map(({mime,b64})=>({mime,b64})):[],shots:(opts?.imgs||[]).map(x=>"data:"+(x.mime||"image/jpeg")+";base64,"+x.b64),rows:[],their:0,est:estFor(opts?.site||"")};
   if(!S.priceLoaded){ S.priceLoading=false; loadPrice(); const t0=Date.now(); const iv=setInterval(()=>{ if(S.priceLoaded||Date.now()-t0>8000){ clearInterval(iv); st.est=estFor(st.site); if(!st.rows.length&&$("#wrEst")) draw() } },300) }
   const workers=[...S.people.values()].filter(p=>p.role==="worker").sort((a,b)=>(b.crew?1:0)-(a.crew?1:0)||byName(a,b));
   const n2=v=>Math.round((+v||0)*100)/100;
@@ -2438,6 +2445,7 @@ function workReport(workerId,opts){
       <div class="row" style="margin-bottom:8px"><label class="btn ghost sm" style="flex:1;text-align:center">📎 Файл (Excel, PDF)<input type="file" id="wrF" accept="application/*,text/*" style="display:none"></label>
         <label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="wrC" accept="image/*" capture="environment" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
       ${st.file?`<div class="m" style="margin:-4px 0 8px">📎 ${esc(st.file.name)}</div>`:""}
+      ${st.shots?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 8px">${st.shots.map((x,i)=>`<img src="${x}" data-wsh="${i}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line,#2a2f38)">`).join("")}<span class="m" style="align-self:center;font-size:12px">← натисніть, щоб відкрити</span></div>`:""}
       <button class="btn" id="wrGo" style="width:100%">🔍 Розібрати й перевірити</button>
       <div id="wrRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -2453,10 +2461,12 @@ function workReport(workerId,opts){
         else if(/\.doc$/i.test(file.name)){ toast("Старий формат .doc — збережіть як .docx або PDF"); st.file=null; draw(); return }
         else if(file.type==="application/pdf"){ const b=new Uint8Array(await file.arrayBuffer()); let s="";for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192)); st.fileParts=[{mime:"application/pdf",b64:btoa(s)}] }
         else st.fileParts=[await shrinkImage(file,1800)];
+        st.shots=st.fileParts.filter(x=>/^image\//.test(x.mime||"")).map(x=>"data:"+x.mime+";base64,"+x.b64);
       }catch(e){ toast("Не вдалося прочитати файл"); st.file=null }
       draw() };
     $("#wrF").onchange=e=>pick(e.target.files[0]); $("#wrC").onchange=e=>pick(e.target.files[0]);
     $("#wrGo").onclick=go;
+    S._wshots=st.shots||[]; if(!window._wshL){ window._wshL=1; document.addEventListener("click",e=>{ const x=e.target.closest?.("[data-wsh]"); if(x&&S._wshots?.length){ e.preventDefault(); imgOverlay(S._wshots,+x.dataset.wsh) } }) }
     if(st.rows.length) drawRows();
   };
   const estList=()=>st.est.map((e,i)=>`${i}. ${e.src} | ${e.name}${e.alt?` (також: ${e.alt})`:""} | ${e.unit} | ${e.price}`).join("\n");
@@ -2484,7 +2494,7 @@ total — загальна сума, якщо виконавець її напи
     const on=st.rows.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+r.pay,0)), theirSum=n2(on.reduce((a,r)=>a+(r.sum||n2(r.qty*r.price)),0));
     const errs=on.filter(r=>r.err).length, need=on.filter(r=>r.need).length;
     const estOpt=r=>{ const e=r.est>=0?st.est[r.est]:null; return `<button type="button" class="btn ghost sm" data-pick="${st.rows.indexOf(r)}" style="width:100%;text-align:left;font-size:12.5px">🔍 ${e?`${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}`:"Вибрати роботу з кошторису/прайсу…"}</button>` };
-    $("#wrRes").innerHTML=`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
+    $("#wrRes").innerHTML=(st.shots?.length?`<button class="btn ghost" data-wsh="0" style="width:100%;margin:8px 0 4px;position:sticky;top:0;z-index:2">📷 Звірити з фото звіту${st.shots.length>1?` (${st.shots.length})`:""}</button>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span style="flex:0 0 auto">${esc(r.unit)} ×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
