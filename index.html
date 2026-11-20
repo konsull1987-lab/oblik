@@ -2398,7 +2398,11 @@ function bothBalances(){ if(!S.duoOk||!S.duoLoaded) return null;
   const t=balancesFor(S.B.trio.fin,S.B.trio.sites,all).b, d=balancesFor(S.B.duo.fin,S.B.duo.sites,duoO).b;
   return duoO.map(o=>({o,trio:t[o.id]||0,duo:d[o.id]||0,sum:(t[o.id]||0)+(d[o.id]||0)})); }
 const isHelperPay=f=>f.type==="out"&&(f.kind==="Підсоба"||!!person(f.worker)?.helper);
-function workerTotals(){const t={};for(const f of S.fin.values()){if(!f.worker)continue;const x=t[f.worker]||(t[f.worker]={acc:0,paid:0,n:0});if(f.type==="accrual")x.acc+=+f.amount||0;else if(f.type==="out"){x.paid+=+f.amount||0; if(isHelperPay(f)) x.acc+=+f.amount||0}x.n++}
+// 👷 розрахунки з людьми: Андрій і Сергій бачать обидві бази разом (на трьох + на двох), Дмитро — лише «на трьох»
+const wFins=()=>S.duoOk?[...S.B.trio.fin.values(),...S.B.duo.fin.values()]:[...S.fin.values()];
+const finBase=f=>S.duoOk&&S.B.duo.fin.has(f.id)&&!S.B.trio.fin.has(f.id)?"duo":"trio";
+const siteOfF=f=>S.B[finBase(f)].sites?.get(f.site);
+function workerTotals(){const t={};for(const f of wFins()){if(!f.worker)continue;const x=t[f.worker]||(t[f.worker]={acc:0,paid:0,n:0});if(f.type==="accrual")x.acc+=+f.amount||0;else if(f.type==="out"){x.paid+=+f.amount||0; if(isHelperPay(f)) x.acc+=+f.amount||0}x.n++}
   for(const [id,x] of Object.entries(t)) if(person(id)?.helper) x.acc=x.paid; // підсоба: завжди в нулі
   return t}
 function customerRows(){const st=siteTotals(), cp=custPaid(st);return [...S.sites.values()].filter(x=>(+x.contract||0)>0).map(x=>{const paid=cp[x.id]?.paid??(st[x.id]?.in||0);return{s:x,contract:+x.contract,paid,debt:+x.contract-paid}}).sort((a,b)=>b.debt-a.debt)}
@@ -2626,19 +2630,20 @@ total — загальна сума, якщо виконавець її напи
 }
 function workerSheet(id){
   const p=person(id); if(!p)return; const x=workerTotals()[id]||{acc:0,paid:0}; const d=x.acc-x.paid;
-  const list=[...S.fin.values()].filter(f=>f.worker===id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
+  const list=wFins().filter(f=>f.worker===id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0));
   openSheet(`<h2>🔧 ${esc(p.name)}</h2>
-    <div class="sum">Нараховано <b>${money(x.acc)}</b> · Виплачено <b>${money(x.paid)}</b></div>
+    <div class="sum">Нараховано <b>${money(x.acc)}</b> · Виплачено <b>${money(x.paid)}</b></div>${S.duoOk?`<div class="m" style="margin:-4px 0 6px;color:var(--muted)">👥 На трьох + 🤝 Общак на двох — разом</div>`:""}
     <div class="sum" style="font-size:16px">${!x.acc?`Виплачено: <b>${money(x.paid)}</b><div class="m" style="color:var(--muted);font-size:12.5px;font-weight:400">Борг не рахується, бо не внесено нарахувань. Щоб бачити, скільки винні, натисніть «+ Нарахувати» й внесіть домовлену суму.</div>`:d>0?`Винні йому: <b class="out">${money(d)}</b>`:d<0?`Аванс (переплата): <b class="acc">${money(-d)}</b>`:"Розраховані повністю"}</div>
     ${S.canWrite?`<div class="actions" style="margin-top:4px"><button class="btn ghost" id="wAcc">+ Нарахувати</button><button class="btn" id="wPay">+ Виплатити</button></div><button class="btn ghost" id="wCorr" style="width:100%;margin-top:6px">⚖️ Коригування (вивести в 0)</button><button class="btn ghost" id="wRep" style="width:100%;margin-top:6px">📋 Звіт робіт (перевірити й нарахувати)</button>`:""}
     <div class="section-t">Історія</div>
-    ${list.length?list.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)}${f.site?" · "+esc(site(f.site)?.name||""):""}</div><div>${f.type==="accrual"?"Нараховано":"Виплачено"+(person(f.owner)?" ("+esc(person(f.owner).name)+")":"")}${f.note?" · "+esc(f.note):""}</div></div><span class="amt ${f.type==="accrual"?"acc":"out"}">${money(f.amount)}</span></div>`).join(""):`<div class="m" style="color:var(--muted)">Записів немає</div>`}
+    ${list.length?list.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)}${S.duoOk?(finBase(f)==="duo"?" · 🤝 на двох":" · 👥 на трьох"):""}${f.site?" · "+esc(siteOfF(f)?.name||""):""}</div><div>${f.type==="accrual"?"Нараховано":"Виплачено"+(person(f.owner)?" ("+esc(person(f.owner).name)+")":"")}${f.note?" · "+esc(f.note):""}</div></div><span class="amt ${f.type==="accrual"?"acc":"out"}">${money(f.amount)}</span></div>`).join(""):`<div class="m" style="color:var(--muted)">Записів немає</div>`}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#wAcc")?.addEventListener("click",()=>finForm(null,{type:"accrual",worker:id}));
   $("#wCorr")?.addEventListener("click",()=>workerCorr(id));
   $("#wRep")?.addEventListener("click",()=>workReport(id));
   $("#wPay")?.addEventListener("click",()=>finForm(null,{type:"out",kind:"Зарплата",worker:id}));
-  document.querySelectorAll(".sheet [data-fin]").forEach(el=>el.addEventListener("click",()=>{ if(S.canWrite) finForm(S.fin.get(el.dataset.fin)) }));
+  document.querySelectorAll(".sheet [data-fin]").forEach(el=>el.addEventListener("click",()=>{ if(!S.canWrite) return; const id=el.dataset.fin, f=wFins().find(x=>x.id===id); if(!f) return;
+    const b=finBase(f); if((isDuo()?"duo":"trio")!==b){ setBase(b); toast(b==="duo"?"🤝 Запис з «Общаку на двох»":"👥 Запис «На трьох»") } finForm(S.fin.get(id)||f) }));
 }
 function finForm(f,preset){
   const isNew=!f; f=f||Object.assign({type:"out",date:todayISO(),owner:myOwner()||owners()[0]?.id,kind:"Матеріали"},preset||{});
@@ -2677,9 +2682,9 @@ function finForm(f,preset){
   $("#accNeg")?.addEventListener("change",e=>{ setTimeout(debtInfo); const p=$("#accPay"); if(p&&e.target.checked){ p.checked=false; $("#accPayOwn").style.display="none" } if(p) p.closest("label").style.display=e.target.checked?"none":""; if(e.target.checked&&!$("#finForm [name=note]").value) $("#finForm [name=note]").value="Аванс, виданий раніше" });
   setMode(mode); $("#accPay")?.addEventListener("change",e=>{ $("#accPayOwn").style.display=e.target.checked?"":"none"; debtInfo() });
   // 👷 борг перед людиною: щоб не нарахувати вдруге, коли хотіли просто заплатити
-  const wDebt=(wid,sid)=>{ let acc=0,paid=0,sa=0,sp=0; const by={}; for(const x of S.fin.values()){ if(x.worker!==wid||x.id===f.id) continue; const a=+x.amount||0, k=x.site||"";
+  const wDebt=(wid,sid)=>{ let acc=0,paid=0,sa=0,sp=0; const by={}; for(const x of wFins()){ if(x.worker!==wid||x.id===f.id) continue; const a=+x.amount||0, k=x.site||"";
       if(x.type==="accrual"){ acc+=a; by[k]=(by[k]||0)+a; if(sid&&x.site===sid) sa+=a } else if(x.type==="out"&&!isHelperPay(x)){ paid+=a; by[k]=(by[k]||0)-a; if(sid&&x.site===sid) sp+=a } }
-    const other=Object.entries(by).filter(([k,v])=>k!==sid&&Math.round(v)!==0).map(([k,v])=>`${k?"«"+esc(site(k)?.name||"?")+"»":"без об'єкта"} ${v>0?"":"переплата "}${money(Math.abs(v))}`);
+    const other=Object.entries(by).filter(([k,v])=>k!==sid&&Math.round(v)!==0).map(([k,v])=>`${k?"«"+esc(site(k)?.name||siteAny(k)?.name||S.B.trio.sites?.get(k)?.name||S.B.duo.sites?.get(k)?.name||"?")+"»":"без об'єкта"} ${v>0?"":"переплата "}${money(Math.abs(v))}`);
     return {debt:Math.round(acc-paid),sa,sp,other} };
   const debtInfo=()=>{ const box=$("#wDebt"); if(!box) return; const wid=$("#finForm [name=worker]")?.value, sid=$("#finForm [name=site]")?.value||"", p=person(wid);
     if(!wid||!p||p.helper||(mode!=="accrual"&&mode!=="out")){ box.innerHTML=""; return }
