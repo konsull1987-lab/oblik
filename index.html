@@ -1464,7 +1464,7 @@ const skillsOf=p=>{ const l=Array.isArray(p?.skills)&&p.skills.length?p.skills:s
 function skillsFromInbox(){ if(S.canWrite===false) return; for(const m of S.inbox||[]){ if(!Array.isArray(m.skills)||!m.skills.length) continue; const p=inboxPerson(m); if(!p) continue;
   const sk=m.skills.filter(k=>SKILL[k]); if(+p.skillsAt>=+m.at||S._skIb?.[m.id]) continue; (S._skIb=S._skIb||{})[m.id]=1;
   S.db?.collection("people").doc(p.id).update({skills:sk,skillsAt:+m.at||Date.now()}).catch(()=>{}) } }
-const INBOX_KIND={skills:"🛠 Вміння",join:"🆕 Анкета",need:"🧱 Що привезти",tools:"🧰 Інструмент на об'єкті",done:"📋 Що зроблено",other:"💬 Інше"};
+const INBOX_KIND={key:"💰 Запит розрахунку",skills:"🛠 Вміння",join:"🆕 Анкета",need:"🧱 Що привезти",tools:"🧰 Інструмент на об'єкті",done:"📋 Що зроблено",other:"💬 Інше"};
 const inboxNew=()=>(S.inbox||[]).filter(m=>m.status==="new");
 const imgFromData=d=>({mime:"image/jpeg",b64:String(d).split(",")[1]||"",thumb:d});
 function inboxSheet(){ const td=dISO(), oldDone=m=>m.status!=="new"&&dISO(new Date(+m.doneAt||+m.at||0))<td; // опрацьовані до сьогодні ховаємо (у базі лишаються)
@@ -4179,8 +4179,15 @@ function wpubData(p){ const tasks=[...(S.tasksT||[]),...(S.tasksD||[])].filter(t
     ops.push({d:f.date||"",t:f.type==="accrual"?"a":"p",a:Math.round(a),s:sn}) }
   ops.sort((x,y)=>String(y.d).localeCompare(String(x.d)));
   return {name:p.name,tasks,acc:Math.round(acc),paid:Math.round(paid),debt:Math.round(acc-paid),sites:Object.values(by).map(s=>({...s,acc:Math.round(s.acc),paid:Math.round(s.paid)})).filter(s=>s.acc||s.paid).sort((a,b)=>(b.acc-b.paid)-(a.acc-a.paid)).slice(0,20),ops:ops.slice(0,25)} }
+// 🔑 працівник написав з телефону (є uid) і його впізнано за посиланням чи телефоном → кладемо ключ кабінету в wlink/{uid}; читати може лише він сам
+async function wlinkSync(){ const done=(()=>{ try{ return JSON.parse(localStorage.getItem("wlinkDone")||"{}") }catch(_){ return {} } })(); let ch=0;
+  for(const m of S.inbox||[]){ if(!m.uid||done[m.uid]) continue; const p=m.pid&&person(m.pid)?person(m.pid):(()=>{ const d=digits(m.phone); return d?[...S.people.values()].find(x=>[x.phone,...(x.phones||[]).map(y=>y.tel)].some(t=>digits(t)===d)):null })();
+    if(!p||p.role==="owner"||p.crew) continue; const k=await wkeyOf(p); if(!k) continue;
+    try{ await S.db.doc("wlink/"+m.uid).set({k,pid:p.id,at:Date.now()}); done[m.uid]=1; ch=1; if(m.kind==="key"&&m.status==="new") S.db.doc("inbox/"+m.id).update({status:"done",doneAt:Date.now()}).catch(()=>{}) }catch(_){} }
+  if(ch) try{ localStorage.setItem("wlinkDone",JSON.stringify(done)) }catch(_){} }
 function wpubSync(){ clearTimeout(S._wpT); S._wpT=setTimeout(async()=>{
   if(!S.db||!S.duoOk||!S.duoLoaded||S.canWrite===false||S.offline) return;
+  try{ await wlinkSync() }catch(_){}
   let H={}; try{ H=JSON.parse(localStorage.getItem("wpubH")||"{}") }catch(_){}
   for(const p of S.people.values()){ if(!p.wkey||p.role==="owner"||p.helper) continue;
     const d=wpubData(p), h=JSON.stringify(d); if(H[p.wkey]===h) continue;

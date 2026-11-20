@@ -13,6 +13,7 @@ service cloud.firestore {
     // 📨 працівники (будь-який вхід через Google) можуть лише НАДІСЛАТИ повідомлення; читають і обробляють власники
     match /inbox/{id} { allow create: if request.auth != null; }
     // 👷 кабінет працівника: читає лише свій документ за секретним ключем (без перегляду списку); Дмитру закрито
+    match /wlink/{uid} { allow get: if request.auth != null && request.auth.uid == uid; }
     match /duo_wpub/{id} { allow get: if request.auth != null && (request.auth.token.firebase.sign_in_provider == 'anonymous' || !allowed() || duo()); }
     match /{col}/{doc=**} {
       allow read, write: if allowed() && (!col.matches('(demo_)?duo_.*') || duo());

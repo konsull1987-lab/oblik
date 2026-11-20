@@ -187,7 +187,17 @@ function cabDraw(x){ if(!x){ $("#cab").innerHTML=`<div class="card m">📋 Ва�
     try{ await addDoc(collection(fs,"inbox"),{site:"",siteName:t.site||"",kind:"done",text:"✅ Виконано: "+t.title.slice(0,300),photos:[],from:prof.name.slice(0,80),phone:String(prof.phone||"").slice(0,30),pid:String(prof.pid||"").slice(0,40),tid:String(t.id).slice(0,40),email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new"});
       sentT[t.id]=1; try{ localStorage.setItem("wDoneT",JSON.stringify(sentT)) }catch(_){} cabDraw(x) }
     catch(e){ b.disabled=false; b.textContent="✅ Виконав"; alert("Не вдалося ("+(e.code||e.message)+"). Перевірте інтернет.") } }) }
-function cabStart(){ if(!KEY||cabOff) return; cabDraw(null);
+// ключа немає (відкрили не особисте посилання або інший браузер) → чекаємо, поки власники видадуть його в wlink/{uid}
+let wlOff=null;
+function cabWait(){ if(KEY||wlOff||!user) return;
+  $("#cab").innerHTML=`<div class="card"><b>💰 Мій розрахунок і завдання</b><div class="m" style="margin:6px 0">Щоб бачити, скільки нараховано й виплачено, натисніть кнопку — власник підтвердить, і все з'явиться тут.</div><button class="btn ghost" id="keyReq" style="width:100%">💰 Хочу бачити свій розрахунок</button></div>`;
+  $("#keyReq").onclick=async()=>{ if(!(prof.name&&prof.phone)){ $("#pfBox").style.display="block"; alert("Спершу заповніть «Про вас» і натисніть «Зберегти»"); return }
+    const b=$("#keyReq"); b.disabled=true; b.textContent="Надсилаю…";
+    try{ await addDoc(collection(fs,"inbox"),{site:"",siteName:"",kind:"key",text:"💰 Прошу показати мій розрахунок і завдання",photos:[],from:prof.name.slice(0,80),phone:String(prof.phone||"").slice(0,30),pid:String(prof.pid||"").slice(0,40),email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new"});
+      b.textContent="✅ Надіслано — з'явиться, щойно власник відкриє застосунок" }
+    catch(e){ b.disabled=false; b.textContent="💰 Хочу бачити свій розрахунок"; alert("Не вдалося ("+(e.code||e.message)+")") } };
+  wlOff=onSnapshot(doc(fs,"wlink",user.uid),s=>{ const k=s.exists()&&s.data().k; if(k&&!KEY){ KEY=k; try{ localStorage.setItem("wKey",k) }catch(_){} if(s.data().pid&&!prof.pid){ prof.pid=s.data().pid; try{ localStorage.setItem("wProf",JSON.stringify(prof)) }catch(_){} } try{wlOff()}catch(_){} cabStart() } },()=>{}) }
+function cabStart(){ if(!KEY){ cabWait(); return } if(cabOff) return; cabDraw(null);
   cabOff=onSnapshot(doc(fs,"duo_wpub",KEY),s=>cabDraw(s.exists()?s.data():null),e=>{ $("#cab").innerHTML=`<div class="card m">📋 Кабінет недоступний (${E(e.code||"помилка")}). Попросіть у власника нове посилання.</div>` }) }
 onAuthStateChanged(auth,async u=>{ user=u;
   // без Google-акаунта: тихий анонімний вхід (працює й у Viber). Ім'я працівник вписує сам.
