@@ -2579,7 +2579,8 @@ function finForm(f,preset){
         <label class="btn ghost sm" style="flex:1;text-align:center">🖼️ Чек з галереї<input type="file" id="rcGal" accept="image/*" style="display:none"></label></div>
         <div id="rcInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div></div>
       <div class="row"><div class="field"><label>Дата</label><input type="date" name="date" value="${esc(f.date||todayISO())}"></div>
-        <div class="field"><label>Сума, ₴ * <span id="amtSum" style="color:var(--accent);font-weight:600"></span></label><input name="amount" inputmode="text" autocomplete="off" required value="${f.amount??""}" placeholder="напр. 15000+17356"></div></div>
+        <div class="field"><label>Сума, ₴ * <span id="amtSum" style="color:var(--accent);font-weight:600"></span></label><input name="amount" inputmode="text" autocomplete="off" required value="${f.amount!=null?Math.abs(f.amount):""}" placeholder="напр. 15000+17356"></div></div>
+      <div data-m="accrual"><label class="m" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:14px"><input type="checkbox" id="accNeg" ${f.type==="accrual"&&+f.amount<0?"checked":""} style="width:20px;height:20px;flex:none;margin-top:2px"><span>➖ <b>Аванс, виданий раніше</b> — запишеться мінусом людині (буде «аванс / переплата»). На гроші, об'єкти і розрахунки власників не впливає.</span></label></div>
  ${f.type==="accrual"&&Array.isArray(f.report?.items)&&f.report.items.length?`<div data-m="accrual"><div class="field"><label>📋 Позиції звіту — змініть обсяг чи ставку, сума перерахується</label><div id="repEd"></div></div></div>`:""}
       <div data-m="in"><div class="field" style="margin-top:-4px"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px"><input type="checkbox" id="taxOn" style="width:22px;height:22px">Відняти податок ЄП <input id="taxRate" inputmode="decimal" style="width:64px;padding:6px 8px" value="">%</label><div id="taxInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div>
         <div class="field" id="closeBox" style="display:none;margin-top:-4px"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px"><input type="checkbox" id="closeSite" style="width:22px;height:22px">Останній платіж — закрити об'єкт і поділити прибуток</label><div id="closeInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div></div>
@@ -2596,6 +2597,7 @@ function finForm(f,preset){
       <div class="actions">${!isNew?`<button type="button" class="btn danger" id="delF">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>
     </form>`);
   const setMode=m=>{mode=m;[...$("#segM").children].forEach(x=>x.classList.toggle("on",x.dataset.v===m));document.querySelectorAll("#finForm [data-m]").forEach(el=>el.style.display=el.dataset.m.split(" ").includes(m)?"":"none");$("#ownLbl").textContent=m==="in"?"Хто отримав":"Хто заплатив";$("#wLbl").textContent=m==="accrual"?"Кому нараховано *":"Виконавець"};
+  $("#accNeg")?.addEventListener("change",e=>{ const p=$("#accPay"); if(p&&e.target.checked){ p.checked=false; $("#accPayOwn").style.display="none" } if(p) p.closest("label").style.display=e.target.checked?"none":""; if(e.target.checked&&!$("#finForm [name=note]").value) $("#finForm [name=note]").value="Аванс, виданий раніше" });
   setMode(mode); $("#accPay")?.addEventListener("change",e=>{ $("#accPayOwn").style.display=e.target.checked?"":"none"; debtInfo() });
   // 👷 борг перед людиною: щоб не нарахувати вдруге, коли хотіли просто заплатити
   const wDebt=(wid,sid)=>{ let acc=0,paid=0,sa=0,sp=0; const by={}; for(const x of S.fin.values()){ if(x.worker!==wid||x.id===f.id) continue; const a=+x.amount||0, k=x.site||"";
@@ -2677,8 +2679,9 @@ function finForm(f,preset){
   $("#finForm [name=site]").addEventListener("change",updClose); $("#closeSite").onchange=updClose; $("#segM").addEventListener("click",()=>setTimeout(updClose)); updClose();
   $("#finForm").addEventListener("submit",async e=>{
     e.preventDefault(); const v=Object.fromEntries(new FormData(e.target));
-    const amount=sumExpr(v.amount);
+    const neg=mode==="accrual"&&$("#accNeg")?.checked; let amount=sumExpr(v.amount);
     if(!(amount>0)){toast("Вкажіть суму");return}
+    if(neg){ if(!v.worker){toast("Виберіть людину");return} amount=-amount; if($("#accPay")) $("#accPay").checked=false }
     const btn=e.target.querySelector("[type=submit]"); btn.disabled=true;
     let byName=f.byName||""; if(isNew){ try{byName=(await S.user?.me?.())?.name||""}catch(_){} }
     const now=Date.now(), base={date:v.date,amount,note:v.note.trim(),updatedAt:now,by:f.by||S.uid||"",byName};
@@ -2697,7 +2700,7 @@ function finForm(f,preset){
       if(!v.worker){toast("Виберіть виконавця");btn.disabled=false;return}
       const data={...base,type:"accrual",owner:"",site:v.site||"",kind:"",worker:v.worker,createdAt:f.createdAt||now};
       if(f.report) data.report={...f.report,items:repItems?repItems.filter(it=>it.name):f.report.items}; if(f.receipt) data.receipt=f.receipt;
-      if(isNew){ const d=wDebt(v.worker,v.site||""), pay=$("#accPay")?.checked; if(d.debt>0&&!confirm(pay?`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота на ${money(amount)}, яку ви одразу оплачуєте? Старий борг ${money(d.debt)} при цьому НЕ зменшиться.\n\n«Скасувати» — якщо ви віддаєте гроші за вже нараховане (натисніть «💵 Записати як виплату боргу»).`:`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота і борг має зрости до ${money(d.debt+amount)}?\n\n«Скасувати» — якщо ви хотіли просто заплатити (натисніть «💵 Записати як виплату боргу»).`)){ btn.disabled=false; return } }
+      if(isNew&&!neg){ const d=wDebt(v.worker,v.site||""), pay=$("#accPay")?.checked; if(d.debt>0&&!confirm(pay?`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота на ${money(amount)}, яку ви одразу оплачуєте? Старий борг ${money(d.debt)} при цьому НЕ зменшиться.\n\n«Скасувати» — якщо ви віддаєте гроші за вже нараховане (натисніть «💵 Записати як виплату боргу»).`:`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота і борг має зрости до ${money(d.debt+amount)}?\n\n«Скасувати» — якщо ви хотіли просто заплатити (натисніть «💵 Записати як виплату боргу»).`)){ btn.disabled=false; return } }
       const payNow=isNew&&$("#accPay")?.checked&&!person(v.worker)?.helper, payOwn=$("#accOwn")?.value||myOwner()||owners()[0]?.id;
       ok=await write(async db=>{
         if(isNew){ await db.collection("fin").add(data);
@@ -4247,8 +4250,9 @@ function wpubData(p){ const tasks=[...(S.tasksT||[]),...(S.tasksD||[])].filter(t
   const ops=[], by={}; let acc=0, paid=0;
   for(const [b,fin] of [["t",S.B.trio.fin],["d",S.B.duo.fin]]) for(const f of (fin||new Map()).values()){ if(f.worker!==p.id||isHelperPay(f)||!(f.type==="accrual"||f.type==="out")) continue;
     const a=+f.amount||0, sn=(b==="t"?S.B.trio.sites:S.B.duo.sites)?.get(f.site)?.name||"", k=sn||"—", s=by[k]||(by[k]={site:sn,acc:0,paid:0});
-    if(f.type==="accrual"){ acc+=a; s.acc+=a } else { paid+=a; s.paid+=a }
-    ops.push({d:f.date||"",t:f.type==="accrual"?"a":"p",a:Math.round(a),s:sn}) }
+    const isAcc=f.type==="accrual"&&a>=0, v=f.type==="accrual"&&a<0?-a:a; // мінусове нарахування = аванс, виданий раніше
+    if(isAcc){ acc+=v; s.acc+=v } else { paid+=v; s.paid+=v }
+    ops.push({d:f.date||"",t:isAcc?"a":"p",a:Math.round(v),s:sn}) }
   ops.sort((x,y)=>String(y.d).localeCompare(String(x.d)));
   return {name:p.name,tasks,acc:Math.round(acc),paid:Math.round(paid),debt:Math.round(acc-paid),sites:Object.values(by).map(s=>({...s,acc:Math.round(s.acc),paid:Math.round(s.paid)})).filter(s=>s.acc||s.paid).sort((a,b)=>(b.acc-b.paid)-(a.acc-a.paid)).slice(0,20),ops:ops.slice(0,25)} }
 // 🔑 працівник написав з телефону (є uid) і його впізнано за посиланням чи телефоном → кладемо ключ кабінету в wlink/{uid}; читати може лише він сам
