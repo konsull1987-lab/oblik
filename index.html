@@ -2103,6 +2103,7 @@ function siteForm(s,pre){
   if(!isNew&&isSite){ const nl=(s.needs||[]).filter(n=>haveOnSite(n,s.id)<(+n.qty||1)).length, ap=s.approved?.items?.length||0, apd=(()=>{ const d=new Set(s.approvedDone||[]), g=apProgress(s); (s.approved?.items||[]).forEach((r,i)=>{ if(g[i]&&g[i]>=(+r.qty||0)*0.999) d.add(i) }); return d.size })();
     for(const t of tabs){ if(t[0]==="tools"&&toolsHere.length) t[1]+=" "+toolsHere.length; if(t[0]==="needs"&&nl) t[1]+=" "+nl; if(t[0]==="works"&&ap) t[1]+=` ${apd}/${ap}` } }
   openSheet(`<h2>${isNew?(par?"Нова ділянка об'єкта":"Новий склад / об'єкт"):(isSite?"🏗️ ":"🏬 ")+esc(s.name)}</h2>
+    ${!isNew&&s.custPhone?`<div class="m" style="margin:-4px 0 8px">👤 ${esc(s.customer||"Замовник")} · <a href="${telHref(s.custPhone)}" style="color:var(--accent)">📞 ${esc(s.custPhone)}</a></div>`:""}
     ${par?`<div class="m" id="sPar" style="margin:-4px 0 8px;cursor:pointer">↳ частина об'єкта <b style="color:var(--accent)">📂 ${esc(par.name)}</b>${!s.customer&&par.customer?` · 👤 ${esc(par.customer)}`:""} →</div>`:""}
     ${tabs.length?`<div class="seg" id="segS" style="margin-bottom:10px;overflow-x:auto;flex-wrap:nowrap">${tabs.map(([k,l])=>`<button type="button" data-v="${k}" class="${tab===k?"on":""}" style="white-space:nowrap">${l}</button>`).join("")}</div>`:""}
     ${!isNew&&isSite?T("money",(()=>{const t=isTestSite(s)?finHere.reduce((a,f)=>{ if(f.type==="in") a.in+=+f.amount||0; else if(f.type==="out") a.out+=+f.amount||0; return a },{in:0,out:0}):siteTotals()[s.id];return `${isTestSite(s)?`<div class="banner" style="margin-bottom:8px">🧪 Тестовий об'єкт — платежі, нарахування й борги звідси <b>не входять</b> у баланси, аналітику, «Сьогодні» і борги людей.</div>`:""}<div class="sum">Прихід <b class="in">${money(t?.in)}</b> Витрати <b class="out">${money(t?.out)}</b> Прибуток <b>${money((t?.in||0)-(t?.out||0))}</b></div>${s.contract?`<div class="sum">Договір ${money(s.contract)} · замовник винен <b class="in">${money(s.contract-(t?.in||0))}</b></div>`:""}
@@ -2128,7 +2129,8 @@ function siteForm(s,pre){
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
       <div class="field"><label>Назва *</label><input name="name" required value="${esc(s.name)}" placeholder="напр. Склад на Зіньківській / ЖК Сонячний"></div>
       <div class="field"><label>Адреса, примітка</label><input name="note" value="${esc(s.note)}"></div>
-      ${s.type!=="warehouse"?`<div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я, телефон"></div>
+      ${s.type!=="warehouse"?`<div class="field"><label>📞 Телефон замовника</label><div style="display:flex;gap:6px"><input name="custPhone" type="tel" value="${esc(s.custPhone||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost" id="sPickC" style="white-space:nowrap">📇 З контактів</button>`:""}${s.custPhone?`<a class="btn ghost" href="${telHref(s.custPhone)}" style="text-decoration:none">📞</a>`:""}</div></div>
+        <div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я / назва"></div>
         <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${ctrBase(s)||""}" placeholder="0">${+s.adj?`<div class="m" style="font-size:12px">⚖️ коригування ${+s.adj>0?"+":""}${money(+s.adj)} → разом ${money(s.contract)}</div>`:""}</div></div>
         ${myKids.length?`<div class="field"><label>📂 Ділянки цього об'єкта</label><div class="m">${myKids.map(k=>esc(k.name)).join(", ")}</div></div>`:`<div class="field"><label>📂 Входить у великий об'єкт (ділянка)</label><select name="parent"><option value="">— ні, самостійний</option>${[...S.sites.values()].filter(x=>x.type!=="warehouse"&&!x.parent&&x.id!==s.id&&(x.active!==false||x.id===s.parent)).sort(byName).map(x=>`<option value="${x.id}" ${s.parent===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select><div class="m" style="font-size:12px;margin-top:3px">Гроші ділянки рахуються окремо і разом з головним об'єктом. Замовника можна не вписувати — візьметься з головного.</div></div>`}
         ${!isNew&&!s.parent&&S.canWrite?`<div class="actions" style="margin:0 0 8px"><button type="button" class="btn ghost" id="sKid" style="flex:1">＋ Нова ділянка</button><button type="button" class="btn ghost" id="sAttach" style="flex:1">📂 Приєднати наявні</button></div>`:""}`:""}
@@ -2165,13 +2167,18 @@ function siteForm(s,pre){
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
   $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
   $("#siteForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),custPhone:(f.custPhone||"").trim(),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено"); if(!isNew&&s.active!==false&&data.active===false) setTimeout(()=>toolsLeftPrompt(s.id),400)}
   });
   $("#mrgS")?.addEventListener("click",()=>mergeSite(s));
   $("#sPar")?.addEventListener("click",()=>{ S.siteTab="money"; siteForm(par) });
   $("#sCorr")?.addEventListener("click",()=>custCorr(s));
+  // 📇 телефон замовника з телефонної книги (Chrome на Android); ім'я підставляємо, якщо поле порожнє
+  $("#sPickC")?.addEventListener("click",async()=>{ try{ const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
+    const tel=(c.tel||[]).map(x=>String(x||"").trim()).filter(Boolean); if(!tel.length){ toast("У контакту немає номера"); return }
+    const F=n=>$("#siteForm [name="+n+"]"); F("custPhone").value=tel[0]; const nm=(c.name||[])[0]; if(nm&&!F("customer").value.trim()) F("customer").value=nm.trim();
+    toast(tel.length>1?`Взято перший номер із ${tel.length}`:"Номер додано") }catch(e){ toast("Не вдалося відкрити контакти") } });
   $("#sKid")?.addEventListener("click",()=>siteForm(null,{parent:s.id,customer:""}));
   $("#sAttach")?.addEventListener("click",()=>siteAttach(s));
   $("#modal").querySelectorAll("[data-kid]").forEach(c=>c.onclick=()=>{ S.siteTab="money"; siteForm(S.sites.get(c.dataset.kid)) });
