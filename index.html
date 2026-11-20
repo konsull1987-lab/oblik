@@ -1750,7 +1750,7 @@ function photoFlow(opts){
       ${mode==="add"?`<div class="row"><div class="field"><label>У кого</label><select id="pfHolder">${personOptions(meId()||owners()[0]?.id||"","— не вказано")}</select></div><div class="field"><label>Де</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`
         :`${rows.some(r=>r.on&&r.buy)?`<div class="field"><label>🛒 Куплене спершу оприбуткувати на склад</label><select id="pfBuyWh">${[...S.sites.values()].filter(x=>x.type==="warehouse").map(w=>`<option value="${w.id}" ${pfBuyWh()===w.id?"selected":""}>🏬 ${esc(w.name)}</option>`).join("")||`<option value="">— складів немає</option>`}</select></div>`:""}
           <div class="row"><div class="field"><label>Кому</label><select id="pfHolder">${personOptions(S.pfHolder||"","— не вказано")}</select></div><div class="field"><label>Куди *</label><select id="pfSite">${siteOptions(toSite,"— не вказано")}</select></div></div>
-          ${rows.some(r=>r.on&&!r.buy&&r.match==="__task")?`<div class="field"><label>📝 Хто везе (для справи) *</label><select id="pfWho"><option value="">— виберіть</option>${[...owners(),...[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false&&!p.crew).sort(byName)].map(p=>`<option value="${p.id}" ${(S.pfWho||meId())===p.id?"selected":""}>${p.id===meId()?"✋ Я — ":""}${esc(p.name)}</option>`).join("")}</select></div>`:""}`}
+          ${rows.some(r=>r.on&&!r.buy&&r.match==="__task")?`<div class="field"><label>📝 Хто везе (для справи)</label><select id="pfWho"><option value="">— не призначено (хтось візьме)</option>${[...owners(),...[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false&&!p.crew).sort(byName)].map(p=>`<option value="${p.id}" ${S.pfWho===p.id?"selected":""}>${p.id===meId()?"✋ Я — ":""}${esc(p.name)}</option>`).join("")}</select></div>`:""}`}
       <button class="btn" id="pfSave" style="width:100%">${mode==="add"?"💾 Додати в облік":"🔄 Перемістити"}</button>`;
     $("#pfRes").oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;const r=rows[i];
       if(k==="on"){r.on=e.target.checked;drawRows();return} if(k==="buy"){r.buy=e.target.checked;drawRows();return} if(k==="qty") r.qty=Math.max(1,parseInt(e.target.value)||1); else r[k]=e.target.value;};
@@ -1764,7 +1764,7 @@ function photoFlow(opts){
     const holder=$("#pfHolder").value, siteId=$("#pfSite").value, sel0=rows.filter(r=>r.on&&r.name.trim());
     const toTask=mode==="move"?sel0.filter(r=>!r.buy&&r.match==="__task"):[], sel=sel0.filter(r=>!toTask.includes(r));
     if(toTask.length&&!siteId){toast("Виберіть «Куди» — на який об'єкт привезти");return}
-    const tWho=$("#pfWho")?.value||""; if(toTask.length&&!tWho){toast("Виберіть, хто везе");$("#pfWho")?.focus();return} S.pfWho=tWho;
+    const tWho=$("#pfWho")?.value||""; S.pfWho=tWho;
     if(toTask.length&&!sel.length){ const d={title:"Привезти: "+toTask.map(r=>r.name.trim()).join(", ").slice(0,200),tools:toTask.map(r=>r.name.trim()+" "+r.qty).join("\n"),date:dISO(),from:"",to:"",who:tWho,site:siteId,done:false,by:S.uid||"",byName:S.meName||"",createdAt:Date.now(),updatedAt:Date.now()};
       let nid=""; if(await write(async db=>{ const r=await db.collection("tasks").add(d); nid=r?.id })){ try{localStorage.removeItem("pfDraft")}catch(_){}; closeSheet(); if(nid) taskNeedsSync(nid,d,""); toast(`📝 У справи на сьогодні: ${toTask.length} поз. — привезти на «${site(siteId)?.name||""}»`) } return }
     if(mode==="move"&&!holder&&!siteId){toast("Виберіть, куди або кому перемістити");return}
@@ -4207,7 +4207,6 @@ ${isDuo()?"":`    <div class="field"><label>🧰 Привезти інструм
     const m=$("#tkM").value, f=$("#tkF").value, to=$("#tkTo").value;
     if(m==="range"&&f&&to&&f>=to){ toast("Час «з» має бути раніше за «до»"); return }
     const tools=($("#tkTl")?.value||"").trim(), mats=($("#tkMt")?.value||"").trim(); if((tools||mats)&&!$("#tkS").value){ toast("Виберіть об'єкт, куди везти"); $("#tkS").focus(); return }
-    if((tools||mats)&&!$("#tkW").value){ toast("Виберіть, хто везе"); $("#tkW").focus(); return }
     const d={title, tools, mats, date:$("#tkD").value||td, from:m==="range"||m==="from"?f:"", to:m==="range"||m==="till"?to:"", who:$("#tkW").value, site:$("#tkS").value, updatedAt:Date.now()};
     let nid=t.id; const ok=await write(async db=>{ if(isNew){ const r=await db.collection(R("tasks")).add({...d,done:false,by:S.uid||"",byName:S.meName||"",createdAt:Date.now()}); nid=r?.id } else await db.collection(R("tasks")).doc(t.id).update(d) });
     if(ok&&nid&&t._needIdx){ const st=S.sites.get(d.site); if(st){ const l=(st.needs||[]).map(({_here,...n},i)=>t._needIdx.includes(i)?{...n,tid:nid,...(d.who?{who:d.who}:{})}:n); await write(db=>db.doc("sites/"+st.id).update({needs:l})); st.needs=l } }
