@@ -1469,7 +1469,7 @@ const INBOX_KIND={key:"💰 Запит розрахунку",skills:"🛠 Вмі
 const inboxNew=()=>(S.inbox||[]).filter(m=>m.status==="new");
 const imgFromData=d=>({mime:"image/jpeg",b64:String(d).split(",")[1]||"",thumb:d});
 function inboxSheet(){ const td=dISO(), oldDone=m=>m.status!=="new"&&dISO(new Date(+m.doneAt||+m.at||0))<td; // опрацьовані до сьогодні ховаємо (у базі лишаються)
-  const all=S.inbox||[], hid=all.filter(oldDone).length, l=S.ibAll?all:all.filter(m=>!oldDone(m));
+  const seen=new Set((S.inbox||[]).map(m=>m.id)), all=[...(S.inbox||[]),...(S.ibAll?(S.ibArch||[]).filter(m=>!seen.has(m.id)):[])], hid=all.filter(oldDone).length, l=S.ibAll?all:all.filter(m=>!oldDone(m));
   openSheet(`<h2>📨 Від працівників</h2>
     <div class="actions" style="margin:0 0 8px"><button class="btn ghost sm" id="ibLinks">🔗 Запросити (бригаду, майстра, нову людину)</button></div>
     ${l.length?`<div class="list">${l.map(m=>`<div class="card" data-ib="${m.id}" style="${m.status==="new"?"":"opacity:.55"}"><div class="main"><div class="t">${m.status==="new"?"🔵 ":"✓ "}${esc(inboxPerson(m)?.name||m.from||"?")} · ${esc(INBOX_KIND[m.kind]||"")}</div>
@@ -1478,7 +1478,9 @@ function inboxSheet(){ const td=dISO(), oldDone=m=>m.status!=="new"&&dISO(new Da
     ${hid?`<div class="m" id="ibOld" style="text-align:center;padding:8px;cursor:pointer;color:var(--muted)">${S.ibAll?"▲ Сховати старі опрацьовані":`🗂 Старі опрацьовані: ${hid} — показати`}</div>`:""}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#modal").querySelectorAll("[data-ib]").forEach(c=>c.onclick=()=>inboxMsg(c.dataset.ib));
-  $("#ibOld")?.addEventListener("click",()=>{ S.ibAll=!S.ibAll; inboxSheet() });
+  $("#ibOld")?.addEventListener("click",async()=>{ S.ibAll=!S.ibAll;
+    if(S.ibAll&&!S.ibArch&&S.db){ $("#ibOld").textContent="⏳ Завантажую архів…"; try{ const q=await S.db.collection("inbox").orderBy("at","desc").limit(1000).get(); S.ibArch=q.docs.map(d=>({id:d.id,...d.data()})) }catch(_){ S.ibArch=[] } } // архів — лише на вимогу, щоб не тягнути старі фото щоразу
+    inboxSheet() });
   $("#ibLinks").onclick=inboxLinks }
 function inboxLinks(){ const base=location.href.replace(/[#?].*$/,"").replace(/[^/]*$/,"")+"w.html";
   const ss=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort(byName), ws=[...S.people.values()].filter(p=>p.role!=="owner"&&p.active!==false).sort(byName);
