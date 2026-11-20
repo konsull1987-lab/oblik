@@ -3358,7 +3358,7 @@ function smetaFlow(siteId){
       <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Просто отримати й переслати:</div>
       <div class="actions" style="margin-top:4px"><button class="btn" id="smShare">📤 Надіслати</button><button class="btn ghost" id="smXls">⬇️ Excel</button><button class="btn ghost" id="smPrint">🖨️ PDF</button></div>
       ${S.canWrite&&[...st.rows,...(st.withMat?st.mrows:[])].some(r=>r.toPrice)?`<button class="btn ghost" id="smPin" style="width:100%;margin-top:6px">📌 Зберегти позначені ціни в прайс (${[...st.rows,...(st.withMat?st.mrows:[])].filter(r=>r.toPrice).length})</button>`:""}
-      ${S.canWrite?`<button class="btn" id="smSave" style="width:100%;margin-top:6px">💾 Зберегти в об'єкті + PDF</button>`:""}
+      ${S.canWrite?`<button class="btn" id="smSave" style="width:100%;margin-top:6px">💾 Зберегти в об'єкті + PDF</button><button type="button" class="btn ghost" id="smAp" style="width:100%;margin-top:6px">✅ Погоджено замовником</button>`:""}
       ${S.canWrite?`<button class="btn ghost" id="smMark" style="width:100%;margin-top:6px">✅ Позначити як виставлене (по ${fmtDay(st.to)})</button>`:""}`
       :`<div class="empty">За цей період немає робіт зі «Звіту робіт» по цьому об'єкту. Смета збирається з нарахувань, зроблених через «📋 Звіт робіт».</div>`}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -3385,6 +3385,12 @@ function smetaFlow(siteId){
       const ok=await write(async db=>{ if(st.savedId) await db.doc(R("offers")+"/"+st.savedId).set(data); else { const r=await db.collection(R("offers")).add(data); st.savedId=r.id; st.savedAt=data.createdAt } });
       if(ok){ toast("Смету збережено в об'єкті («📁 Документи»)"); printDoc(smetaHTML(s,st),"Смета "+st.no); { const l=pinRows(); if(l.length) pinSave(l,"зі смети № "+st.no).then(()=>l.forEach(x=>x.ref.toPrice=false)) }
         addWorksToPrice(rows,"зі смети № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}`),1500) }) } });
+    $("#smAp")?.addEventListener("click",async()=>{ const clean=l=>(l||[]).filter(r=>r.on&&r.name).map(r=>({name:r.name,unit:r.unit,qty:r.qty,price:r.price,cost:r.cost||0}));
+      const rows=clean(st.rows), mrows=st.withMat?clean(st.mrows):[], total=Math.round([...rows,...mrows].reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
+      if(!rows.length&&!mrows.length){ toast("Немає позицій"); return }
+      const data={kind:"smeta",site:siteId,no:st.no,date:todayISO(),from:st.from,to:st.to,withMat:!!st.withMat,rows,mrows,total,client:s.customer||"",object:s.name||"",createdAt:st.savedAt||Date.now(),updatedAt:Date.now()};
+      const ok=await write(async db=>{ if(st.savedId) await db.doc(R("offers")+"/"+st.savedId).set(data); else { const r=await db.collection(R("offers")).add(data); st.savedId=r.id; st.savedAt=data.createdAt } });
+      if(ok&&st.savedId) approveOffer({id:st.savedId,...data}) });
     $("#smXls")?.addEventListener("click",async()=>{ try{ const X=await loadXLSX(); const rows=[...st.rows,...(st.withMat?st.mrows:[])].filter(r=>r.on);
       const aoa=[["Смета виконаних робіт № "+st.no],["Об'єкт: "+(s.name||"")+(s.customer?" · Замовник: "+s.customer:"")],["Період: "+fmtDay(st.from)+" – "+fmtDay(st.to)],[],["№","Найменування робіт","Од.","К-сть","Ціна, грн","Сума, грн"],
         ...rows.map((r,i)=>[i+1,r.name,r.unit,r.qty,r.price,n2(r.qty*r.price)]),[],["","Всього","","","",n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0))]];
