@@ -1927,13 +1927,34 @@ async function sitePhotos(s){ const box=$("#phBox"); if(!box) return;
   (async()=>{ for(const img of [...box.querySelectorAll("[data-lazy]")].slice(0,40)){ try{ const r=await fileBlob(img.dataset.lazy); if(r&&/^image\//.test(r.blob.type||r.meta?.type||"image/")){ const u=URL.createObjectURL(r.blob); img.src=u; const p=all[+img.dataset.phv]; if(p) p.src=u } }catch(_){} } })() }
 // 🔍 перегляд фото поверх відкритого вікна (нічого не закриває): дотик — збільшити/зменшити, ✕ — закрити
 // 📌 фото закріплене зверху, а список робіт гортається знизу — звіряти без стрибків угору
-function imgDock(list,i=0){ if(!list?.length) return; let k=i, big=false; let o=$("#imgDock"); if(!o){ o=document.createElement("div"); o.id="imgDock"; document.body.appendChild(o) } document.body.classList.add("dock");
+function imgDock(list,i=0,anchor="#wrGo",title="📷"){ if(!list?.length) return; let k=i, big=false; let o=$("#imgDock"); if(!o){ o=document.createElement("div"); o.id="imgDock"; document.body.appendChild(o) } document.body.classList.add("dock");
   const off=()=>{ o.remove(); document.body.classList.remove("dock"); clearInterval(S._dockT) };
-  const draw=()=>{ o.innerHTML=`<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;color:#fff;font-size:13px"><span style="flex:1">📷 ${list.length>1?`${k+1}/${list.length} · `:""}дотик — ${big?"зменшити":"збільшити"}</span>${list.length>1?`<button class="btn ghost sm" data-id="-1">◀</button><button class="btn ghost sm" data-id="1">▶</button>`:""}<button class="btn sm" data-id="x">✕</button></div>
-    <div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch"><img src="${list[k]}" style="${big?"width:230%;max-width:none":"width:100%"};display:block"></div>`;
-    o.querySelector("img").onclick=()=>{ big=!big; draw() };
+  const draw=()=>{ o.innerHTML=`<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;color:#fff;font-size:13px"><span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(title)} ${list.length>1?`${k+1}/${list.length} · `:""}${typeof list[k]==="object"?"гортайте":"дотик — "+(big?"зменшити":"збільшити")}</span>${list.length>1?`<button class="btn ghost sm" data-id="-1">◀</button><button class="btn ghost sm" data-id="1">▶</button>`:""}<button class="btn sm" data-id="x">✕</button></div>
+    <div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;${typeof list[k]==="object"?"background:#fff;color:#111":""}">${typeof list[k]==="object"?list[k].html:`<img src="${list[k]}" style="${big?"width:230%;max-width:none":"width:100%"};display:block">`}</div>`;
+    const im=o.querySelector("img"); if(im) im.onclick=()=>{ big=!big; draw() };
     o.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{ const v=b.dataset.id; if(v==="x"){ off(); return } k=(k+ +v+list.length)%list.length; big=false; draw() }) };
-  draw(); clearInterval(S._dockT); S._dockT=setInterval(()=>{ if(!$("#wrGo")) off() },700) }
+  draw(); clearInterval(S._dockT); S._dockT=setInterval(()=>{ if(!$(anchor)) off() },700) }
+// 📄 документ об'єкта поруч зі звітом: погоджений кошторис, КП/смети, прикріплені файли (фото або PDF)
+const docTable=(title,rows)=>`<div style="padding:8px;font-size:13px"><b>${esc(title)}</b><table style="width:100%;border-collapse:collapse;margin-top:6px">${rows.map((r,i)=>`<tr style="border-top:1px solid #ddd"><td style="padding:4px 2px;color:#888">${i+1}</td><td style="padding:4px 2px">${esc(r.name||"")}</td><td style="padding:4px 2px;white-space:nowrap;text-align:right"><b>${+r.qty||0}</b> ${esc(r.unit||"")}</td><td style="padding:4px 2px;white-space:nowrap;text-align:right;color:#555">${r.price!=null?money(+r.price):""}</td></tr>`).join("")}</table></div>`;
+async function pdfPages(blob){ if(!window.pdfjsLib){ await new Promise((ok,bad)=>{ const x=document.createElement("script"); x.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"; x.onload=ok; x.onerror=bad; document.head.appendChild(x) }); pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js" }
+  const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise, out=[];
+  for(let i=1;i<=Math.min(pdf.numPages,15);i++){ const pg=await pdf.getPage(i), v=pg.getViewport({scale:1.6}), c=document.createElement("canvas"); c.width=v.width; c.height=v.height; await pg.render({canvasContext:c.getContext("2d"),viewport:v}).promise; out.push(c.toDataURL("image/jpeg",.85)) }
+  return out }
+async function docDock(siteId,anchor){ const st=site(siteId); if(!st){ toast("Спершу виберіть об'єкт"); return }
+  let off=[]; try{ const q=await S.db.collection(R("offers")).where("site","==",siteId).get(); off=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)) }catch(_){}
+  const items=[]; if(st.approved?.items?.length) items.push({k:"ap",t:`✅ Погоджений кошторис${st.approved.no?" № "+st.approved.no:""}`});
+  off.forEach(o=>items.push({k:o.id,t:(o.kind==="smeta"?"📋 Смета":o.kind==="file"?"📎 "+(o.sub||"Документ"):"💼 КП")+(o.no?" № "+o.no:"")+(o.fileName?" · "+o.fileName:"")}));
+  if(!items.length){ toast("У об'єкта немає документів (📁 Документи)"); return }
+  const pk=document.createElement("div"); pk.style.cssText="position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px";
+  pk.innerHTML=`<div style="background:var(--card);border-radius:14px;padding:14px;width:100%;max-width:440px;max-height:80vh;overflow:auto"><b>📄 Що відкрити поруч?</b><div class="list" style="margin-top:8px">${items.map(x=>`<div class="card" data-dk="${x.k}" style="cursor:pointer"><div class="t">${esc(x.t)}</div></div>`).join("")}</div><button class="btn ghost" data-dk="" style="width:100%;margin-top:8px">Скасувати</button></div>`;
+  document.body.appendChild(pk);
+  pk.onclick=async e=>{ const c=e.target.closest("[data-dk]"); if(!c&&e.target!==pk) return; pk.remove(); const k=c?.dataset.dk; if(!k) return; const it=items.find(x=>x.k===k);
+    if(k==="ap"){ imgDock([{html:docTable(it.t,st.approved.items)}],0,anchor,it.t); return }
+    const o=off.find(x=>x.id===k);
+    if(o.kind!=="file"){ const rows=[...(o.rows||[]).filter(r=>r.on!==false),...(o.mrows||[]).filter(r=>r.on!==false)]; imgDock([{html:docTable(it.t,rows)}],0,anchor,it.t); return }
+    toast("Відкриваю документ…"); try{ const r=await fileBlob(o.fileId); if(!r){ toast("Файл не знайдено"); return }
+      let pages; if(/pdf/.test(r.blob.type||o.fileType||"")) pages=await pdfPages(r.blob); else pages=[URL.createObjectURL(r.blob)];
+      if(o.rows?.length) pages.push({html:docTable("Позиції (розпізнані)",o.rows)}); imgDock(pages,0,anchor,it.t) }catch(err){ toast("Не вдалося відкрити: "+(err.message||err)) } } }
 function imgOverlay(list,i=0){ if(!list?.length) return; let k=i, big=false; const o=document.createElement("div"); o.style.cssText="position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column";
   const draw=()=>{ o.innerHTML=`<div style="display:flex;align-items:center;gap:8px;padding:10px;color:#fff"><b style="flex:1">📷 ${k+1}/${list.length} · дотик — збільшити</b>${list.length>1?`<button class="btn ghost sm" data-io="-1">◀</button><button class="btn ghost sm" data-io="1">▶</button>`:""}<button class="btn sm" data-io="x">✕ Закрити</button></div>
     <div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y pinch-zoom"><img src="${list[k]}" style="${big?"width:250%;max-width:none":"width:100%"};display:block"></div>`;
@@ -2505,6 +2526,7 @@ function workReport(workerId,opts){
         <label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="wrC" accept="image/*" capture="environment" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
       ${st.file?`<div class="m" style="margin:-4px 0 8px">📎 ${esc(st.file.name)}</div>`:""}
       ${st.shots?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 8px">${st.shots.map((x,i)=>`<img src="${x}" data-wsh="${i}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line,#2a2f38)">`).join("")}<button type="button" class="btn ghost sm" data-wdock="1" style="align-self:center">📌 Поруч зі списком</button></div>`:""}
+      <button type="button" class="btn ghost sm" data-wdoc="1" style="width:100%;margin-bottom:8px">📄 Договір / КП / смета об'єкта поруч</button>
       <button class="btn" id="wrGo" style="width:100%">🔍 Розібрати й перевірити</button>
       <div id="wrRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -2525,7 +2547,7 @@ function workReport(workerId,opts){
       draw() };
     $("#wrF").onchange=e=>pick(e.target.files[0]); $("#wrC").onchange=e=>pick(e.target.files[0]);
     $("#wrGo").onclick=go;
-    S._wshots=st.shots||[]; if(!window._wshL){ window._wshL=1; document.addEventListener("click",e=>{ const x=e.target.closest?.("[data-wsh]"); if(x&&S._wshots?.length){ e.preventDefault(); imgOverlay(S._wshots,+x.dataset.wsh) } const d=e.target.closest?.("[data-wdock]"); if(d&&S._wshots?.length){ e.preventDefault(); imgDock(S._wshots,0) } }) }
+    S._wshots=st.shots||[]; S._wst=st; if(!window._wshL){ window._wshL=1; document.addEventListener("click",e=>{ const x=e.target.closest?.("[data-wsh]"); if(x&&S._wshots?.length){ e.preventDefault(); imgOverlay(S._wshots,+x.dataset.wsh) } const d=e.target.closest?.("[data-wdock]"); if(d&&S._wshots?.length){ e.preventDefault(); imgDock(S._wshots,0) } const dd=e.target.closest?.("[data-wdoc]"); if(dd){ e.preventDefault(); docDock(S._wst?.site,"#wrGo") } }) }
     if(st.rows.length) drawRows();
   };
   const estList=()=>st.est.map((e,i)=>`${i}. ${e.src} | ${e.name}${e.alt?` (також: ${e.alt})`:""} | ${e.unit} | ${e.price}`).join("\n");
@@ -2553,7 +2575,7 @@ total — загальна сума, якщо виконавець її напи
     const on=st.rows.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+r.pay,0)), theirSum=n2(on.reduce((a,r)=>a+(r.sum||n2(r.qty*r.price)),0));
     const errs=on.filter(r=>r.err).length, need=on.filter(r=>r.need).length;
     const estOpt=r=>{ const e=r.est>=0?st.est[r.est]:null; return `<button type="button" class="btn ghost sm" data-pick="${st.rows.indexOf(r)}" style="width:100%;text-align:left;font-size:12.5px">🔍 ${e?`${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}`:"Вибрати роботу з кошторису/прайсу…"}</button>` };
-    $("#wrRes").innerHTML=(st.shots?.length?`<div style="display:flex;gap:6px;margin:8px 0 4px;position:sticky;top:0;z-index:2;background:var(--card)"><button class="btn" data-wdock="1" style="flex:1">📌 Фото поруч зі списком</button><button class="btn ghost" data-wsh="0" style="flex:0 0 auto">🔍 На весь екран</button></div>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
+    $("#wrRes").innerHTML=(!st.shots?.length?`<button class="btn ghost" data-wdoc="1" style="width:100%;margin:8px 0 4px;position:sticky;top:0;z-index:2">📄 Відкрити договір / КП / смету поруч</button>`:"")+(st.shots?.length?`<div style="display:flex;gap:6px;margin:8px 0 4px;position:sticky;top:0;z-index:2;background:var(--card)"><button class="btn" data-wdock="1" style="flex:1">📌 Фото поруч</button><button class="btn ghost" data-wdoc="1" style="flex:1">📄 Документ поруч</button><button class="btn ghost" data-wsh="0" style="flex:0 0 auto">🔍 На весь екран</button></div>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span style="flex:0 0 auto">${esc(r.unit)} ×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
@@ -2631,7 +2653,7 @@ function finForm(f,preset){
       <div class="row"><div class="field"><label>Дата</label><input type="date" name="date" value="${esc(f.date||todayISO())}"></div>
         <div class="field"><label>Сума, ₴ * <span id="amtSum" style="color:var(--accent);font-weight:600"></span></label><input name="amount" inputmode="text" autocomplete="off" required value="${f.amount!=null?Math.abs(f.amount):""}" placeholder="напр. 15000+17356"></div></div>
       <div data-m="accrual"><label class="m" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:14px"><input type="checkbox" id="accNeg" ${f.type==="accrual"&&+f.amount<0?"checked":""} style="width:20px;height:20px;flex:none;margin-top:2px"><span>➖ <b>Аванс, виданий раніше</b> — запишеться мінусом людині (буде «аванс / переплата»). На гроші, об'єкти і розрахунки власників не впливає.</span></label></div>
- ${f.type==="accrual"&&Array.isArray(f.report?.items)&&f.report.items.length?`<div data-m="accrual"><div class="field"><label>📋 Позиції звіту — змініть обсяг чи ставку, сума перерахується</label><div id="repEd"></div></div></div>`:""}
+ ${f.type==="accrual"&&Array.isArray(f.report?.items)&&f.report.items.length?`<div data-m="accrual"><div class="field"><label>📋 Позиції звіту — змініть обсяг чи ставку, сума перерахується</label>${f.site?`<button type="button" class="btn ghost sm" id="repDoc" style="width:100%;margin-bottom:6px">📄 Договір / КП / смета поруч</button>`:""}<div id="repEd"></div></div></div>`:""}
       <div data-m="in"><div class="field" style="margin-top:-4px"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px"><input type="checkbox" id="taxOn" style="width:22px;height:22px">Відняти податок ЄП <input id="taxRate" inputmode="decimal" style="width:64px;padding:6px 8px" value="">%</label><div id="taxInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div>
         <div class="field" id="closeBox" style="display:none;margin-top:-4px"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px"><input type="checkbox" id="closeSite" style="width:22px;height:22px">Останній платіж — закрити об'єкт і поділити прибуток</label><div id="closeInfo" class="m" style="color:var(--muted);font-size:12.5px"></div></div></div>
       <div data-m="in out"><div class="field"><label id="ownLbl">Хто</label><select name="owner">${ownOpts(f.owner)}</select></div></div>
@@ -2671,6 +2693,7 @@ function finForm(f,preset){
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
   // ✏️ редагування позицій нарахування зі звіту робіт
   let repItems=Array.isArray(f.report?.items)?f.report.items.map(x=>({...x})):null;
+  $("#repDoc")?.addEventListener("click",()=>docDock(f.site,"#repEd"));
   const repDraw=(init)=>{ const box=$("#repEd"); if(!box||!repItems) return; const num=v=>parseFloat(String(v).replace(",","."))||0;
     box.innerHTML=repItems.map((it,i)=>`<div style="border-top:1px solid var(--line,#2a2f38);padding:6px 0"><div style="display:flex;gap:6px"><input data-ri="${i}" data-rk="name" value="${esc(it.name)}" style="flex:1;min-width:0"><button type="button" class="btn ghost sm" data-rdel="${i}">✕</button></div>
       <div class="row" style="align-items:center;gap:6px;margin-top:4px"><input data-ri="${i}" data-rk="qty" inputmode="decimal" value="${it.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(it.unit||"")} ×</span><input data-ri="${i}" data-rk="rate" inputmode="decimal" value="${it.rate??""}" style="flex:0 0 80px;text-align:center"><b style="flex:1;text-align:right">${money(Math.round(num(it.qty)*num(it.rate)))}</b></div></div>`).join("")
