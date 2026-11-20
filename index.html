@@ -4118,7 +4118,7 @@ function tasksHTML(){ const td=dISO(), tm=dISO(new Date(Date.now()+864e5)), me=m
     return `<div class="card" data-task="${t.id}" style="gap:10px;${t.done?"opacity:.55;":""}${late?"border-color:#ef4444;":""}">
       <input type="checkbox" data-tdone="${t.id}" ${t.done?"checked":""} style="width:24px;height:24px;flex:none" ${S.canWrite?"":"disabled"}>
       <div class="main"><div class="t" style="${t.done?"text-decoration:line-through":""}">${esc(t.title)}</div>
-        <div class="m">${tt?`<span style="color:${late?"#ef4444":"var(--accent)"}">${late?"⏰ ":"🕒 "}${tt}</span>`:""}${t.date<td&&!t.done?` <span style="color:#ef4444">· з ${fmtDay(t.date)}</span>`:""}${site(t.site)?` · 🏗️ ${esc(site(t.site).name)}`:""}${t.done&&t.doneByName?` · ✅ ${esc(uaName(t.doneByName))}`:""}</div>${t.tools?`<div class="m" style="font-size:12.5px">🧰 ${esc(t.tools.replace(/\n+/g,", "))}${t.moved?" · 🚚 переїхав ✓":""}</div>`:""}${t.done&&t.tools&&!t.moved&&S.canWrite&&!isDuo()?`<button class="btn ghost sm" data-tmove="${t.id}" style="margin-top:4px">🚚 Записати переїзд інструменту</button>`:""}</div>
+        <div class="m">${tt?`<span style="color:${late?"#ef4444":"var(--accent)"}">${late?"⏰ ":"🕒 "}${tt}</span>`:""}${t.date<td&&!t.done?` <span style="color:#ef4444">· з ${fmtDay(t.date)}</span>`:""}${site(t.site)?` · 🏗️ ${esc(site(t.site).name)}`:""}${t.done&&t.doneByName?` · ✅ ${esc(uaName(t.doneByName))}`:""}</div>${t.tools?`<div class="m" style="font-size:12.5px">🧰 ${esc(t.tools.replace(/\n+/g,", "))}${t.moved?" · 🚚 переїхав ✓":""}</div>`:""}${t.mats?`<div class="m" style="font-size:12.5px">🧱 ${esc(t.mats.replace(/\n+/g,", "))}${t.done?" · привезено ✓":""}</div>`:""}${t.done&&t.tools&&!t.moved&&S.canWrite&&!isDuo()?`<button class="btn ghost sm" data-tmove="${t.id}" style="margin-top:4px">🚚 Записати переїзд інструменту</button>`:""}</div>
       ${p?`<span style="font-size:12.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--line,#2a2f38);white-space:nowrap">${t.who===me?"✋ я":"👤 "+esc(uaName(p.name)||p.name)}</span>`:(!t.done&&S.canWrite&&me?`<button class="btn ghost" data-ttake="${t.id}" style="padding:4px 8px;font-size:12.5px;white-space:nowrap">✋ Візьму</button>`:"")}
     </div>` };
   return `<div class="section-t" style="display:flex;align-items:center">✅ Справи на сьогодні<span class="count">${nOpen||""}</span>${S.canWrite?`<button class="btn ghost" id="tkAdd" style="margin-left:auto;padding:4px 10px">＋ Справа</button>`:""}</div>
@@ -4129,6 +4129,7 @@ function tasksBind(){ const v=$("#view");
   v.querySelectorAll("[data-task]").forEach(c=>c.onclick=e=>{ if(e.target.closest("[data-tdone],[data-ttake]")) return; taskForm(tasksNow().find(t=>t.id===c.dataset.task)) });
   v.querySelectorAll("[data-tdone]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const d=b.checked, t=tasksNow().find(x=>x.id===b.dataset.tdone);
     const ok=await write(db=>db.collection(R("tasks")).doc(b.dataset.tdone).update(d?{done:true,doneAt:Date.now(),doneBy:S.uid||"",doneByName:S.meName||""}:{done:false,doneAt:null,doneBy:null,doneByName:null}));
+    if(ok&&t?.mats&&t.site&&!isDuo()){ const st=S.sites.get(t.site); if(st?.needs?.some(n=>n.tid===t.id&&n.kind==="material")){ const l=st.needs.map(({_here,...n})=>n.tid===t.id&&n.kind==="material"?(d?{...n,done:true,got:+n.qty||1}:{...n,done:false,got:0}):n); write(db=>db.doc("sites/"+st.id).update({needs:l})).then(o=>{ if(o) st.needs=l }) } }
     if(ok&&d&&t?.tools&&!t.moved&&t.site&&!isDuo()) taskMove(t) });
   v.querySelectorAll("[data-tmove]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const t=tasksNow().find(x=>x.id===b.dataset.tmove); if(t) taskMove(t) });
   v.querySelectorAll("[data-ttake]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); write(db=>db.collection(R("tasks")).doc(b.dataset.ttake).update({who:meId(),updatedAt:Date.now()})).then(ok=>ok&&toast("✋ Справа ваша")) });
@@ -4136,14 +4137,18 @@ function tasksBind(){ const v=$("#view");
 // 🚚 справа «привезти інструмент» виконана → переміщення на об'єкт (звичне вікно перевірки: що саме, скільки, звідки)
 // 🧰 справа з інструментом ↔ «📝 Потрібно» об'єкта: позиції з міткою tid (одна справа — свої рядки)
 const tkToolLines=txt=>String(txt||"").split(/\n|,|;/).map(x=>x.trim()).filter(Boolean).map(line=>{ const m=line.match(/^(.*?)[\s,—–-]*(?:[xх×]\s*)?(\d+)\s*(?:шт\.?|штук[и]?)?\s*$/i); return m&&m[1].trim()?{name:m[1].trim(),qty:+m[2]}:{name:line,qty:1} });
+const tkMatLines=txt=>String(txt||"").split(/\n|;/).map(x=>x.trim()).filter(Boolean).map(line=>{ const m=line.match(/^(.*?)[\s,—–-]+(\d+(?:[.,]\d+)?)\s*([a-zа-яіїєґ²³.]*)\s*$/i);
+  if(!m||!m[1].trim()) return {name:line,qty:1,unit:"шт",kind:"material"}; const u=(m[3]||"шт").replace(/\.$/,"").toLowerCase(); return {name:m[1].trim(),qty:+m[2].replace(",","."),unit:/^міш/.test(u)?"мішок":/^шт|^штук/.test(u)||!u?"шт":u,qtySet:true,kind:"material"} });
 async function taskNeedsSync(tid,d,oldSite){ if(isDuo()) return; const ids=[...new Set([oldSite,d?.site].filter(Boolean))]; if(!ids.length) return;
   await write(async db=>{ for(const sid of ids){ const st=S.sites.get(sid); if(!st) continue; let l=(st.needs||[]).map(({_here,...x})=>({...x}));
-    const keep=l.filter(n=>n.tid===tid&&n.done); l=l.filter(n=>n.tid!==tid||n.done);
-    if(d&&d.site===sid&&d.tools&&!d.moved&&!keep.length) l.push(...tkToolLines(d.tools).map(x=>({...x,kind:"tool",tid,req:1,...(d.who?{who:d.who}:{}),note:"зі справи"})));
+    const keep=l.filter(n=>n.tid===tid&&n.done), kT=keep.some(n=>n.kind!=="material"), kM=keep.some(n=>n.kind==="material"); l=l.filter(n=>n.tid!==tid||n.done);
+    const ex={tid,req:1,...(d?.who?{who:d.who}:{}),note:"зі справи"};
+    if(d&&d.site===sid&&d.tools&&!d.moved&&!kT) l.push(...tkToolLines(d.tools).map(x=>({...x,kind:"tool",...ex})));
+    if(d&&d.site===sid&&d.mats&&!kM) l.push(...tkMatLines(d.mats).map(x=>({...x,...ex,...(d.done?{done:true,got:x.qty}:{})})));
     if(JSON.stringify(l)!==JSON.stringify((st.needs||[]).map(({_here,...x})=>x))){ await db.doc("sites/"+sid).update({needs:l}); st.needs=l } } }) }
 // справи з інструментом, створені до зв'язку з «Потрібно», — доносимо один раз
 function taskNeedsFix(){ if(S.canWrite===false||!S.sites?.size) return; S._tnf=S._tnf||{};
-  for(const t of S.tasksT||[]){ if(!t.tools||!t.site||t.done||t.moved||S._tnf[t.id]) continue; S._tnf[t.id]=1; const st=S.sites.get(t.site); if(st&&!(st.needs||[]).some(n=>n.tid===t.id)) taskNeedsSync(t.id,t,t.site) } }
+  for(const t of S.tasksT||[]){ if(!(t.tools||t.mats)||!t.site||t.done||S._tnf[t.id]) continue; S._tnf[t.id]=1; const st=S.sites.get(t.site); if(st&&!(st.needs||[]).some(n=>n.tid===t.id)) taskNeedsSync(t.id,t,t.site) } }
 function taskMove(t){ if(!site(t.site)){ toast("Об'єкт справи не знайдено"); return }
   const lines=String(t.tools).split(/\n|,|;/).map(x=>x.trim()).filter(Boolean).map(x=>/\d\s*(шт|од)?\.?$/.test(x)?x:x+" 1 шт").join("\n");
   photoFlow({mode:"move",text:true,auto:true,to:t.site,listText:lines,onDone:async()=>{ await write(db=>db.collection(R("tasks")).doc(t.id).update({moved:true,movedAt:Date.now()}));
@@ -4167,7 +4172,8 @@ function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Da
     <div class="field"><label>Час</label><select id="tkM"><option value="none" ${mode==="none"?"selected":""}>— без часу</option><option value="till" ${mode==="till"?"selected":""}>до певної години</option><option value="range" ${mode==="range"?"selected":""}>з … до …</option><option value="from" ${mode==="from"?"selected":""}>з певної години</option></select></div>
     <div class="row" id="tkTimes"><div class="field" id="tkFw"><label>з</label><input type="time" id="tkF" value="${t.from||"09:00"}"></div><div class="field" id="tkTw"><label>до</label><input type="time" id="tkTo" value="${t.to||"12:00"}"></div></div>
     <div class="field"><label>Хто виконує</label><div style="display:flex;gap:6px">${me?`<button type="button" class="btn ghost" id="tkMe" style="white-space:nowrap">✋ Я</button>`:""}<select id="tkW" style="flex:1"><option value="">— не призначено</option><optgroup label="👤 Власники">${own.map(opt).join("")}</optgroup>${wk.length?`<optgroup label="🔧 Виконавці">${wk.map(opt).join("")}</optgroup>`:""}</select></div></div>
-${isDuo()?"":`    <div class="field"><label>🧰 Привезти інструмент (необов'язково)</label><textarea id="tkTl" rows="2" placeholder="напр.: бадья&#10;міксер 2">${esc(t.tools||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Коли справу позначите виконаною — інструмент переїде на вибраний об'єкт.</div></div>`}
+${isDuo()?"":`    <div class="field"><label>🧰 Привезти інструмент (необов'язково)</label><textarea id="tkTl" rows="2" placeholder="напр.: бадья&#10;міксер 2">${esc(t.tools||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Коли справу позначите виконаною — інструмент переїде на вибраний об'єкт.</div></div>
+    <div class="field"><label>🧱 Привезти матеріали (необов'язково)</label><textarea id="tkMt" rows="2" placeholder="напр.: стяжка 30 мішків&#10;маяки 8 шт">${esc(t.mats||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Кожен матеріал — з нового рядка. Потрапить у «📝 Потрібно» об'єкта; галочка «виконано» = привезено.</div></div>`}
     <div class="field"><label>Об'єкт <span id="tkSreq">(необов'язково)</span></label><select id="tkS"><option value="">—</option>${sites.map(x=>`<option value="${x.id}" ${t.site===x.id?"selected":""}>${x.type==="warehouse"?"🏬":"🏗️"} ${esc(x.name)}</option>`).join("")}</select></div>
     ${!isNew&&t.byName?`<div class="m" style="color:var(--muted);margin:4px 0">Записав: ${esc(uaName(t.byName))}${t.done&&t.doneAt?` · виконано ${fmtDate(t.doneAt)}`:""}</div>`:""}
     <div class="actions">${!isNew&&S.canWrite?`<button class="btn ghost" id="tkDel" style="color:#ef4444">🗑</button>`:""}<button class="btn ghost" data-close>Скасувати</button>${S.canWrite?`<button class="btn" id="tkOk">${isNew?"Додати":"Зберегти"}</button>`:""}</div>`);
@@ -4175,14 +4181,14 @@ ${isDuo()?"":`    <div class="field"><label>🧰 Привезти інструм
   $("#tkM").onchange=sync; sync();
   $("#modal").querySelectorAll("[data-tkd]").forEach(b=>b.onclick=()=>{ $("#tkD").value=b.dataset.tkd; $("#modal").querySelectorAll("[data-tkd]").forEach(x=>{ const on=x===b; x.style.borderColor=on?"var(--accent)":""; x.style.color=on?"var(--accent)":"" }) });
   $("#tkMe")?.addEventListener("click",()=>{ $("#tkW").value=me; toast("✋ Виконавець — ви") });
-  $("#tkDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити справу?")) return; if(await write(db=>db.collection(R("tasks")).doc(t.id).delete())){ tkDraftClear(); closeSheet(); toast("Видалено"); if(t.tools) taskNeedsSync(t.id,null,t.site) } });
+  $("#tkDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити справу?")) return; if(await write(db=>db.collection(R("tasks")).doc(t.id).delete())){ tkDraftClear(); closeSheet(); toast("Видалено"); if(t.tools||t.mats) taskNeedsSync(t.id,null,t.site) } });
   $("#tkOk")?.addEventListener("click",async()=>{ const title=$("#tkT").value.trim(); if(!title){ toast("Напишіть, що зробити"); $("#tkT").focus(); return }
     const m=$("#tkM").value, f=$("#tkF").value, to=$("#tkTo").value;
     if(m==="range"&&f&&to&&f>=to){ toast("Час «з» має бути раніше за «до»"); return }
-    const tools=($("#tkTl")?.value||"").trim(); if(tools&&!$("#tkS").value){ toast("Виберіть об'єкт, куди везти інструмент"); $("#tkS").focus(); return }
-    const d={title, tools, date:$("#tkD").value||td, from:m==="range"||m==="from"?f:"", to:m==="range"||m==="till"?to:"", who:$("#tkW").value, site:$("#tkS").value, updatedAt:Date.now()};
+    const tools=($("#tkTl")?.value||"").trim(), mats=($("#tkMt")?.value||"").trim(); if((tools||mats)&&!$("#tkS").value){ toast("Виберіть об'єкт, куди везти"); $("#tkS").focus(); return }
+    const d={title, tools, mats, date:$("#tkD").value||td, from:m==="range"||m==="from"?f:"", to:m==="range"||m==="till"?to:"", who:$("#tkW").value, site:$("#tkS").value, updatedAt:Date.now()};
     let nid=t.id; const ok=await write(async db=>{ if(isNew){ const r=await db.collection(R("tasks")).add({...d,done:false,by:S.uid||"",byName:S.meName||"",createdAt:Date.now()}); nid=r?.id } else await db.collection(R("tasks")).doc(t.id).update(d) });
-    if(ok&&nid&&(d.tools||t.tools)) taskNeedsSync(nid,{...t,...d},t.site);
+    if(ok&&nid&&(d.tools||t.tools||d.mats||t.mats)) taskNeedsSync(nid,{...t,...d},t.site);
     if(ok){ tkDraftClear(); closeSheet(); toast(isNew?"✅ Справу додано":"Збережено") } });
 }
 // 👷 Кабінет працівника: власники (Андрій, Сергій) публікують кожному його завдання і розрахунок у duo_wpub/{секретний ключ}.
@@ -4191,7 +4197,7 @@ const wkeyNew=()=>{ const a=new Uint8Array(15); crypto.getRandomValues(a); retur
 async function wkeyOf(p){ if(p.wkey) return p.wkey; const k=wkeyNew(); if(await write(db=>db.doc("people/"+p.id).update({wkey:k}))){ p.wkey=k; setTimeout(wpubSync,500); return k } return "" }
 function wpubData(p){ const tasks=[...(S.tasksT||[]),...(S.tasksD||[])].filter(t=>t.who===p.id&&(!t.done||(+t.doneAt||0)>Date.now()-2*864e5))
     .sort((a,b)=>(a.done-b.done)||String(a.date).localeCompare(String(b.date))||String(a.to||a.from||"99").localeCompare(String(b.to||b.from||"99")))
-    .slice(0,30).map(t=>({id:t.id,title:String(t.title||"").slice(0,300)+(t.tools?" · 🧰 "+String(t.tools).replace(/\n+/g,", ").slice(0,200):""),date:t.date,from:t.from||"",to:t.to||"",site:site(t.site)?.name||(S.B.duo.sites?.get(t.site)?.name)||"",done:!!t.done}));
+    .slice(0,30).map(t=>({id:t.id,title:String(t.title||"").slice(0,300)+(t.tools?" · 🧰 "+String(t.tools).replace(/\n+/g,", ").slice(0,200):"")+(t.mats?" · 🧱 "+String(t.mats).replace(/\n+/g,", ").slice(0,200):""),date:t.date,from:t.from||"",to:t.to||"",site:site(t.site)?.name||(S.B.duo.sites?.get(t.site)?.name)||"",done:!!t.done}));
   const ops=[], by={}; let acc=0, paid=0;
   for(const [b,fin] of [["t",S.B.trio.fin],["d",S.B.duo.fin]]) for(const f of (fin||new Map()).values()){ if(f.worker!==p.id||isHelperPay(f)||!(f.type==="accrual"||f.type==="out")) continue;
     const a=+f.amount||0, sn=(b==="t"?S.B.trio.sites:S.B.duo.sites)?.get(f.site)?.name||"", k=sn||"—", s=by[k]||(by[k]={site:sn,acc:0,paid:0});
