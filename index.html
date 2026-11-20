@@ -919,12 +919,32 @@ function renderPeople(){
   const cnt={}; for(const t of S.tools.values()) if(t.holder) cnt[t.holder]=(cnt[t.holder]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте власників (себе й напарників) та виконавців кнопкою «+».</div>`; return; }
   let h="";
-  for(const [role,label,cls] of [["owner","Власники","own"],["crew","👥 Бригади","wrk"],["worker","Виконавці","wrk"],["helper","💵 Підсоба — розрахунок одразу","wrk"]]){
+  for(const [role,label,cls] of [["owner","Власники","own"],["crew","👥 Бригади","wrk"],["worker","Виконавці","wrk"]]){
     const l=all.filter(p=>role==="crew"?p.crew:role==="helper"?p.role==="worker"&&!p.crew&&p.helper:p.role===role&&!p.crew&&!(role==="worker"&&p.helper)); if(!l.length)continue;
     h+=`<div class="section-t">${label}</div><div class="list">`+l.map(p=>`<div class="card" data-person="${p.id}"><div class="stripe ${cls}"></div><div class="main"><div class="t">${p.crew?"👥 ":""}${esc(p.name)}</div>${p.crew?`<div class="m">${crewNames(p)||"склад не вказано"}</div>`:""}${p.phone||p.since?`<div class="m">${[p.phone?esc(p.phone):"",p.since?"з "+fmtDay(p.since):""].filter(Boolean).join(" · ")}</div>`:""}</div>${p.phone?`<a class="btn ghost sm" href="${telHref(p.phone)}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none" title="Подзвонити">📞</a>`:""}<span class="count">${cnt[p.id]||0} од.</span></div>`).join("")+`</div>`;
   }
+  // 🧹 Підсобники — окрема категорія: зробив і одразу отримав гроші, без нарахувань і боргів
+  const hl=all.filter(p=>p.role==="worker"&&!p.crew&&p.helper);
+  h+=`<div class="section-t">🧹 Підсобники</div><div class="list"><div class="card" id="helpCat" style="cursor:pointer"><div class="stripe wrk"></div><div class="main"><div class="t">🧹 Підсобники · ${hl.filter(p=>p.active!==false).length}</div><div class="m">${hl.length?esc(hl.filter(p=>p.active!==false).slice(0,4).map(p=>p.name).join(", "))+(hl.length>4?"…":""):"розрахунок одразу, без нарахувань — натисніть, щоб додати"}</div></div><span class="count">→</span></div></div>`;
   $("#view").innerHTML=h;
+  $("#helpCat")?.addEventListener("click",e=>{ e.stopPropagation(); helpersSheet() });
 }
+function helpersSheet(){ const all=[...S.people.values()].filter(p=>p.role==="worker"&&!p.crew).sort(byName), hl=all.filter(p=>p.helper), wl=all.filter(p=>!p.helper&&p.active!==false);
+  openSheet(`<h2>🧹 Підсобники</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Зробив — одразу отримав гроші. Оплата пишеться витратою «Підсоба», без нарахувань, боргів і нагадувань.</div>
+    <div class="list">${hl.map(p=>`<div class="card" style="gap:8px"><div class="main" data-hp="${p.id}" style="cursor:pointer"><div class="t">${esc(p.name)}${p.active===false?` <span class="tag">архів</span>`:""}</div>${p.phone?`<div class="m">${esc(p.phone)}</div>`:""}</div>${S.canWrite?`<button class="btn ghost sm" data-hx="${p.id}" title="Повернути у виконавці">↩ у виконавці</button>`:""}</div>`).join("")||`<div class="empty">Поки нікого</div>`}</div>
+    ${S.canWrite?`<div class="actions"><button class="btn ghost" id="hpMove">↪ Перенести з виконавців</button><button class="btn" id="hpNew">＋ Новий підсобник</button></div>`:""}
+    <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
+  const M=$("#modal");
+  M.querySelectorAll("[data-hp]").forEach(c=>c.onclick=()=>personForm(S.people.get(c.dataset.hp)));
+  M.querySelectorAll("[data-hx]").forEach(b=>b.onclick=async()=>{ const p=S.people.get(b.dataset.hx); if(await write(db=>db.doc("people/"+p.id).update({helper:false}))){ p.helper=false; toast(`${p.name} → виконавці (з нарахуваннями)`); helpersSheet() } });
+  $("#hpNew")?.addEventListener("click",()=>{ personForm(); setTimeout(()=>{ const c=$("#isHelp"); if(c){ c.checked=true } },30) });
+  $("#hpMove")?.addEventListener("click",()=>{ openSheet(`<h2>↪ У підсобники</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Позначте людей, які працюють як підсоба. Їхні старі записи не зміняться.</div>
+      <input type="search" id="hmQ" placeholder="🔍 Пошук" style="margin-bottom:8px"><div class="list">${wl.map(p=>`<label class="card" data-hmn="${esc(p.name)}" style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-hm="${p.id}" style="width:22px;height:22px"><span class="t" style="flex:1">${esc(p.name)}</span></label>`).join("")||`<div class="empty">Немає виконавців</div>`}</div>
+      <div class="actions"><button class="btn ghost" id="hmBack">Назад</button><button class="btn" id="hmOk">Перенести</button></div>`);
+    $("#hmQ").oninput=e=>{ const q=e.target.value.trim(); $("#modal").querySelectorAll("[data-hmn]").forEach(c=>c.style.display=!q||wordHit(c.dataset.hmn,q)?"":"none") };
+    $("#hmBack").onclick=()=>helpersSheet();
+    $("#hmOk").onclick=async()=>{ const ids=[...$("#modal").querySelectorAll("[data-hm]:checked")].map(c=>c.dataset.hm); if(!ids.length){ helpersSheet(); return }
+      if(await write(async db=>{ for(const id of ids) await db.doc("people/"+id).update({helper:true}) })){ ids.forEach(id=>{ const p=S.people.get(id); if(p) p.helper=true }); toast(`🧹 У підсобниках: +${ids.length}`); helpersSheet() } } }) }
 
 function moveLine(m){
   const nm=id=>esc(person(id)?.name||m.names?.[id]||"—");
