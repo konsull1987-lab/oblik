@@ -1554,7 +1554,7 @@ function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return;
     await mark("done");
     if(a==="need"){ S.needsPrefill={text:m.text||"",imgs}; S.siteTab="needs"; siteForm(S.sites.get(sid)); setTimeout(()=>$("#nAdd")?.click(),60) }
     else if(a==="tools") photoFlow({mode:"add",to:sid,imgs,listText:imgs.length?"":m.text||""});
-    else workReport(null,{site:sid,text:m.text||""}) }) }
+    else workReport(who&&who.role!=="owner"?who.id:null,{site:sid,text:m.text||"",imgs,auto:!!(imgs.length||m.text)}) }) }
 
 // 🧾 Купив → витрата на об'єкт + позначка «привезено»
 function boughtSheet(groups,back){ if(!groups.length) return;
@@ -2413,7 +2413,7 @@ function workReport(workerId,opts){
   // ціни для робіт без ціни: спершу кошторис об'єкта, потім загальний прайс фірми
   const estFor=site=>{ const a=siteEstimate(site).map(e=>({...e,src:"кошторис"})); return [...a,...priceList().filter(p=>+p.price>0).map(p=>({name:p.name,unit:p.unit,price:+p.price,src:"прайс",cat:p.cat,alt:p.alt||""}))] };
   loadAliases();
-  let st={worker:workerId||"",site:opts?.site||"",date:todayISO(),pct:pctGet(),text:opts?.text||"",file:null,fileParts:[],rows:[],their:0,est:estFor(opts?.site||"")};
+  let st={worker:workerId||"",site:opts?.site||"",date:todayISO(),pct:pctGet(),text:opts?.text||"",file:opts?.imgs?.length?{name:`фото від працівника (${opts.imgs.length})`}:null,fileParts:opts?.imgs?.length?opts.imgs.map(({mime,b64})=>({mime,b64})):[],rows:[],their:0,est:estFor(opts?.site||"")};
   if(!S.priceLoaded){ S.priceLoading=false; loadPrice(); const t0=Date.now(); const iv=setInterval(()=>{ if(S.priceLoaded||Date.now()-t0>8000){ clearInterval(iv); st.est=estFor(st.site); if(!st.rows.length&&$("#wrEst")) draw() } },300) }
   const workers=[...S.people.values()].filter(p=>p.role==="worker").sort((a,b)=>(b.crew?1:0)-(a.crew?1:0)||byName(a,b));
   const n2=v=>Math.round((+v||0)*100)/100;
@@ -2524,7 +2524,7 @@ total — загальна сума, якщо виконавець її напи
     });
     if(ok){closeSheet();toast(pay?`Нараховано й виплачено ${money(tot)}`:`Нараховано ${money(tot)}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
   }
-  draw();
+  draw(); if(opts?.auto&&st.worker&&st.site) setTimeout(()=>$("#wrGo")?.click(),60); // з повідомлення працівника — одразу розбираємо його фото/текст
 }
 function workerSheet(id){
   const p=person(id); if(!p)return; const x=workerTotals()[id]||{acc:0,paid:0}; const d=x.acc-x.paid;
