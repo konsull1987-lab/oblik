@@ -1696,6 +1696,8 @@ function photoFlow(opts){
     const pool=mode==="move"?[...S.tools.values()].filter(t=>!S.pfFrom||t.site===S.pfFrom).slice(0,400):[];
     let prompt=aiPrompt();
     if(useText) prompt=prompt.replace(/На фото інструмент, розкладений для обліку\.[^\n]*/,"Нижче — текстовий список інструменту від працівника (з Viber/Telegram), написаний як завгодно: російською, суржиком, скорочено, з помилками. Кожен рядок може містити кілька позицій або кількість («2шт», «х3»). Нічого не вигадуй понад список.").replace(/лише якщо її видно на фото/,"лише якщо вказана").replace(/лише якщо видно напис/,"лише якщо вказана");
+    if(useText) prompt+=`\nВАЖЛИВО: у назві (name) зберігай усі характеристики так, як написано в списку (розмір, діаметр, мм, довжина, потужність, вольтаж), наприклад «Диск для болгарки 150 мм». Нічого не підміняй.`;
+    if(pool.length) prompt+=`\nЗіставляй з базою (m) ЛИШЕ якщо збігаються і тип, і характеристики: «диск 150 мм» ≠ «диск 125 мм», «акумулятор 4 Ah» ≠ «акумулятор 2 Ah». Якщо в базі немає саме такого розміру чи моделі — m = -1.`;
     if(pool.length) prompt+=`\nТакож зістав кожну позицію з інструментом, що вже є в нашій базі (номер. назва · марка · де зараз). Назви можуть відрізнятися: болгарка = КШМ = УШМ = кутова шліфмашина, шуруповерт = дриль-шуруповерт = акумуляторна дриль, перфоратор = перф, лазерний рівень = нівелір = лазер. Додай поле m — номер з бази або -1, якщо такого немає:\n${pool.map((t,i)=>`${i}. ${t.name}${t.brand?" · "+t.brand:""}${t.model?" "+t.model:""} · ${qtyOf(t)} шт · ${site(t.site)?.name||person(t.holder)?.name||""}`).join("\n")}`;
     try{ if(window.Notification&&Notification.permission==="default") Notification.requestPermission().catch(()=>{}) }catch(_){}
     try{
@@ -1703,7 +1705,7 @@ function photoFlow(opts){
       clearInterval(tick);
       const j=JSON.parse(txt.replace(/^```(json)?|```$/g,"").trim());
       const allCats=Object.values(CATS).flat();
-      rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),cat:allCats.includes(x.cat)?x.cat:"Інше",brand:String(x.brand||"").trim(),model:String(x.model||"").trim(),qty:Math.max(1,parseInt(x.qty)||1),conf:x.confidence||"medium",note:String(x.note||"").trim(),aiM:Number.isInteger(+x.m)&&+x.m>=0&&+x.m<pool.length?pool[+x.m].id:""}));
+      rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),cat:allCats.includes(x.cat)?x.cat:"Інше",brand:String(x.brand||"").trim(),model:String(x.model||"").trim(),qty:Math.max(1,parseInt(x.qty)||1),conf:x.confidence||"medium",note:String(x.note||"").trim(),txt:!!useText,aiM:Number.isInteger(+x.m)&&+x.m>=0&&+x.m<pool.length?pool[+x.m].id:""}));
       if(!rows.length){toast("Інструмент не знайдено");b.disabled=false;b.textContent=useText?"🔍 Розібрати список":"🔍 Розпізнати";return}
       if(mode==="move") matchRows();
       saveDraft(); notifyDone(`Розпізнано ${rows.length} поз. — перевірте й збережіть`);
@@ -1714,11 +1716,15 @@ function photoFlow(opts){
       $("#pfRes").innerHTML=`<div class="banner">Не вдалося розпізнати. Надішліть скрін цього повідомлення:<br><small style="word-break:break-all">${esc(m.slice(0,400))}</small></div>`;
     }
   }
+  // 🔢 характеристики (150 мм, 18V, 4Ah…) мусять збігатися: якщо в рядку є числа, а в інструменті — інші числа, це не він
+  const specN=x=>(String(x||"").replace(/(\d),(\d)/g,"$1.$2").match(/\d+(?:\.\d+)?/g)||[]).filter(v=>+v>=3||/\./.test(v));
+  const specOk=(r,t)=>{ const a=specN(r.name+" "+(r.model||"")); if(!a.length) return true; const b=specN(t.name+" "+(t.brand||"")+" "+(t.model||"")); return !b.length||a.some(v=>b.includes(v)) };
   function matchRows(fromSite){
     const pool=[...S.tools.values()].filter(t=>!fromSite||t.site===fromSite);
-    for(const r of rows){ const best=pool.map(t=>[toolScore(r,t),t]).filter(x=>x[0]>=2).sort((a,b)=>b[0]-a[0]); r.cands=best.slice(0,8).map(x=>x[1].id);
-      const ai=r.aiM&&S.tools.get(r.aiM)&&(!fromSite||S.tools.get(r.aiM).site===fromSite)?r.aiM:""; if(ai) r.cands=[ai,...r.cands.filter(id=>id!==ai)];
-      r.match=r.cands[0]||(pfNewOn()?"__new":""); if(r.match&&r.match!=="__new") r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match))); }
+    for(const r of rows){ const best=pool.map(t=>[toolScore(r,t),t]).filter(x=>x[0]>=2&&specOk(r,x[1])).sort((a,b)=>b[0]-a[0]); r.cands=best.slice(0,8).map(x=>x[1].id);
+      const ai=r.aiM&&S.tools.get(r.aiM)&&(!fromSite||S.tools.get(r.aiM).site===fromSite)&&specOk(r,S.tools.get(r.aiM))?r.aiM:""; if(ai) r.cands=[ai,...r.cands.filter(id=>id!==ai)];
+      r.alike=r.cands.length?[]:pool.filter(t=>toolScore(r,t)>=2).slice(0,3).map(t=>t.name); // схожі, але інший розмір — лише підказка
+      r.match=r.cands[0]||(opts.noTask?(pfNewOn()?"__new":""):(r.txt||!pfNewOn())?"__task":"__new"); if(r.match&&S.tools.has(r.match)) r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match))); }
   }
   function drawRows(){
     const confTag=c=>c==="high"?"":`<span class="tag ${c==="low"?"bad":"rep"}">${c==="low"?"перевірте":"можливо"}</span>`;
@@ -1731,7 +1737,7 @@ function photoFlow(opts){
         <div class="row" style="align-items:center"><input type="checkbox" class="cb" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"><input data-i="${i}" data-k="qty" inputmode="numeric" value="${r.qty}" style="flex:0 0 64px;text-align:center"></div>
         <div class="row" style="margin-top:6px"><select data-i="${i}" data-k="cat">${catOptions(r.cat,false)}</select><input data-i="${i}" data-k="brand" value="${esc(r.brand)}" placeholder="марка" style="flex:.7"></div>
         ${mode==="move"?`<label class="m" style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:13.5px"><input type="checkbox" data-i="${i}" data-k="buy" ${r.buy?"checked":""} style="width:20px;height:20px"> 🛒 Куплено зараз (новий з магазину)</label>`:""}
-        ${mode==="move"&&!r.buy?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="__new" ${r.match==="__new"?"selected":""}>➕ Новий — додати в базу і перемістити</option><option value="" ${r.match===""?"selected":""}>— пропустити</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select></div>`:""}
+        ${mode==="move"&&!r.buy?`<div class="field" style="margin:6px 0 0"><select data-i="${i}" data-k="match"><option value="__new" ${r.match==="__new"?"selected":""}>➕ Новий — додати в базу і перемістити</option><option value="__task" ${r.match==="__task"?"selected":""}>📝 Немає в нас — у справи «привезти на об'єкт»</option><option value="" ${r.match===""?"selected":""}>— пропустити</option>${(r.cands||[]).map(id=>tOpt(id,r.match)).join("")}</select>${!(r.cands||[]).length&&(r.alike||[]).length?`<div class="m" style="font-size:12px;margin-top:3px">У базі є лише схоже з іншими характеристиками: ${esc(r.alike.join(", "))}</div>`:""}</div>`:""}
         <div class="m" style="margin-top:4px">${confTag(r.conf)} ${esc(r.note)}</div>
         ${mode==="move"?(()=>{const wl=whereIs(r,toSite);return `<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де є: ${wl.length?wl.map(o=>o.lbl.replace(/^\S+ /,"")+" "+o.qty).slice(0,3).join(", ")+(wl.length>3?"…":""):"ніде"}</summary>${whereHTML(wl)}</details>`})():""}</div>`).join("")}
       ${mode==="add"?`<div class="row"><div class="field"><label>У кого</label><select id="pfHolder">${personOptions(meId()||owners()[0]?.id||"","— не вказано")}</select></div><div class="field"><label>Де</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`
@@ -1743,11 +1749,15 @@ function photoFlow(opts){
     $("#pfRes").onchange=e=>{if(e.target.id==="pfNew"){ try{localStorage.setItem("pfNew",e.target.checked?"1":"0")}catch(_){}; for(const r of rows){ if(e.target.checked&&!r.match) r.match="__new"; else if(!e.target.checked&&r.match==="__new") r.match="" } drawRows(); return }
       if(e.target.id==="pfSite"){toSite=e.target.value;return} if(e.target.id==="pfHolder"){S.pfHolder=e.target.value;return}
       if(e.target.id==="pfBuyWh"){try{localStorage.setItem("pfBuyWh",e.target.value)}catch(_){};return}
-      if(e.target.id==="pfFrom"){S.pfFrom=e.target.value;matchRows(S.pfFrom);drawRows()} else if(e.target.dataset.k==="match"){const r=rows[e.target.dataset.i];r.match=e.target.value;if(r.match&&r.match!=="__new")r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match)));drawRows()}};
+      if(e.target.id==="pfFrom"){S.pfFrom=e.target.value;matchRows(S.pfFrom);drawRows()} else if(e.target.dataset.k==="match"){const r=rows[e.target.dataset.i];r.match=e.target.value;if(r.match&&S.tools.has(r.match))r.qty=Math.min(r.qty,qtyOf(S.tools.get(r.match)));drawRows()}};
     $("#pfSave").onclick=save;
   }
   async function save(){
-    const holder=$("#pfHolder").value, siteId=$("#pfSite").value, sel=rows.filter(r=>r.on&&r.name.trim());
+    const holder=$("#pfHolder").value, siteId=$("#pfSite").value, sel0=rows.filter(r=>r.on&&r.name.trim());
+    const toTask=mode==="move"?sel0.filter(r=>!r.buy&&r.match==="__task"):[], sel=sel0.filter(r=>!toTask.includes(r));
+    if(toTask.length&&!siteId){toast("Виберіть «Куди» — на який об'єкт привезти");return}
+    if(toTask.length&&!sel.length){ const d={title:"Привезти: "+toTask.map(r=>r.name.trim()).join(", ").slice(0,200),tools:toTask.map(r=>r.name.trim()+" "+r.qty).join("\n"),date:dISO(),from:"",to:"",who:holder&&person(holder)?.role==="owner"?holder:(meId()||""),site:siteId,done:false,by:S.uid||"",byName:S.meName||"",createdAt:Date.now(),updatedAt:Date.now()};
+      let nid=""; if(await write(async db=>{ const r=await db.collection("tasks").add(d); nid=r?.id })){ try{localStorage.removeItem("pfDraft")}catch(_){}; closeSheet(); if(nid) taskNeedsSync(nid,d,""); toast(`📝 У справи на сьогодні: ${toTask.length} поз. — привезти на «${site(siteId)?.name||""}»`) } return }
     if(mode==="move"&&!holder&&!siteId){toast("Виберіть, куди або кому перемістити");return}
     const buyWh=$("#pfBuyWh")?.value||""; if(sel.some(r=>r.buy)&&!buyWh){toast("Створіть склад для оприбуткування куплених");return}
     const btn=$("#pfSave"); btn.disabled=true; btn.textContent="Зачекайте…";
@@ -1774,6 +1784,8 @@ function photoFlow(opts){
         }
       }
     });
+    if(ok&&toTask.length){ const d={title:"Привезти: "+toTask.map(r=>r.name.trim()).join(", ").slice(0,200),tools:toTask.map(r=>r.name.trim()+" "+r.qty).join("\n"),date:dISO(),from:"",to:"",who:meId()||"",site:siteId,done:false,by:S.uid||"",byName:S.meName||"",createdAt:Date.now(),updatedAt:Date.now()};
+      let nid=""; if(await write(async db=>{ const r=await db.collection("tasks").add(d); nid=r?.id })&&nid) taskNeedsSync(nid,d,"") }
     if(ok){try{localStorage.removeItem("pfDraft")}catch(_){};closeSheet(); try{ opts.onDone&&opts.onDone(n) }catch(_){} toast(mode==="add"?`Додано ${n} шт`:`Переміщено ${n} шт${nNew?`, нових у базі: ${nNew} поз.${nBuy?` (куплено: ${nBuy})`:""}`:""}${skip?`, пропущено ${skip} поз.`:""}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
   }
   draw(); if(opts.auto&&listText) setTimeout(()=>$("#pfGoTxt")?.click(),60);
@@ -4151,7 +4163,7 @@ function taskNeedsFix(){ if(S.canWrite===false||!S.sites?.size) return; S._tnf=S
   for(const t of S.tasksT||[]){ if(!(t.tools||t.mats)||!t.site||t.done||S._tnf[t.id]) continue; S._tnf[t.id]=1; const st=S.sites.get(t.site); if(st&&!(st.needs||[]).some(n=>n.tid===t.id)) taskNeedsSync(t.id,t,t.site) } }
 function taskMove(t){ if(!site(t.site)){ toast("Об'єкт справи не знайдено"); return }
   const lines=String(t.tools).split(/\n|,|;/).map(x=>x.trim()).filter(Boolean).map(x=>/\d\s*(шт|од)?\.?$/.test(x)?x:x+" 1 шт").join("\n");
-  photoFlow({mode:"move",text:true,auto:true,to:t.site,listText:lines,onDone:async()=>{ await write(db=>db.collection(R("tasks")).doc(t.id).update({moved:true,movedAt:Date.now()}));
+  photoFlow({mode:"move",text:true,auto:true,noTask:true,to:t.site,listText:lines,onDone:async n=>{ if(!n) return; await write(db=>db.collection(R("tasks")).doc(t.id).update({moved:true,movedAt:Date.now()}));
     const st=S.sites.get(t.site); if(st?.needs?.some(n=>n.tid===t.id&&!n.done)){ const l=st.needs.map(({_here,...n})=>n.tid===t.id?{...n,done:true}:n); await write(db=>db.doc("sites/"+st.id).update({needs:l})); st.needs=l } }}) }
 function tasksDaySheet(day){ const l=tasksNow().filter(t=>t.date===day).sort((a,b)=>String(a.to||a.from||"99").localeCompare(String(b.to||b.from||"99")));
   openSheet(`<h2>📅 Справи на ${fmtDay(day)}</h2><div class="list">${l.map(t=>`<div class="card" data-tds="${t.id}"><div class="main"><div class="t">${esc(t.title)}</div><div class="m">${[taskTime(t),person(t.who)?"👤 "+person(t.who).name:"",site(t.site)?.name].filter(Boolean).map(esc).join(" · ")}</div></div></div>`).join("")||`<div class="empty">Порожньо</div>`}</div>
