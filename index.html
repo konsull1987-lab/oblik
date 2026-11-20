@@ -4188,7 +4188,7 @@ function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Da
   const sites=[...S.sites.values()].filter(x=>x.active!==false).sort(byName);
   const chip=(d,l)=>`<button type="button" class="btn ghost" data-tkd="${d}" style="padding:5px 10px;${date===d?"border-color:var(--accent);color:var(--accent)":""}">${l}</button>`;
   openSheet(`<h2>${isNew?"＋ Нова справа":"✏️ Справа"}</h2>
-    <div class="field"><label>Що зробити</label><textarea id="tkT" rows="2" placeholder="Напр.: забрати плитку з Епіцентру">${esc(t.title||"")}</textarea></div>
+    <div class="field"><label>Що зробити <span class="m">(можна не писати, якщо нижче вказано, що привезти)</span></label><textarea id="tkT" rows="2" placeholder="Напр.: забрати плитку з Епіцентру">${esc(t.title||"")}</textarea></div>
     <div class="field"><label>Коли</label><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${chip(td,"Сьогодні")}${chip(tm,"Завтра")}<input type="date" id="tkD" value="${date}" style="flex:1;min-width:130px"></div></div>
     <div class="field"><label>Час</label><select id="tkM"><option value="none" ${mode==="none"?"selected":""}>— без часу</option><option value="till" ${mode==="till"?"selected":""}>до певної години</option><option value="range" ${mode==="range"?"selected":""}>з … до …</option><option value="from" ${mode==="from"?"selected":""}>з певної години</option></select></div>
     <div class="row" id="tkTimes"><div class="field" id="tkFw"><label>з</label><input type="time" id="tkF" value="${t.from||"09:00"}"></div><div class="field" id="tkTw"><label>до</label><input type="time" id="tkTo" value="${t.to||"12:00"}"></div></div>
@@ -4203,7 +4203,9 @@ ${isDuo()?"":`    <div class="field"><label>🧰 Привезти інструм
   $("#modal").querySelectorAll("[data-tkd]").forEach(b=>b.onclick=()=>{ $("#tkD").value=b.dataset.tkd; $("#modal").querySelectorAll("[data-tkd]").forEach(x=>{ const on=x===b; x.style.borderColor=on?"var(--accent)":""; x.style.color=on?"var(--accent)":"" }) });
   $("#tkMe")?.addEventListener("click",()=>{ $("#tkW").value=me; toast("✋ Виконавець — ви") });
   $("#tkDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити справу?")) return; if(await write(db=>db.collection(R("tasks")).doc(t.id).delete())){ tkDraftClear(); closeSheet(); toast("Видалено"); if(t.tools||t.mats) taskNeedsSync(t.id,null,t.site) } });
-  $("#tkOk")?.addEventListener("click",async()=>{ const title=$("#tkT").value.trim(); if(!title){ toast("Напишіть, що зробити"); $("#tkT").focus(); return }
+  $("#tkOk")?.addEventListener("click",async()=>{ let title=$("#tkT").value.trim(); const _tl=($("#tkTl")?.value||"").trim(), _mt=($("#tkMt")?.value||"").trim();
+    if(!title&&(_tl||_mt)){ const sn=site($("#tkS").value)?.name; title="Привезти"+(sn?" на «"+sn+"»":"")+": "+[_tl,_mt].filter(Boolean).join(", ").replace(/\n+/g,", ").slice(0,150) } // назва сама з інструменту/матеріалів
+    if(!title){ toast("Напишіть, що зробити, або що привезти"); $("#tkT").focus(); return }
     const m=$("#tkM").value, f=$("#tkF").value, to=$("#tkTo").value;
     if(m==="range"&&f&&to&&f>=to){ toast("Час «з» має бути раніше за «до»"); return }
     const tools=($("#tkTl")?.value||"").trim(), mats=($("#tkMt")?.value||"").trim(); if((tools||mats)&&!$("#tkS").value){ toast("Виберіть об'єкт, куди везти"); $("#tkS").focus(); return }
