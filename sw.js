@@ -1,4 +1,4 @@
-const C="oblik-v219";const SHELL=["./","index.html","w.html","w-manifest.json","firebase-config.js","manifest.json","icon-192.png"];
+const C="oblik-v220";const SHELL=["./","index.html","w.html","w-manifest.json","firebase-config.js","manifest.json","icon-192.png"];
 // бібліотеки з CDN (Firebase, SheetJS, reCAPTCHA) — версійні, кешуємо надовго, щоб застосунок стартував без інтернету
 const LIB="oblik-lib";const LIBRE=/^https:\/\/(www\.gstatic\.com\/firebasejs\/|cdnjs\.cloudflare\.com\/ajax\/libs\/)/;
 self.addEventListener("install",e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(SHELL)));self.skipWaiting()});
