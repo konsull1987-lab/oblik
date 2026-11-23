@@ -249,7 +249,7 @@ function baseSwitch(){ if(!S.duoOk) return ""; return `<div class="seg" style="m
 const $ = s=>document.querySelector(s);
 const esc = s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const byName = (a,b)=>(a.name||"").localeCompare(b.name||"","uk");
-function toast(t){const d=document.createElement("div");d.className="toast";d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
+function toast(t,ms){const d=document.createElement("div");d.className="toast";d.textContent=t;if(ms){d.style.whiteSpace="pre-line";d.style.borderRadius="14px";d.style.maxWidth="92vw";d.style.width="max-content";d.style.cursor="pointer";d.style.pointerEvents="auto";d.onclick=()=>d.remove()}document.body.appendChild(d);setTimeout(()=>d.remove(),ms||2200)}
 function fmtDate(ms){const d=new Date(ms);return d.toLocaleDateString("uk-UA",{day:"2-digit",month:"2-digit",year:"2-digit"})+" "+d.toLocaleTimeString("uk-UA",{hour:"2-digit",minute:"2-digit"})}
 function person(id){return S.people.get(id)}
 function site(id){return S.sites.get(id)}
@@ -1886,7 +1886,7 @@ const notifCfg=()=>{ try{ return {...NOTIF_DEF,...JSON.parse(localStorage.getIte
 S.seen=S.seen||{};
 const inQuiet=c=>{ if(!c.quiet) return false; const h=new Date().getHours(), a=+c.qFrom, b=+c.qTo; return a<b?h>=a&&h<b:h>=a||h<b };
 async function notify(title,body,tag,data){ const c=notifCfg(); if(c.off) return; if(inQuiet(c)&&document.hidden) return;
-  if(!document.hidden){ toast(title+(body?" — "+body:"")); return }
+  if(!document.hidden){ const t=title+(body?"\n"+body:""); toast(t,Math.min(12000,Math.max(6000,t.length*60))); return } // сповіщення в застосунку: 6–12 с, дотик — закрити
   try{ if(window.Notification&&Notification.permission==="granted") (await navigator.serviceWorker?.ready)?.showNotification(title,{body,icon:"icon-192.png",tag,data:data||{},renotify:true}) }catch(_){} }
 function notifyNew(kind,map,base){ const key=kind+base, seen=S.seen[key]; S.seen[key]=new Set(map.keys()); if(!seen) return; const c=notifCfg(); if(c.off) return;
   const fresh=[...map.entries()].filter(([id])=>!seen.has(id)).map(([,x])=>x); if(!fresh.length) return;
