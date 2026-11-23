@@ -4349,17 +4349,18 @@ ${isDuo()?"":`    <div class="field"><label>🧰 Привезти інструм
 // Дмитро цю колекцію не читає (правила), працівник бачить лише свій документ за ключем із посилання.
 const wkeyNew=()=>{ const a=new Uint8Array(15); crypto.getRandomValues(a); return [...a].map(x=>"abcdefghijkmnpqrstuvwxyz23456789"[x%32]).join("") };
 async function wkeyOf(p){ if(p.wkey) return p.wkey; const k=wkeyNew(); if(await write(db=>db.doc("people/"+p.id).update({wkey:k}))){ p.wkey=k; setTimeout(wpubSync,500); return k } return "" }
-function wpubData(p){ const tasks=[...(S.tasksT||[]),...(S.tasksD||[])].filter(t=>t.who===p.id&&(!t.done||(+t.doneAt||0)>Date.now()-2*864e5))
+function wpubData(p){ const crews=[...S.people.values()].filter(c=>c.crew&&(c.members||[]).includes(p.id)), ids=new Set([p.id,...crews.map(c=>c.id)]); // людина + бригади, де вона в складі
+  const tasks=[...(S.tasksT||[]),...(S.tasksD||[])].filter(t=>ids.has(t.who)&&(!t.done||(+t.doneAt||0)>Date.now()-2*864e5))
     .sort((a,b)=>(a.done-b.done)||String(a.date).localeCompare(String(b.date))||String(a.to||a.from||"99").localeCompare(String(b.to||b.from||"99")))
     .slice(0,30).map(t=>({id:t.id,title:String(t.title||"").slice(0,300)+(t.tools?" · 🧰 "+String(t.tools).replace(/\n+/g,", ").slice(0,200):"")+(t.mats?" · 🧱 "+String(t.mats).replace(/\n+/g,", ").slice(0,200):""),date:t.date,from:t.from||"",to:t.to||"",site:site(t.site)?.name||(S.B.duo.sites?.get(t.site)?.name)||"",done:!!t.done}));
   const ops=[], by={}; let acc=0, paid=0;
-  for(const [b,fin] of [["t",S.B.trio.fin],["d",S.B.duo.fin]]) for(const f of (fin||new Map()).values()){ if(f.worker!==p.id||isHelperPay(f)||!(f.type==="accrual"||f.type==="out")) continue;
+  for(const [b,fin] of [["t",S.B.trio.fin],["d",S.B.duo.fin]]) for(const f of (fin||new Map()).values()){ if(!ids.has(f.worker)||isHelperPay(f)||!(f.type==="accrual"||f.type==="out")) continue;
     const a=+f.amount||0, sn=(b==="t"?S.B.trio.sites:S.B.duo.sites)?.get(f.site)?.name||"", k=sn||"—", s=by[k]||(by[k]={site:sn,acc:0,paid:0});
     const isAcc=f.type==="accrual"&&a>=0, v=f.type==="accrual"&&a<0?-a:a; // мінусове нарахування = аванс, виданий раніше
     if(isAcc){ acc+=v; s.acc+=v } else { paid+=v; s.paid+=v }
-    ops.push({d:f.date||"",t:isAcc?"a":"p",a:Math.round(v),s:sn}) }
+    ops.push({d:f.date||"",t:isAcc?"a":"p",a:Math.round(v),s:sn+(f.worker!==p.id?(sn?" · ":"")+"👥 "+(person(f.worker)?.name||"бригада"):"")}) }
   ops.sort((x,y)=>String(y.d).localeCompare(String(x.d)));
-  return {name:p.name,tasks,acc:Math.round(acc),paid:Math.round(paid),debt:Math.round(acc-paid),sites:Object.values(by).map(s=>({...s,acc:Math.round(s.acc),paid:Math.round(s.paid)})).filter(s=>s.acc||s.paid).sort((a,b)=>(b.acc-b.paid)-(a.acc-a.paid)).slice(0,20),ops:ops.slice(0,25)} }
+  return {name:p.name,crews:crews.map(c=>c.name),tasks,acc:Math.round(acc),paid:Math.round(paid),debt:Math.round(acc-paid),sites:Object.values(by).map(s=>({...s,acc:Math.round(s.acc),paid:Math.round(s.paid)})).filter(s=>s.acc||s.paid).sort((a,b)=>(b.acc-b.paid)-(a.acc-a.paid)).slice(0,20),ops:ops.slice(0,25)} }
 // 🔑 працівник написав з телефону (є uid) і його впізнано за посиланням чи телефоном → кладемо ключ кабінету в wlink/{uid}; читати може лише він сам
 async function wlinkSync(){ const done=(()=>{ try{ return JSON.parse(localStorage.getItem("wlinkDone")||"{}") }catch(_){ return {} } })(); let ch=0;
   for(const m of S.inbox||[]){ if(!m.uid||done[m.uid]) continue; const p=m.pid&&person(m.pid)?person(m.pid):(()=>{ const d=digits(m.phone); return d?[...S.people.values()].find(x=>[x.phone,...(x.phones||[]).map(y=>y.tel)].some(t=>digits(t)===d)):null })();
