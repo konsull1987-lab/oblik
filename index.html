@@ -2251,6 +2251,26 @@ function firstSeen(id){ let m="";
   return m }
 const phRow=x=>`<div class="phr" style="display:flex;gap:6px;margin-top:6px"><input class="phT" type="tel" value="${esc(x?.tel||"")}" placeholder="номер" style="flex:1.7;min-width:0"><input class="phL" value="${esc(x?.label||"")}" placeholder="підпис" style="flex:1;min-width:0"><button type="button" class="btn ghost sm phStar" title="Зробити основним">⭐</button><button type="button" class="btn ghost sm phX">✕</button></div>`;
 const crewNames=p=>(p.members||[]).map(id=>person(id)?.name).filter(Boolean).map(esc).join(", ");
+// 🔀 два записи однієї людини (напр. з анкети і старий) → усе переноситься на основний, дублікат ховається в архів
+function mergePerson(src){ const l=[...S.people.values()].filter(x=>x.id!==src.id&&x.role!=="owner"&&!x.crew&&x.active!==false).sort(byName);
+  openSheet(`<h2>🔀 Об'єднати «${esc(src.name)}»</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Виберіть основний запис цієї ж людини. На нього перейдуть нарахування й виплати (обидві бази), інструмент, справи, бригади, телефон і кабінет. «${esc(src.name)}» піде в архів.</div>
+    <input type="search" id="mpQ" placeholder="🔍 Пошук" style="margin-bottom:8px"><div class="list">${l.map(x=>{ const t=workerTotals()[x.id]; return `<div class="card" data-mp="${x.id}" data-mpn="${esc(x.name+" "+(x.phone||""))}" style="cursor:pointer"><div class="main"><div class="t">${esc(x.name)}</div><div class="m">${[x.phone,t?"борг "+money(t.acc-t.paid):""].filter(Boolean).map(esc).join(" · ")}</div></div></div>` }).join("")}</div>
+    <div class="actions"><button class="btn ghost" id="mpBack">Назад</button></div>`);
+  $("#mpQ").oninput=e=>{ const q=e.target.value.trim(); $("#modal").querySelectorAll("[data-mpn]").forEach(c=>c.style.display=!q||wordHit(c.dataset.mpn,q)?"":"none") };
+  $("#mpBack").onclick=()=>personForm(src);
+  $("#modal").querySelectorAll("[data-mp]").forEach(c=>c.onclick=async()=>{ const dst=S.people.get(c.dataset.mp); if(!confirm(`Перенести все з «${src.name}» на «${dst.name}»?\n«${src.name}» піде в архів.`)) return;
+    const fins=[...S.B.trio.finRaw.values()].filter(f=>f.worker===src.id), dfins=S.duoOk?[...S.B.duo.finRaw.values()].filter(f=>f.worker===src.id):[];
+    const ok=await write(async()=>{ const db=S.db;
+      for(const f of fins) await db.doc("fin/"+f.id).update({worker:dst.id});
+      for(const f of dfins) await db.doc("duo_fin/"+f.id).update({worker:dst.id});
+      for(const t of S.tools.values()) if(t.holder===src.id) await db.doc("tools/"+t.id).update({holder:dst.id});
+      for(const t of S.tasksT||[]) if(t.who===src.id) await db.doc("tasks/"+t.id).update({who:dst.id});
+      if(S.duoOk) for(const t of S.tasksD||[]) if(t.who===src.id) await db.doc("duo_tasks/"+t.id).update({who:dst.id});
+      for(const c of S.people.values()) if(c.crew&&(c.members||[]).includes(src.id)) await db.doc("people/"+c.id).update({members:[...new Set(c.members.map(m=>m===src.id?dst.id:m))]});
+      const up={}; if(src.wkey) up.wkey=src.wkey; if(!dst.phone&&src.phone) up.phone=src.phone; if(!(dst.skills||[]).length&&(src.skills||[]).length){ up.skills=src.skills; up.skillsAt=src.skillsAt||Date.now() } if(!dst.trade&&src.trade) up.trade=src.trade;
+      if(Object.keys(up).length) await db.doc("people/"+dst.id).update(up);
+      await db.doc("people/"+src.id).update({active:false,mergedInto:dst.id,wkey:null}) });
+    if(ok){ try{ localStorage.removeItem("wpubH") }catch(_){} closeSheet(); toast(`✅ Об'єднано: записів ${fins.length+dfins.length}`); setTimeout(wpubSync,1500) } }) }
 function personForm(p){
   const isNew=!p; p=p||{role:"worker"};
   const cnt=[...S.tools.values()].filter(t=>t.holder===p.id).length;
@@ -2274,6 +2294,8 @@ function personForm(p){
       <div class="field"><label>Телефон (основний)</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div>
         <div id="phList">${(p.phones||[]).map(x=>phRow(x)).join("")}</div><button type="button" class="btn ghost sm" id="phAdd" style="margin-top:6px">+ ще номер</button></div>
         <div class="field" style="max-width:220px"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div>
+      ${!isNew&&p.role!=="owner"&&!p.crew?`<div class="m" style="margin:2px 0 8px;color:var(--muted)">${p.wkey?"🔑 Кабінет працівника підключено — він бачить свої завдання й розрахунок":"Кабінет працівника не підключено"}</div>`:""}
+      ${S.canWrite&&!isNew&&p.role!=="owner"&&!p.crew?`<button type="button" class="btn ghost" id="mrgP" style="width:100%;margin-bottom:8px">🔀 Це та сама людина, що й… (об'єднати дублікат)</button>`:""}
       ${S.canWrite?`<div class="actions">${!isNew?`<button type="button" class="btn danger" id="delP">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>`:""}
     </form>`);
   let role=p.role;
@@ -2314,6 +2336,7 @@ function personForm(p){
     if(!confirm(`«${p.name}» стане знову окремою людиною «${base}» — з усіма платежами, які вже на ній записані.\nА бригада «${p.name}» буде створена заново (порожня), з ${base} у складі.\nПродовжити?`)) return;
     if(await write(async db=>{ await db.doc("people/"+p.id).update({name:base,crew:false,members:[]}); await db.collection("people").add({name:p.name,phone:"",role:"worker",since:todayISO(),crew:true,members:[...new Set([p.id,...(p.members||[])])]}) })){closeSheet();toast(`${base} — знову окрема людина; бригаду створено окремо`)}
   });
+  $("#mrgP")?.addEventListener("click",()=>mergePerson(p));
   $("#delP")?.addEventListener("click",async()=>{
     if(cnt){toast("Спочатку заберіть у нього інструмент ("+cnt+")");return}
     const nf=[...S.fin.values()].filter(f=>f.worker===p.id||f.owner===p.id).length;
@@ -4367,7 +4390,7 @@ async function wlinkSync(){ const done=(()=>{ try{ return JSON.parse(localStorag
     if(!p||p.role==="owner"||p.crew) continue; const k=await wkeyOf(p); if(!k) continue;
     try{ await S.db.doc("wlink/"+m.uid).set({k,pid:p.id,at:Date.now()}); done[m.uid]=1; ch=1; if(m.kind==="key"&&m.status==="new") S.db.doc("inbox/"+m.id).update({status:"done",doneAt:Date.now()}).catch(()=>{}) }catch(_){} }
   if(ch) try{ localStorage.setItem("wlinkDone",JSON.stringify(done)) }catch(_){} }
-function wpubSync(){ clearTimeout(S._wpT); S._wpT=setTimeout(async()=>{
+function wpubSync(){ if(S._wpT) return; S._wpT=setTimeout(async()=>{ S._wpT=0; // не відкладаємо безкінечно, якщо екран часто перемальовується
   if(!S.db||!S.duoOk||!S.duoLoaded||S.canWrite===false||S.offline) return;
   try{ await wlinkSync() }catch(_){}
   let H={}; try{ H=JSON.parse(localStorage.getItem("wpubH")||"{}") }catch(_){}
