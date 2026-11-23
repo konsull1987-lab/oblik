@@ -23,7 +23,7 @@
     --warn:#fcd34d; --warn-bg:#3d2f0b; --bad:#fca5a5; --bad-bg:#451a1a; }
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+html,body{overscroll-behavior-y:contain;margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
 header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(env(safe-area-inset-top) + 10px) 14px 8px}
 h1{font-size:19px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
 h1 .sub{font-size:12px;font-weight:500;color:var(--muted);margin-left:auto}
@@ -276,7 +276,19 @@ function cacheSave(){ clearTimeout(S._csT); S._csT=setTimeout(async()=>{ if(!S.d
     for(const c of ["fops","clients","docs","contracts"]) x[c]=A(S[c]);
     const db=await IDB(); db.transaction("kv","readwrite").objectStore("kv").put(x,"snap") }catch(_){} },5000) }
 async function cacheClear(){ try{ const db=await IDB(); db.transaction("kv","readwrite").objectStore("kv").delete("snap") }catch(_){} }
+// 🔄 свій «потягнути вниз»: оновлює дані на місці — відкрита вкладка, вікно і введене не зникають (браузерний перезапуск вимкнено)
+function pullRefresh(){ let y0=null, ind=null, armed=false;
+  const top=()=>(document.scrollingElement||document.documentElement).scrollTop<=0;
+  document.addEventListener("touchstart",e=>{ y0=(top()&&!document.querySelector(".overlay")&&e.touches.length===1)?e.touches[0].clientY:null; armed=false },{passive:true});
+  document.addEventListener("touchmove",e=>{ if(y0==null) return; const dy=e.touches[0].clientY-y0; if(dy<10){ ind?.remove(); ind=null; return }
+    if(!ind){ ind=document.createElement("div"); ind.style.cssText="position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:50;background:var(--card);border:1px solid var(--line,#2a2f38);border-radius:999px;padding:6px 14px;font-size:14px"; document.body.appendChild(ind) }
+    armed=dy>90; ind.textContent=armed?"↻ Відпустіть — оновити дані":"↓ Потягніть, щоб оновити"; ind.style.top=Math.min(60,dy/3)+"px" },{passive:true});
+  document.addEventListener("touchend",async()=>{ if(y0==null) return; y0=null; const go=armed; armed=false; if(!go){ ind?.remove(); ind=null; return }
+    if(ind) ind.textContent="⏳ Оновлюю…"; try{ (await navigator.serviceWorker?.getRegistration())?.update() }catch(_){} try{ loadSugg?.(true) }catch(_){}
+    setTimeout(()=>{ render(); ind?.remove(); ind=null; toast(S.db?"✅ Дані актуальні":"Немає з'єднання — показано збережені дані") },700) }) }
 async function init(){
+  pullRefresh();
+  try{ const u=JSON.parse(sessionStorage.getItem("oblikUI")||"null"); if(u){ if(u.tab) S.tab=u.tab; if(u.mtab) S.mtab=u.mtab; if(u.statMode) S.statMode=u.statMode } }catch(_){}
   await Promise.race([cacheLoad(),new Promise(r=>setTimeout(r,1500))]);
   render();
   let db=null,user=null;
@@ -340,6 +352,7 @@ async function write(fn){
 // ---------- Рендер ----------
 function render(){
   if(S.duoLoaded) wpubSync();
+  try{ sessionStorage.setItem("oblikUI",JSON.stringify({tab:S.tab,mtab:S.mtab,statMode:S.statMode})) }catch(_){}
   // поки людина друкує/диктує в полі пошуку на екрані — фонові оновлення (база, тендери, ШІ) не перемальовують екран, інакше голосовий ввід обривається
   const ae=document.activeElement; if(!S.forceRender&&ae&&ae.matches?.("#view input[type=search],#view input[type=text],#view textarea")&&document.getElementById("view")?.contains(ae)){ if(!S.renderHeld){ S.renderHeld=true; ae.addEventListener("blur",()=>{ S.renderHeld=false; setTimeout(render,50) },{once:true}) } return }
   if(S.meName){ const w=$("#who"), t=uaName(S.meName); if(w&&w.textContent!==t) w.textContent=t }
