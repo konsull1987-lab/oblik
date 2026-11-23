@@ -258,8 +258,26 @@ function siteTag(id){const s=site(id); if(!s) return ""; return `<span class="ta
 function statusTag(st){if(!st||st==="ok")return""; return `<span class="tag ${st==="repair"?"rep":"bad"}">${STATUS[st]}</span>`}
 function roleOf(t){return person(t.holder)?.role||""}
 
-// ---------- Дані ----------
+// ⚡ Миттєвий старт: остання база зберігається на телефоні (IndexedDB) і показується одразу,
+// поки Firebase підключається; свіжі дані з сервера потім тихо її замінюють.
+const IDB=()=>new Promise((ok,bad)=>{ try{ const r=indexedDB.open("oblikData",1); r.onupgradeneeded=()=>r.result.createObjectStore("kv"); r.onsuccess=()=>ok(r.result); r.onerror=()=>bad(r.error) }catch(e){ bad(e) } });
+async function cacheLoad(){ try{ const db=await IDB(); const x=await new Promise(ok=>{ const q=db.transaction("kv").objectStore("kv").get("snap"); q.onsuccess=()=>ok(q.result); q.onerror=()=>ok(null) });
+  if(!x||Date.now()-x.at>30*864e5) return false; const M=a=>new Map((a||[]).map(d=>[d.id,d]));
+  if(!S.people?.size) S.people=M(x.people); if(!S.tools?.size) S.tools=M(x.tools);
+  if(!S.B.trio.sites?.size){ S.B.trio.sites=M(x.tSites); S.B.trio.finRaw=S.B.trio.fin=M(x.tFin) }
+  if(x.duo&&!S.B.duo.sites?.size){ S.B.duo.sites=M(x.dSites); S.B.duo.finRaw=S.B.duo.fin=M(x.dFin); S.duoOk=true }
+  for(const c of ["fops","clients","docs","contracts"]) if(!S[c]?.size&&x[c]) S[c]=M(x[c]);
+  if(!S.tasksT&&x.tasksT) S.tasksT=x.tasksT; if(!S.tasksD&&x.tasksD) S.tasksD=x.tasksD; if(!S.inbox&&x.inbox) S.inbox=x.inbox;
+  if(x.meName&&!S.meName) S.meName=x.meName; S.cacheAt=x.at; S.fromCache=true; applyBase(); document.body.classList.remove("snap"); render(); return true }catch(_){ return false } }
+function cacheSave(){ clearTimeout(S._csT); S._csT=setTimeout(async()=>{ if(!S.db||!S.loaded||!Object.values(S.loaded).every(Boolean)||window.__demo) return;
+  try{ const A=m=>[...(m?.values?.()||[])]; const x={at:Date.now(),people:A(S.people),tools:A(S.tools),tSites:A(S.B.trio.sites),tFin:A(S.B.trio.finRaw||S.B.trio.fin),
+      duo:!!(S.duoOk&&S.duoLoaded),dSites:S.duoOk?A(S.B.duo.sites):[],dFin:S.duoOk?A(S.B.duo.finRaw||S.B.duo.fin):[],tasksT:S.tasksT||[],tasksD:S.duoOk?(S.tasksD||[]):[],
+      inbox:(S.inbox||[]).map(({photos,...m})=>({...m,photos:[]})).slice(0,80),meName:S.meName||""};
+    for(const c of ["fops","clients","docs","contracts"]) x[c]=A(S[c]);
+    const db=await IDB(); db.transaction("kv","readwrite").objectStore("kv").put(x,"snap") }catch(_){} },5000) }
+async function cacheClear(){ try{ const db=await IDB(); db.transaction("kv","readwrite").objectStore("kv").delete("snap") }catch(_){} }
 async function init(){
+  await Promise.race([cacheLoad(),new Promise(r=>setTimeout(r,1500))]);
   render();
   let db=null,user=null;
   try{ [db,user]=await window.fbReady }catch(e){}
@@ -270,7 +288,7 @@ async function init(){
   try{ const me=await user?.me?.(); if(me?.name){ S.meName=me.name; $("#who").textContent=uaName(me.name) } }catch(e){}
   $("#who").style.cursor="pointer"; $("#who").onclick=()=>whoAmISheet();
   const timer=setTimeout(()=>{ if(!Object.values(S.loaded).every(Boolean)){ S.slow=true; render(); } },10000);
-  const sub=(name,q,fn)=>q.onSnapshot(snap=>{fn(snap); if(!snap.metadata.fromCache){S.loaded[name]=true; if(Object.values(S.loaded).every(Boolean)){clearTimeout(timer);S.slow=false}} render();},
+  const sub=(name,q,fn)=>q.onSnapshot(snap=>{fn(snap); if(!snap.metadata.fromCache){S.loaded[name]=true; if(Object.values(S.loaded).every(Boolean)){clearTimeout(timer);S.slow=false;S.fromCache=false}} render(); cacheSave();},
     err=>{S.loaded[name]=true; S.err=err?.code||"error"; render();});
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>{ const x={id:d.id,...d.data()}; if(x.helper===undefined&&/^\s*(підсоб|подсоб|помічник|разнораб|різнороб)/i.test(x.name||"")) x.helper=true; return [d.id,x] }))});
@@ -304,6 +322,7 @@ async function init(){
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),"")});
 }
 async function write(fn){
+  if(!S.db&&!S.offline){ toast("⏳ Підключаюсь до бази…"); for(let i=0;i<40&&!S.db&&!S.offline;i++) await new Promise(r=>setTimeout(r,250)) }
   if(!S.db){toast("Немає з'єднання з базою");return false}
   try{ const p=Promise.resolve(fn(routed(S.db)));
     const off=navigator.onLine===false, r=await Promise.race([p.then(()=>"ok"),new Promise(res=>setTimeout(()=>res("wait"),off?1200:6000))]);
@@ -331,7 +350,8 @@ function render(){
     const w=$("#who"); if(w&&S.duoOk){ let b=$("#baseBadge"); if(!b){b=document.createElement("span");b.id="baseBadge";b.className="basebadge";w.before(b)} b.textContent=isDuo()?"🤝 на двох":"👥 на трьох"; b.style.cursor="pointer"; b.title="Перемкнути базу"; b.onclick=()=>setBase(isDuo()?"trio":"duo") } }
   const ban=[];
   if(S.offline) ban.push("Не вдалося підключитися до бази. Перевірте інтернет і перезапустіть застосунок.");
-  else if(S.slow) ban.push("Дані поки не завантажились — перевірте інтернет.");
+  else if(S.slow&&!S.fromCache) ban.push("Дані поки не завантажились — перевірте інтернет.");
+  else if(S.fromCache&&!(S.loaded&&Object.keys(S.loaded).length&&Object.values(S.loaded).every(Boolean))) ban.push(`<span style="font-size:13px">⚡ Збережені дані${S.cacheAt?" від "+new Date(S.cacheAt).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""} — оновлюю…${S.slow?" (повільний інтернет)":""}</span>`);
   if(S.err) ban.push(S.err==="permission-denied"?"Ця пошта не має доступу до бази. Попросіть Андрія додати вас.":"Помилка доступу до бази ("+esc(S.err)+").");
   if(window.__demo) ban.push('🧪 Демо-режим: це окрема копія даних для тесту — усе, що ви тут змінюєте, зберігається лише в ній і не зачіпає реальну базу. <a href="#" id="demoReset" style="color:inherit;text-decoration:underline;white-space:nowrap">Скинути демо</a>');
   else if(!S.canWrite) ban.push("Режим перегляду: зміни можуть вносити лише власники.");
@@ -4843,7 +4863,7 @@ window.__sheetsToken=async()=>{ if(shTok&&Date.now()<shExp) return shTok;
   const r=await reauthenticateWithPopup(auth.currentUser,p); const c=GoogleAuthProvider.credentialFromResult(r); if(!c?.accessToken) throw new Error("Немає доступу до Google-таблиць");
   shTok=drvTok=c.accessToken; shExp=drvExp=Date.now()+50*60e3; return shTok; };
 window.__fbList=async c=>{ const sn=await getDocs(collection(fs,px(c))); return sn.docs.map(d=>({id:d.id,...d.data()})) };
-window.__fbSignOut=async()=>{ try{ localStorage.removeItem("oblikSnap") }catch(_){} await signOut(auth); location.reload(); };
+window.__fbSignOut=async()=>{ try{ localStorage.removeItem("oblikSnap") }catch(_){} try{ await window.cacheClear?.() }catch(_){} await signOut(auth); location.reload(); };
 
 document.getElementById("loginBtn").onclick=async()=>{
   const p=new GoogleAuthProvider(); p.setCustomParameters({prompt:"select_account"});
@@ -4855,7 +4875,7 @@ getRedirectResult(auth).catch(e=>{ msg.textContent="Не вдалося увій
 
 let started=false;
 onAuthStateChanged(auth,async u=>{
-  if(!u){ L.style.display="flex"; try{ localStorage.removeItem("oblikSnap") }catch(_){} document.body.classList.remove("snap"); document.getElementById("view").innerHTML=""; return; }
+  if(!u){ L.style.display="flex"; try{ localStorage.removeItem("oblikSnap") }catch(_){} try{ window.cacheClear?.() }catch(_){} document.body.classList.remove("snap"); document.getElementById("view").innerHTML=""; return; }
   const email=(u.email||"").toLowerCase();
   if(ALLOWED.length&&!ALLOWED.includes(email)){ L.style.display="flex"; msg.innerHTML="Пошта <b>"+email+"</b> не має доступу.<br>Попросіть Андрія додати її."; document.getElementById("loginBtn").style.display="none"; lo2.style.display=""; return; }
   L.style.display="none"; window.__fbEmail=email;
