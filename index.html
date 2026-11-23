@@ -423,7 +423,7 @@ function personOptions(sel,emptyLabel){
   let h=`<option value="">${emptyLabel}</option>`;
   for(const [role,label] of [["owner","👤 Власники"],["worker","🔧 Виконавці"]]){
     const l=all.filter(p=>p.role===role); if(!l.length)continue;
-    h+=`<optgroup label="${label}">`+l.map(p=>`<option value="${p.id}" ${sel===p.id?"selected":""}>${esc(p.name)}</option>`).join("")+`</optgroup>`;
+    h+=`<optgroup label="${label}">`+l.filter(p=>p.active!==false||sel===p.id).map(p=>`<option value="${p.id}" ${sel===p.id?"selected":""}>${p.crew?"👥 ":""}${esc(p.name)}</option>`).join("")+`</optgroup>`;
   }
   return h;
 }
@@ -4030,29 +4030,37 @@ function handoverSheet(kind,id){
   const l=toolsWhere(kind,id), who=kind==="person"?person(id)?.name:site(id)?.name;
   openSheet(`<h2>🧰 ${kind==="person"?"Видано: "+esc(who||""):"На об'єкті: "+esc(who||"")}</h2>
     <div class="sum">${l.length} поз. · ${l.reduce((a,t)=>a+qtyOf(t),0)} шт</div>
-    ${l.length?`<div class="list">${l.map(t=>`<div class="card" style="cursor:default"><div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="tags">${kind==="person"?siteTag(t.site):holderTag(t.holder)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`).join("")}</div>
+    ${l.length&&S.canWrite?`<label class="m" style="display:flex;gap:8px;align-items:center;margin:4px 0 6px"><input type="checkbox" id="hoAll" style="width:22px;height:22px"> Виділити все</label>`:""}
+    ${l.length?`<div class="list">${l.map(t=>`<div class="card" style="cursor:default">${S.canWrite?`<input type="checkbox" class="hoC" value="${t.id}" style="width:24px;height:24px;flex:none" aria-label="Вибрати ${esc(t.name)}">`:""}<div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="tags">${kind==="person"?siteTag(t.site):holderTag(t.holder)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`).join("")}</div>
     <div class="actions"><button class="btn ghost" id="hoPrint">🖨 Друк</button><button class="btn ghost" id="hoShare">📤 Надіслати</button></div>
-    ${S.canWrite?`<div class="actions"><button class="btn" id="hoBack" style="width:100%">🚚 Перемістити все (склад / інший об'єкт)</button></div>`:""}`:`<div class="m" style="color:var(--muted)">Інструменту немає</div>`}
+    ${S.canWrite?`<div class="actions"><button class="btn" id="hoSel" style="flex:1" disabled>🚚 Перемістити вибране</button><button class="btn ghost" id="hoBack" style="flex:1">🚚 Усе</button></div>`:""}`:`<div class="m" style="color:var(--muted)">Інструменту немає</div>`}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#hoPrint")?.addEventListener("click",()=>printDoc(handoverHTML(kind,id),"Інструмент — "+(who||"")));
   $("#hoShare")?.addEventListener("click",async()=>{const text=handoverText(kind,id);
     try{ if(navigator.share){await navigator.share({text});return} }catch(e){ if(e?.name==="AbortError")return }
     window.open("https://t.me/share/url?url=%20&text="+encodeURIComponent(text),"_blank")});
   $("#hoBack")?.addEventListener("click",()=>returnAllForm(kind,id));
+  // ☑️ вибрані позиції → куди завгодно: склад, об'єкт, інша людина чи бригада
+  const M=$("#modal"), sel=()=>[...M.querySelectorAll(".hoC:checked")].map(c=>c.value);
+  const upd=()=>{ const n=sel().length, b=$("#hoSel"); if(b){ b.disabled=!n; b.textContent=n?`🚚 Перемістити вибране (${n})`:"🚚 Перемістити вибране" } };
+  M.querySelectorAll(".hoC").forEach(c=>c.onchange=upd);
+  $("#hoAll")?.addEventListener("change",e=>{ M.querySelectorAll(".hoC").forEach(c=>c.checked=e.target.checked); upd() });
+  $("#hoSel")?.addEventListener("click",()=>{ const ids=sel(); if(ids.length) returnAllForm(kind,id,ids) });
 }
-function returnAllForm(kind,id){
-  const l=toolsWhere(kind,id), who=kind==="person"?person(id)?.name:site(id)?.name;
+function returnAllForm(kind,id,ids){
+  const l=toolsWhere(kind,id).filter(t=>!ids||ids.includes(t.id)), who=kind==="person"?person(id)?.name:site(id)?.name;
   const wh=[...S.sites.values()].find(s=>s.type==="warehouse"&&s.active!==false);
-  openSheet(`<h2>🚚 Перемістити все (${l.reduce((a,t)=>a+qtyOf(t),0)} шт)</h2>
+  openSheet(`<h2>🚚 Перемістити ${ids?"вибране":"все"} (${l.length} поз. · ${l.reduce((a,t)=>a+qtyOf(t),0)} шт)</h2>
+    ${ids?`<div class="m" style="margin:-4px 0 8px">${l.slice(0,8).map(t=>esc(t.name)).join(", ")}${l.length>8?"…":""}</div>`:""}
     <p style="margin:0 0 10px;color:var(--muted)">${kind==="person"?"Від: "+esc(who||""):"З об'єкта: "+esc(who||"")}</p>
-    <form id="rbF"><div class="field"><label>Кому *</label><select name="holder" required>${personOptions(meId()||owners()[0]?.id||"","— виберіть")}</select></div>
+    <form id="rbF"><div class="field"><label>Кому * <span class="m">(людина або бригада)</span></label><select name="holder" required>${personOptions(meId()||owners()[0]?.id||"","— виберіть")}</select></div>
     <div class="field"><label>Куди *</label><select name="site">${siteOptions(wh?.id||"","— не вказано")}</select></div>
     ${kind==="site"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="arch" style="width:22px;height:22px"> Після повернення перенести об'єкт в архів</label></div>`:""}
     <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Перемістити</button></div></form>`);
   $("#rbF").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));if(!f.holder)return;
     const btn=e.target.querySelector("[type=submit]");btn.disabled=true;btn.textContent="Зачекайте…";
     let byName="";try{byName=(await S.user?.me?.())?.name||""}catch(_){}
-    let n=0; for(const t of toolsWhere(kind,id)){ const cur=S.tools.get(t.id); if(!cur) continue; if(cur.holder===f.holder&&(cur.site||"")===(f.site||"")){n+=qtyOf(cur);continue}
+    let n=0; for(const t of toolsWhere(kind,id).filter(t=>!ids||ids.includes(t.id))){ const cur=S.tools.get(t.id); if(!cur) continue; if(cur.holder===f.holder&&(cur.site||"")===(f.site||"")){n+=qtyOf(cur);continue}
       const ok=await write(db=>moveTool(db,cur,qtyOf(cur),f.holder,f.site||"","повернення"+(kind==="site"?" з об'єкта":""),byName)); if(!ok)break; n+=qtyOf(cur); }
     if(f.arch) await write(db=>db.doc("sites/"+id).update({active:false}));
     closeSheet(); toast("Переміщено "+n+" шт"+(f.arch?", об'єкт в архіві":""));};
