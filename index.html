@@ -241,7 +241,7 @@ function applyBase(){ testFilter("trio"); if(S.B.duo.sites) testFilter("duo"); c
 const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers"||c==="photos"||c==="tasks")?"duo_"+c:c;
 // ---- Журнал змін: кожне додавання / зміна / видалення зберігається повністю (як було → як стало) ----
 const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
-const MOVE_KEYS=new Set(["holder","site","qty","updatedAt","movedAt","ackAt","ackBy","checkAt","checkBy","checkMiss"]);
+const MOVE_KEYS=new Set(["holder","site","qty","updatedAt","price","priceSrc","movedAt","ackAt","ackBy","checkAt","checkBy","checkMiss"]);
 const localOf=(c,id)=>{ const m=S[c]; const v=m&&m.get?m.get(id):null; if(!v) return null; const {id:_,...r}=v; return JSON.parse(JSON.stringify(r)) };
 async function logChange(db,c,id,op,before,after){
   if(c==="tools"&&op==="edit"&&after&&before&&Object.keys(after).every(k=>MOVE_KEYS.has(k)||JSON.stringify(after[k])===JSON.stringify(before[k]))) return; // переміщення — у своїй історії
@@ -498,7 +498,7 @@ function renderTools(){
   if(document.activeElement?.id!=="q") $("#headTools").innerHTML=`
     <div class="search"><input id="q" type="search" placeholder="🔍 Назва, № або людина…" value="${esc(S.q)}"><button class="btn ghost sm" id="qrScan" title="Сканувати QR" style="font-size:18px">📷</button></div>
     <div class="seg" id="tlV" style="margin:8px 0 6px">${[["place","📍 Місця"],["people","👷 Люди"],["cat","🗂 Каталог"]].map(([k,l])=>`<button type="button" data-tv="${k}" class="${S.tview===k&&S.holderType==="all"&&!S.q?"on":""}">${l}</button>`).join("")}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px"><span class="chip" id="catBtn">📚 Довідник</span><span class="chip" id="buyBtn">🛒 Закупівля</span>${nR?`<span class="chip ${S.holderType==="repair"?"on":""}" data-ht="${S.holderType==="repair"?"all":"repair"}">🔧 Ремонт ${nR}</span>`:""}${nL?`<span class="chip ${S.holderType==="lost"?"on":""}" data-ht="${S.holderType==="lost"?"all":"lost"}">❌ Втрачено ${nL}</span>`:""}${live.some(t=>t.checkMiss)?`<span class="chip" id="missC" style="border-color:#ef4444;color:#ef4444">❓ Не знайшли ${live.filter(t=>t.checkMiss).length}</span>`:""}</div>`;
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px"><span class="chip" id="catBtn">📚 Довідник</span><span class="chip" id="buyBtn">🛒 Закупівля</span>${S.canWrite?`<span class="chip" id="qrAll">🏷 QR-наліпки</span>`:""}${nR?`<span class="chip ${S.holderType==="repair"?"on":""}" data-ht="${S.holderType==="repair"?"all":"repair"}">🔧 Ремонт ${nR}</span>`:""}${nL?`<span class="chip ${S.holderType==="lost"?"on":""}" data-ht="${S.holderType==="lost"?"all":"lost"}">❌ Втрачено ${nL}</span>`:""}${S.canWrite&&live.some(t=>perUnit(t)&&qtyOf(t)>1&&!t.serial)?`<span class="chip" id="batC">✂️ Дорогі партіями (${live.filter(t=>perUnit(t)&&qtyOf(t)>1&&!t.serial).length}) — поштучно</span>`:""}${live.some(t=>t.checkMiss)?`<span class="chip" id="missC" style="border-color:#ef4444;color:#ef4444">❓ Не знайшли ${live.filter(t=>t.checkMiss).length}</span>`:""}</div>`;
   if(S.holderType==="lost"){ $("#view").innerHTML=lostHTML(); bindLost(); return }
   if(!S.tools.size){
     $("#view").innerHTML=`<div class="empty">Інструменту ще немає.<br><br>${S.people.size<2||!S.sites.size?"Спочатку додайте <b>людей</b> і <b>об'єкти/склади</b> на відповідних вкладках, потім — інструмент кнопкою «+».":"Натисніть «+», щоб додати перший інструмент."}</div>`;
@@ -647,13 +647,40 @@ async function tkAfter(t,dest){ if(!t||isDuo()) return; const now=Date.now();
 const QR_URL=id=>location.origin+location.pathname.replace(/[^/]*$/,"")+"#t="+id;
 function loadQR(){ if(window.qrcode) return Promise.resolve(window.qrcode); return new Promise((ok,bad)=>{ const s=document.createElement("script"); s.src="qrcode.js"; s.onload=()=>ok(window.qrcode); s.onerror=()=>bad(new Error("не завантажився qrcode.js")); document.head.appendChild(s) }) }
 const QR_FMT={a4:{nm:"Аркуш A4 (3 × 8)",w:63,h:34},l58:{nm:"Етикетки 58 × 40 мм",w:58,h:40},l40:{nm:"Етикетки 40 × 30 мм",w:40,h:30}};
-function qrSheet(ids,title){ const l=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!l.length) return; let fmt="a4"; try{ fmt=localStorage.getItem("qrFmt")||"a4" }catch(_){}
-  openSheet(`<h2>🏷 QR-наліпки${title?" — "+esc(title):""}</h2><div class="m" style="margin-bottom:8px">${l.length} шт. Наліпка = назва, № і QR. Скан камерою → картка інструмента або одразу в кошик.</div>
-    <div class="dst" id="qrF">${Object.entries(QR_FMT).map(([k,f])=>`<button type="button" data-qf="${k}" class="${fmt===k?"on":""}">${f.nm}</button>`).join("")}</div>
+// 💲 середня ціна інструмента (ШІ): одна оцінка на однакові позиції → у кожен запис
+async function toolPrices(list){ const ai=window.__fbAIWeb||window.__fbAI; if(!ai) throw new Error("ШІ недоступний");
+  const G=new Map(); for(const t of list){ const k=lotKey(t); if(!G.has(k)) G.set(k,[]); G.get(k).push(t) } const keys=[...G.keys()]; let n=0;
+  for(let a=0;a<keys.length;a+=40){ const part=keys.slice(a,a+40);
+    const prompt=`Оціни СЕРЕДНЮ роздрібну ціну в Україні (гривні, за 1 шт, новий) для будівельного інструмента й обладнання зі списку. Якщо марку/модель вказано — саме для неї. Якщо ні — середня по поширених брендах середнього класу (Makita, Bosch, DeWalt, Dnipro-M, Intertool, Stanley…). Акумулятор — ціна одного акумулятора.
+Список (номер. назва | марка модель | категорія):
+${part.map((k,i)=>{ const t=G.get(k)[0]; return `${i}. ${t.name} | ${[t.brand,t.model].filter(Boolean).join(" ")||"—"} | ${t.cat||"—"}` }).join("\n")}
+Відповідь — лише JSON без пояснень: {"items":[{"i":0,"price":0}]}`;
+    const r=window.__fbAIWeb?await window.__fbAIWeb(prompt):await window.__fbAI([],prompt); const j=JSON.parse(String(r?.text||r).replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1"));
+    const upd=[]; for(const x of (j.items||[])){ const k=part[+x.i], p=Math.round(+x.price||0); if(!k||!(p>0)) continue; for(const t of G.get(k)) if(!(+t.price>0)){ upd.push([t.id,p]); t.price=p } }
+    if(upd.length&&await write(async db=>{ for(const [id,p] of upd) await db.doc("tools/"+id).update({price:p,priceSrc:"ШІ, орієнтовно"}) })) n+=upd.length }
+  return n }
+function qrSheet(ids,title){ const src=ids.map(i=>S.tools.get(i)).filter(t=>t&&t.status!=="lost"); if(!src.length) return; let fmt="a4"; try{ fmt=localStorage.getItem("qrFmt")||"a4" }catch(_){}
+  const one=src.length===1, unk=src.filter(t=>!(+t.price>0)), exp=src.filter(perUnit), cheap=src.filter(t=>+t.price>0&&!perUnit(t));
+  const nExp=exp.reduce((a,t)=>a+qtyOf(t),0), lotsE=exp.filter(t=>qtyOf(t)>1&&!t.serial);
+  const li=l=>l.map(t=>`${esc(t.name)}${qtyOf(t)>1?" ×"+qtyOf(t):""}${+t.price?` <span class="m">≈${Math.round(t.price)} ₴</span>`:""}`).join(", ");
+  openSheet(`<h2>🏷 QR-наліпки${title?" — "+esc(title):""}</h2>
+    <div class="m" style="margin-bottom:8px">Наліпку отримує кожна штука, дорожча за <b>${QR_MIN} ₴</b>: свій № і свій QR. Дешевше — партією, без наліпки.</div>
+    <div class="card" style="display:block;cursor:default;margin-bottom:6px;border:2px solid var(--accent)"><b>🏷 Друкуємо: ${nExp} шт</b>${lotsE.length?`<div class="m" style="margin-top:4px">✂️ Стануть окремими одиницями: ${li(lotsE)}</div>`:""}${exp.length?`<details style="margin-top:4px"><summary class="m">Список</summary><div class="m">${li(exp)}</div></details>`:""}</div>
+    ${unk.length?`<div class="card" style="display:block;cursor:default;margin-bottom:6px"><b>❔ Ціна невідома: ${unk.length} поз.</b><div class="m" style="margin:4px 0">${li(unk.slice(0,12))}${unk.length>12?"…":""}</div>
+      ${S.canWrite?`<button class="btn sm" id="qrEst" style="width:100%">💲 Оцінити ціни (ШІ)</button>`:""}<label class="m" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="qrUnk" ${one?"checked":""} style="width:20px;height:20px"> Однаково надрукувати (по одній на запис)</label></div>`:""}
+    ${cheap.length?`<details class="card" style="display:block;cursor:default;margin-bottom:6px"><summary><b>Без наліпки (до ${QR_MIN} ₴): ${cheap.length} поз.</b></summary><div class="m" style="margin-top:4px">${li(cheap)}</div></details>`:""}
+    <div class="dst" id="qrF" style="margin-top:8px">${Object.entries(QR_FMT).map(([k,f])=>`<button type="button" data-qf="${k}" class="${fmt===k?"on":""}">${f.nm}</button>`).join("")}</div>
     <div class="m" style="margin:8px 0">Для принтера етикеток виберіть його розмір; у вікні друку — цей принтер і «Без полів».</div>
     <div class="actions"><button class="btn ghost" data-close>Закрити</button><button class="btn" id="qrGo">🖨 Друк</button></div>`);
   $("#qrF").onclick=e=>{ const b=e.target.closest("[data-qf]"); if(!b) return; fmt=b.dataset.qf; try{ localStorage.setItem("qrFmt",fmt) }catch(_){} $("#qrF").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)) };
-  $("#qrGo").onclick=async()=>{ let Q; try{ Q=await loadQR() }catch(e){ toast("Немає інтернету для QR: "+e.message); return } const f=QR_FMT[fmt], a4=fmt==="a4", qs=Math.min(f.h-6,f.w*0.48);
+  $("#qrEst")?.addEventListener("click",async()=>{ const b=$("#qrEst"); b.disabled=true; const t0=Date.now(), tk=setInterval(()=>{ const x=$("#qrEst"); if(x) x.textContent=`⏳ Оцінюю ціни… ${Math.round((Date.now()-t0)/1000)} с` },1000);
+    try{ const n=await toolPrices(unk); clearInterval(tk); toast(n?`💲 Ціни оцінено: ${n} поз.`:"ШІ не дав цін — впишіть вручну в картці",3500); setTimeout(()=>qrSheet(ids,title),300) }
+    catch(e){ clearInterval(tk); b.disabled=false; b.textContent="💲 Оцінити ціни (ШІ)"; toast("Не вдалося: "+e.message,4000) } });
+  $("#qrGo").onclick=async()=>{ let l=[...exp,...($("#qrUnk")?.checked?unk:[])]; if(!l.length){ toast(unk.length?"Спершу оцініть ціни або позначте «Однаково надрукувати»":`Тут немає нічого дорожчого за ${QR_MIN} ₴`,4000); return }
+    let Q; try{ Q=await loadQR() }catch(e){ toast("Немає інтернету для QR: "+e.message); return }
+    const sp=l.filter(t=>perUnit(t)&&qtyOf(t)>1&&!t.serial);
+    if(sp.length){ const map=new Map(); if(!await write(async db=>{ for(const t of sp) map.set(t.id,await splitUnits(db,t)) })) return; l=l.flatMap(t=>map.get(t.id)||[t]); toast(`✂️ Окремими одиницями: ${[...map.values()].reduce((a,u)=>a+u.length,0)} шт`,3000) }
+    const f=QR_FMT[fmt], a4=fmt==="a4", qs=Math.min(f.h-6,f.w*0.48);
     const lab=t=>{ const q=Q(0,"M"); q.addData(QR_URL(t.id)); q.make(); return `<div class="ql" style="width:${f.w}mm;height:${f.h}mm"><div class="qq" style="width:${qs}mm;height:${qs}mm">${q.createSvgTag({cellSize:2,margin:0,scalable:true})}</div><div class="qt"><b>${esc(t.name)}</b>${t.inv?`<div class="qi">#${esc(t.inv)}</div>`:""}${qtyOf(t)>1?`<div>${qtyOf(t)} шт</div>`:""}<div class="qo">Облік</div></div></div>` };
     printDoc(`<style>@page{${a4?"size:A4;margin:8mm 5mm":`size:${f.w}mm ${f.h}mm;margin:0`}}#printArea .ql{box-sizing:border-box;display:inline-flex;gap:2mm;align-items:center;padding:2mm;${a4?"border:0.2mm dashed #999;":"page-break-after:always;"}overflow:hidden;vertical-align:top;font:${fmt==="l40"?"7.5pt":"9pt"}/1.15 Arial,sans-serif;color:#000}#printArea .qq svg{width:100%;height:100%;display:block}#printArea .qt{flex:1;min-width:0;overflow:hidden}#printArea .qt b{display:block;max-height:3.5em;overflow:hidden}#printArea .qi{font-size:1.35em;font-weight:700;margin-top:1mm}#printArea .qo{color:#555;font-size:.8em;margin-top:1mm}</style>${l.map(lab).join("")}`,"QR-наліпки") } }
 // 📷 сканер усередині застосунку (Chrome на Android): кожна наліпка → у кошик
@@ -1328,7 +1355,7 @@ const qtyOf=t=>Math.max(1,+t.qty||1);
 const isPerm=st=>!!st&&(st.perm===true||(st.perm!==false&&/шабаш/i.test(st.name||"")));
 const normName=s=>String(s||"").toLowerCase().replace(/[«»"'’ʼ`.,()\-–—/]/g," ").replace(/\s+/g," ").trim();
 function lotKey(t){return [normName(t.name),t.cat||"",normName(t.brand),normName(t.model)].join("|")}
-const isLot=t=>!t.serial&&(qtyOf(t)>1||!t.inv);
+const isLot=t=>!t.serial&&!(+t.price>600)&&(qtyOf(t)>1||!t.inv);
 function findLot(t,holder,siteId,exceptId){
   if(!isLot(t)) return null;
   const k=lotKey(t);
@@ -1841,7 +1868,7 @@ function boughtSheet(groups,back){ if(!groups.length) return;
         for(const r of g.l){ const n=l[r.x.i]; if(!n) continue; delete n.ordered; n.bought=(+n.bought||0)+num(r.qty); if(num(r.price)&&r.x.mat){ n.price=num(r.price); n.priceSrc="куплено "+fmtDay(date) }
           if(deliv){ if(r.x.mat) n.got=Math.round(((+n.got||0)+num(r.qty))*100)/100;
             else { const t={name:n.name,cat:"Інше",brand:"",model:"",qty:Math.max(1,Math.round(num(r.qty))),holder:own,site:st.id,status:"ok",note:"Куплено "+fmtDay(date)+(num(r.price)?" за "+num(r.price)+" ₴":""),inv:"",serial:"",createdAt:now,updatedAt:now};
-              await db.collection("tools").add(t); n.done=true } } }
+              await addTool(db,t); n.done=true } } }
         await db.doc("sites/"+st.id).update({needs:l}); st.needs=l } });
       let synced=0; if(ok){ const sy=rows.filter(r=>r.sync&&r.x.mat&&num(r.qty)>0).map(r=>{ const gr=by.get(r.g.site.id), gt=num($(`[data-gt="${r.g.site.id}"]`)?.value);
           const pr=num(r.price)||(gt>0&&gr&&gr.l.length===1?gt/num(r.qty):0); return {r,pr:Math.round(pr*100)/100} }).filter(x=>x.pr>0);
@@ -2022,18 +2049,17 @@ function photoFlow(opts){
       for(const r of sel){
         if(mode==="add"){
           const t={name:r.name.trim(),cat:r.cat,brand:r.brand.trim(),model:r.model||"",qty:r.qty,holder:holder||"",site:siteId||"",status:"ok",note:r.note||"",inv:"",serial:""};
-          const lot=findLot(t,t.holder,t.site);
+          const lot=perUnit(t)?null:findLot(t,t.holder,t.site);
           if(lot) await db.doc("tools/"+lot.id).update({qty:qtyOf(lot)+r.qty,updatedAt:Date.now()});
-          else { if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент") t.inv=nextInv(); t.createdAt=t.updatedAt=Date.now(); await db.collection("tools").add(t); }
+          else { if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент") t.inv=invAlloc(); t.createdAt=t.updatedAt=Date.now(); await addTool(db,t); }
           n+=r.qty;
         } else {
           if(r.buy||r.match==="__new"){ // реєструємо там, звідки забрали (або на складі, якщо куплено), і одразу переміщуємо — в історії буде видно звідки/куди
             const from=r.buy?buyWh:(S.pfFrom||""), now=Date.now();
             const nt={name:r.name.trim(),cat:r.cat,brand:r.brand.trim(),model:r.model||"",qty:r.qty,holder:"",site:from,status:"ok",note:r.note||"",inv:"",serial:"",createdAt:now,updatedAt:now};
             if(r.qty===1&&CAT_GROUP[r.cat]!=="Ручний інструмент"){ nt.inv=String(Math.max(+nextInv(),invBase+invK)).padStart(4,"0"); invK++ }
-            const ref=await db.collection("tools").add(nt);
             if(r.buy) nt.note=[nt.note,"куплено "+fmtDay(todayISO())].filter(Boolean).join(" · ");
-            await moveTool(db,{id:ref.id,...nt},r.qty,holder,siteId,r.buy?"куплено · новий у базі":"новий у базі",byName); n+=r.qty; nNew++; if(r.buy) nBuy++; continue }
+            for(const u of await addTool(db,nt)) await moveTool(db,u,qtyOf(u),holder,siteId,r.buy?"куплено · новий у базі":"новий у базі",byName); n+=r.qty; nNew++; if(r.buy) nBuy++; continue }
           const t=r.match&&S.tools.get(r.match); if(!t){skip++;continue}
           await moveTool(db,t,r.qty,holder,siteId,"з фото",byName); n+=Math.min(r.qty,qtyOf(t));
         }
@@ -2047,6 +2073,19 @@ function photoFlow(opts){
 }
 
 function nextInv(){ let m=0; for(const t of S.tools.values()){const n=parseInt(t.inv,10); if(n>m)m=n} return String(m+1).padStart(4,"0"); }
+// номери для кількох нових записів поспіль (база ще не оновилась) — без повторів
+function invAlloc(){ const n=Math.max(+nextInv(),(S._invHi||0)+1); S._invHi=n; return String(n).padStart(4,"0") }
+const invTake=v=>{ const n=parseInt(v,10); if(n) S._invHi=Math.max(S._invHi||0,n) };
+// 🔋 акумулятори — завжди поштучно: кожен свій запис, № і QR
+const QR_MIN=600; // ₴ за 1 шт: дорожче — поштучний облік (кожна штука свій № і QR), дешевше — партією без наліпки
+const perUnit=t=>+t.price>QR_MIN;
+const consum=t=>/витрат|диск|свердл|\bбур|кріпл|саморіз|дюбел|електрод|\bкруг|пилк|\bбіт|насадк|рукавиц|мішк|плівк|скотч|батарейк/i.test((t.name||"")+" "+(t.cat||""));
+async function addTool(db,d){ const q=qtyOf(d); if(!(perUnit(d)&&q>1&&!d.serial)){ const r=await db.collection("tools").add(d); return [{id:r.id,...d}] }
+  invTake(d.inv); const out=[]; for(let i=0;i<q;i++){ const x={...d,qty:1,inv:i===0&&d.inv?d.inv:invAlloc()}; const r=await db.collection("tools").add(x); out.push({id:r.id,...x}) } return out }
+// партію «×N» → N окремих одиниць (перша лишає свій запис і № , решта — нові записи з наступними №)
+async function splitUnits(db,t){ const q=qtyOf(t); if(q<2) return [t]; const {id,...rest}=t, now=Date.now(); invTake(t.inv); const inv0=t.inv||invAlloc();
+  await db.doc("tools/"+id).update({qty:1,inv:inv0,updatedAt:now}); const out=[{...t,qty:1,inv:inv0}];
+  for(let i=1;i<q;i++){ const x={...rest,qty:1,inv:invAlloc(),createdAt:now+i,updatedAt:now+i}; delete x.ackAt; const r=await db.collection("tools").add(x); out.push({id:r.id,...x}) } return out }
 
 function toolForm(t){
   const isNew=!t; t=t||{status:"ok",inv:nextInv()};
@@ -2058,6 +2097,7 @@ function toolForm(t){
       <div class="row"><div class="field"><label>Марка</label><input name="brand" value="${esc(t.brand)}" placeholder="Bosch"></div>
         <div class="field"><label>Модель</label><input name="model" value="${esc(t.model)}" placeholder="GBH 2-26"></div></div>
       <div class="row"><div class="field"><label>Кількість</label><input name="qty" inputmode="numeric" value="${qtyOf(t)}"></div>
+        <div class="field"><label>Ціна 1 шт, ₴</label><input name="price" inputmode="decimal" value="${+t.price||""}" placeholder="≈"></div>
         <div class="field"><label>Інв. номер</label><input name="inv" value="${esc(t.inv)}"></div>
         <div class="field"><label>Серійний №</label><input name="serial" value="${esc(t.serial)}"></div></div>
       ${isNew?`<div class="field"><label>У кого зараз</label><select name="holder">${personOptions(defOwner,"— не вказано")}</select></div>
@@ -2071,10 +2111,11 @@ function toolForm(t){
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target));
     f.name=f.name.trim(); if(!f.name)return;
     const btn=e.target.querySelector("[type=submit]"); btn.disabled=true;
-    const data={name:f.name,qty:Math.max(1,parseInt(f.qty)||1),cat:f.cat,brand:f.brand.trim(),model:f.model.trim(),inv:f.inv.trim(),serial:f.serial.trim(),status:f.status,note:f.note.trim(),updatedAt:Date.now()};
+    const pr=Math.round(+String(f.price||"").replace(",",".").replace(/\s/g,"")||0);
+    const data={name:f.name,qty:Math.max(1,parseInt(f.qty)||1),...(pr>0?{price:pr,...(pr!==+t.price?{priceSrc:"вручну"}:{})}:{price:0}),cat:f.cat,brand:f.brand.trim(),model:f.model.trim(),inv:f.inv.trim(),serial:f.serial.trim(),status:f.status,note:f.note.trim(),updatedAt:Date.now()};
     const ok=await write(async db=>{
-      if(isNew){ data.holder=f.holder||""; data.site=f.site||""; data.createdAt=Date.now(); await db.collection("tools").add(data); }
-      else await db.doc("tools/"+t.id).update(data);
+      if(isNew){ data.holder=f.holder||""; data.site=f.site||""; data.createdAt=Date.now(); await addTool(db,data); }
+      else { await db.doc("tools/"+t.id).update(data); if(perUnit(data)&&data.qty>1&&!data.serial) await splitUnits(db,{...t,...data}) }
     });
     if(ok){closeSheet();toast("Збережено")} else btn.disabled=false;
   });
@@ -2089,7 +2130,7 @@ function toolCard(id){
   const hist=S.moves.filter(m=>m.tool===id).slice(0,30);
   openSheet(`<h2>${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</h2>
     <div class="tags" style="display:flex;gap:6px;flex-wrap:wrap">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div>
-    <dl class="kv">${qtyOf(t)>1?`<dt>Кількість</dt><dd><b>${qtyOf(t)} шт</b></dd>`:""}<dt>Категорія</dt><dd>${esc(t.cat||"—")}</dd>
+    <dl class="kv">${qtyOf(t)>1?`<dt>Кількість</dt><dd><b>${qtyOf(t)} шт</b></dd>`:""}${+t.price?`<dt>Ціна 1 шт</dt><dd>≈ ${money(+t.price)}${t.priceSrc?` <span class="m">(${esc(t.priceSrc)})</span>`:""}${perUnit(t)?" · 🏷 з QR":""}</dd>`:""}<dt>Категорія</dt><dd>${esc(t.cat||"—")}</dd>
       ${t.brand||t.model?`<dt>Марка/модель</dt><dd>${esc([t.brand,t.model].filter(Boolean).join(" "))}</dd>`:""}
       ${t.serial?`<dt>Серійний №</dt><dd>${esc(t.serial)}</dd>`:""}
       ${t.note?`<dt>Примітка</dt><dd>${esc(t.note)}</dd>`:""}</dl>
@@ -2097,12 +2138,15 @@ function toolCard(id){
     ${S.canWrite?`<div class="actions" style="margin-top:0"><button class="btn ghost" id="editT">Редагувати</button>${t.status==="lost"?`<button class="btn" id="foundT">↩️ Знайшовся</button>`:`<button class="btn ghost" id="lostT">❌ Втрачено</button><button class="btn ghost" id="cartT">${S.cart.has(t.id)?"✓ У кошику":"＋ У кошик"}</button><button class="btn" id="moveT">🚚 Перенести</button>`}</div>
       ${t.checkMiss&&t.status!=="lost"?`<div class="banner" style="margin:6px 0">❓ Не знайшли під час переклички${t.checkBy?" ("+esc(t.checkBy)+")":""}<div class="actions" style="margin:6px 0 0"><button class="btn sm" id="foundC">✅ Знайшовся</button></div></div>`:""}
       ${!ackOk(t)?`<div class="m" style="margin:4px 0">⏳ ${esc(person(t.holder)?.name||"")} ще не підтвердив отримання у своєму посиланні</div>`:t.ackAt&&person(t.holder)?.role==="worker"?`<div class="m" style="margin:4px 0">✅ Отримання підтвердив ${esc(t.ackBy||"")} ${fmtDate(t.ackAt)}</div>`:""}
+      ${qtyOf(t)>1&&!t.serial&&t.status!=="lost"?`<button class="btn ${perUnit(t)?"":"ghost "}sm" id="splitT" style="margin:4px 6px 4px 0">✂️ Окремо кожну штуку (${qtyOf(t)})</button>${perUnit(t)?`<div class="m">💰 Дорожче ${QR_MIN} ₴ — рахуємо поштучно: кожна штука свій № і QR</div>`:""}`:""}
       <button class="btn ghost sm" id="qrT" style="margin:4px 0">🏷 Надрукувати QR-наліпку</button>`:""}
     <div class="section-t">Історія</div>${hist.length?hist.map(moveLine).join(""):`<div class="m" style="color:var(--muted)">Переміщень ще не було</div>`}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#editT")?.addEventListener("click",()=>toolForm(t));
   $("#moveT")?.addEventListener("click",()=>moveTo([id]));
   $("#qrT")?.addEventListener("click",()=>qrSheet([id]));
+  $("#splitT")?.addEventListener("click",async()=>{ const n=qtyOf(t); if(!confirm(`Розбити «${t.name}» ×${n} на ${n} окремі одиниці з власними номерами?`)) return; let u=[];
+    if(await write(async db=>{ u=await splitUnits(db,t) })){ toast(`✂️ ${u.length} окремих: №${u.map(x=>x.inv).join(", №")}`,4000); closeSheet() } });
   $("#foundC")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({checkMiss:false,checkAt:Date.now(),checkBy:S.meName||""}))){ toast("✅ Знайшовся"); setTimeout(()=>toolCard(id),250) } });
   $("#cartT")?.addEventListener("click",e=>{ cartToggle(id); e.target.textContent=S.cart.has(id)?"✓ У кошику":"＋ У кошик"; cbtnSync(document) });
   $("#lostT")?.addEventListener("click",()=>lostForm([id]));
@@ -4972,6 +5016,10 @@ $("#headTools").addEventListener("click",e=>{
   if(e.target.id==="catBtn"){toolCatSheet();return}
   if(e.target.closest("#qrScan")){scanSheet();return}
   if(e.target.id==="missC"){missSheet();return}
+  if(e.target.id==="qrAll"){qrSheet([...S.tools.values()].filter(t=>t.status!=="lost").map(t=>t.id),"уся база");return}
+  if(e.target.id==="batC"){ const l=[...S.tools.values()].filter(t=>t.status!=="lost"&&perUnit(t)&&qtyOf(t)>1&&!t.serial), n=l.reduce((a,t)=>a+qtyOf(t),0);
+    if(!confirm(`Дорожче ${QR_MIN} ₴, записані партіями: ${l.map(t=>t.name+" ×"+qtyOf(t)).join(", ")}.\nРозбити на ${n} окремих — кожна штука свій № ?`)) return; let k=0;
+    write(async db=>{ for(const t of l) k+=(await splitUnits(db,t)).length }).then(ok=>ok&&toast(`✂️ Тепер ${k} окремих одиниць`,3500)); return }
   if(e.target.id==="buyBtn"){buyList();return}
   if(e.target.id==="listBtn"){photoFlow({mode:"move",text:true,to:S.site||""});return}
   if(e.target.id==="selBtn"){S.select=!S.select;S.selected.clear();render()}
