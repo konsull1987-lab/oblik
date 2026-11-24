@@ -65,6 +65,20 @@ nav button.on{color:var(--accent);font-weight:600}
 .fab{position:fixed;right:16px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:7;width:56px;height:56px;border-radius:18px;border:0;background:var(--accent);color:var(--accent-ink);font-size:30px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
 .bulkbar{position:fixed;left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:7;background:var(--text);color:var(--bg);border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:8px;box-shadow:0 6px 18px rgba(0,0,0,.3)}
 .bulkbar .sp{flex:1}
+.plg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pl{background:var(--card);border-radius:var(--radius);padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-height:86px;position:relative;min-width:0}
+.pl .ic{font-size:24px;line-height:1.1}
+.pl b{font-size:15px;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.pl .n{position:absolute;top:10px;right:12px;font-weight:700;font-size:17px}
+.pl .m{font-size:12px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.cbtn{flex:none;width:38px;height:38px;border-radius:50%;border:2px solid var(--accent);background:none;color:var(--accent);font-size:20px;font-weight:700;line-height:1;cursor:pointer;align-self:center;padding:0}
+.cbtn.on{background:var(--accent);color:var(--accent-ink)}
+.dst{display:flex;flex-wrap:wrap;gap:6px}
+.dst button{flex:1 1 calc(50% - 6px);min-width:0;min-height:48px;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--text);font:inherit;font-weight:600;text-align:left;padding:8px 10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis}
+.dst button.on{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.sbar{position:sticky;bottom:0;z-index:2;background:var(--text);color:var(--bg);border-radius:12px;padding:8px 10px;margin:8px 0;display:flex;align-items:center;gap:8px;justify-content:space-between}
+details.tcat>summary{list-style:none}details.tcat>summary::-webkit-details-marker{display:none}
 .btn{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
 .btn.ghost{background:transparent;color:inherit;border:1px solid var(--line)}
 .btn.danger{background:var(--bad-bg);color:var(--bad)}
@@ -288,7 +302,7 @@ function pullRefresh(){ let y0=null, ind=null, armed=false;
     if(ind) ind.textContent="⏳ Оновлюю…"; try{ (await navigator.serviceWorker?.getRegistration())?.update() }catch(_){} try{ loadSugg?.(true) }catch(_){}
     setTimeout(()=>{ render(); try{ S.sheetRefresh?.() }catch(_){} ind?.remove(); ind=null; toast(S.db?"✅ Дані актуальні":"Немає з'єднання — показано збережені дані") },700) }) }
 // вікна-списки після «потягнути вниз» перемальовуються зі свіжими даними на тому ж місці прокрутки
-for(const nm of ["workerSheet","inboxSheet","handoverSheet"]){ const orig=window[nm]; if(typeof orig!=="function") continue;
+for(const nm of ["workerSheet","inboxSheet","handoverSheet","placeSheet"]){ const orig=window[nm]; if(typeof orig!=="function") continue;
   window[nm]=function(...a){ const r=orig.apply(this,a); S.sheetRefresh=()=>{ const y=$("#modal .sheet")?.scrollTop||0; window[nm](...a); const n=$("#modal .sheet"); if(n) n.scrollTop=y }; return r } }
 async function init(){
   pullRefresh();
@@ -445,52 +459,156 @@ function personOptions(sel,emptyLabel){
   return h;
 }
 
+// ---------- 🧰 ІНСТРУМЕНТ: місця + кошик + одна дія «Перенести» ----------
+// Місце інструмента: склад (w:), машина власника (car: — у власника без об'єкта), об'єкт (s:), людина/бригада без об'єкта (p:).
+// Відповідальний підставляється сам: склад — його відповідальний, машина — її власник, об'єкт — бригада, що там працює.
+const ownerByRoot=r=>[...S.people.values()].find(p=>p.role==="owner"&&p.active!==false&&String(p.name||"").toLowerCase().startsWith(r));
+function whResp(s){ if(!s) return ""; if(s.resp&&person(s.resp)) return s.resp; const n=String(s.name||"").toLowerCase();
+  const p=/гараж/.test(n)?ownerByRoot("анд"):/грл/.test(n)?ownerByRoot("сер"):null; return p?.id||meId()||"" }
+function siteResp(sid){ const c=new Map(); for(const t of S.tools.values()) if(t.site===sid&&t.status!=="lost"&&person(t.holder)?.role==="worker") c.set(t.holder,(c.get(t.holder)||0)+qtyOf(t));
+  if(c.size) return [...c].sort((a,b)=>b[1]-a[1])[0][0];
+  const f=[...S.fin.values()].filter(f=>f.site===sid&&f.type==="accrual"&&person(f.worker)?.role==="worker").sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0))[0];
+  return f?.worker||meId()||"" }
+const siteKey=s=>s?(s.type==="warehouse"?"w:":"s:")+s.id:"none";
+function placeKey(t){ const s=t.site&&site(t.site); if(s) return siteKey(s); const p=t.holder&&person(t.holder); return p?(p.role==="owner"?"car:":"p:")+p.id:"none" }
+function placeMeta(k){ const i=k.indexOf(":"), ty=i<0?k:k.slice(0,i), id=i<0?"":k.slice(i+1);
+  if(ty==="w"){ const s=site(id); return {k,ty,id,ok:!!s&&s.active!==false,ic:"🏬",nm:s?.name||"Склад",site:id,resp:whResp(s)} }
+  if(ty==="s"){ const s=site(id); return {k,ty,id,ok:!!s&&s.active!==false,ic:"🏗️",nm:s?siteFull(s):"Об'єкт",site:id,resp:siteResp(id),arch:s?.active===false} }
+  const p=person(id);
+  if(ty==="car") return {k,ty,id,ok:!!p&&p.active!==false,ic:"🚐",nm:p?.name||"—",sub:"машина",site:"",resp:id};
+  if(ty==="p"||ty==="h") return {k,ty,id,ok:!!p&&p.active!==false,ic:p?.crew?"👥":p?.role==="owner"?"👤":"🔧",nm:p?.name||"—",site:"",resp:id};
+  return {k,ty:"none",ok:false,ic:"❓",nm:"Без місця",site:"",resp:""} }
+const placeTools=k=>{ const m=placeMeta(k); return [...S.tools.values()].filter(t=>t.status!=="lost"&&(m.ty==="h"?t.holder===m.id:placeKey(t)===k)).sort((a,b)=>(a.cat||"").localeCompare(b.cat||"","uk")||byName(a,b)) };
+// 🧰 кошик: що вибрали (і скільки) — живе між екранами й після перезапуску
+S.cart=S.cart||(()=>{ try{ return new Map(JSON.parse(localStorage.getItem("oblikCart")||"[]")) }catch(_){ return new Map() } })();
+const cartSave=()=>{ try{ localStorage.setItem("oblikCart",JSON.stringify([...S.cart])) }catch(_){} };
+function cartLive(){ if(S.tools.size){ let ch=0; for(const id of [...S.cart.keys()]){ const t=S.tools.get(id); if(!t||t.status==="lost"){ S.cart.delete(id); ch=1 } else if(S.cart.get(id)>qtyOf(t)){ S.cart.set(id,qtyOf(t)); ch=1 } } if(ch) cartSave() } return S.cart }
+function cartToggle(id,on){ const has=S.cart.has(id); if(on===undefined) on=!has; if(on&&!has){ const t=S.tools.get(id); if(!t||t.status==="lost") return; S.cart.set(id,qtyOf(t)) } else if(!on&&has) S.cart.delete(id); cartSave(); renderBulk() }
+const cbtn=id=>S.canWrite?`<button type="button" class="cbtn ${S.cart.has(id)?"on":""}" data-cart="${id}" aria-label="У кошик">${S.cart.has(id)?"✓":"＋"}</button>`:"";
+const cbtnSync=root=>root.querySelectorAll("[data-cart]").forEach(b=>{ const on=S.cart.has(b.dataset.cart); b.classList.toggle("on",on); b.textContent=on?"✓":"＋" });
+function toolRow(t,opt){ opt=opt||{}; const m=placeMeta(placeKey(t)), h=person(t.holder)?.name||"", bm=[t.brand,t.model].filter(Boolean).join(" ");
+  const where=opt.here?((m.ty==="w"||m.ty==="s")&&h?"👤 "+h:""):m.ic+" "+m.nm+((m.ty==="w"||m.ty==="s")&&h?" · "+h:"");
+  return `<div class="card" data-tool="${t.id}" data-tq="${esc([t.name,bm,t.inv,t.cat,h,m.nm].filter(Boolean).join(" "))}" style="align-items:center"><div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div>${where||bm?`<div class="m">${esc([where,bm].filter(Boolean).join(" · "))}</div>`:""}${statusTag(t.status)?`<div class="tags">${statusTag(t.status)}</div>`:""}</div>${qtyOf(t)>1?`<span class="count" style="margin-left:0">${qtyOf(t)} шт</span>`:""}${cbtn(t.id)}</div>` }
+
 function renderTools(){
-  const all=[...S.tools.values()];
+  const all=[...S.tools.values()], live=all.filter(t=>t.status!=="lost");
   const sq=l=>l.reduce((a,t)=>a+qtyOf(t),0);
-  const nOwn=sq(all.filter(t=>roleOf(t)==="owner")), nW=sq(all.filter(t=>roleOf(t)==="worker")), nR=sq(all.filter(t=>t.status&&t.status!=="ok"&&t.status!=="lost")), nL=sq(all.filter(t=>t.status==="lost"));
-  const st=(k,cls,n,l)=>`<div class="stat ${cls} ${S.holderType===k?"on":""}" data-ht="${k}"><b>${n}</b><span>${l}</span></div>`;
+  const nR=sq(live.filter(t=>t.status&&t.status!=="ok")), nL=sq(all.filter(t=>t.status==="lost"));
+  S.tview=S.tview||"place"; if(S.holderType!=="lost"&&S.holderType!=="repair") S.holderType="all";
   if(document.activeElement?.id!=="q") $("#headTools").innerHTML=`
-    <div class="stats">${st("all","",sq(all),"Усього")}${st("owner","own",nOwn,"У власників")}${st("worker","wrk",nW,"У виконавців")}${st("repair","rep",nR,"Ремонт/інше")}${nL?st("lost","bad",nL,"❌ Втрачено"):""}</div>
-    <div class="search"><input id="q" type="search" placeholder="Пошук: назва, номер, людина, об'єкт…" value="${esc(S.q)}">
-      <button class="btn ghost sm" id="selBtn">${S.select?"Скасувати":"Вибрати"}</button></div>
-    <div style="display:flex;gap:6px;margin:6px 0"><button class="btn ghost sm" id="catBtn" style="flex:1">📚 Довідник</button><button class="btn ghost sm" id="buyBtn" style="flex:1">🛒 Закупівля</button></div>
-    <div class="filters">
-      <select id="fCat">${catOptions(S.cat,true)}</select>
-      <select id="fSite">${siteOptions(S.site,"Усі місця")}</select>
-      <select id="fPerson">${personOptions(S.person,"Усі люди")}</select>
-    </div>`;
+    <div class="search"><input id="q" type="search" placeholder="🔍 Назва, № або людина…" value="${esc(S.q)}"></div>
+    <div class="seg" id="tlV" style="margin:8px 0 6px">${[["place","📍 Місця"],["people","👷 Люди"],["cat","🗂 Каталог"]].map(([k,l])=>`<button type="button" data-tv="${k}" class="${S.tview===k&&S.holderType==="all"&&!S.q?"on":""}">${l}</button>`).join("")}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px"><span class="chip" id="catBtn">📚 Довідник</span><span class="chip" id="buyBtn">🛒 Закупівля</span>${nR?`<span class="chip ${S.holderType==="repair"?"on":""}" data-ht="${S.holderType==="repair"?"all":"repair"}">🔧 Ремонт ${nR}</span>`:""}${nL?`<span class="chip ${S.holderType==="lost"?"on":""}" data-ht="${S.holderType==="lost"?"all":"lost"}">❌ Втрачено ${nL}</span>`:""}</div>`;
   if(S.holderType==="lost"){ $("#view").innerHTML=lostHTML(); bindLost(); return }
-  const list=filteredTools();
   if(!S.tools.size){
     $("#view").innerHTML=`<div class="empty">Інструменту ще немає.<br><br>${S.people.size<2||!S.sites.size?"Спочатку додайте <b>людей</b> і <b>об'єкти/склади</b> на відповідних вкладках, потім — інструмент кнопкою «+».":"Натисніть «+», щоб додати перший інструмент."}</div>`;
     return;
   }
-  const tcard=t=>{ const r=roleOf(t); return `<div class="card" data-tool="${t.id}">
-      ${S.select?`<input type="checkbox" class="cb" ${S.selected.has(t.id)?"checked":""} tabindex="-1">`:`<div class="stripe ${r==="owner"?"own":r==="worker"?"wrk":""}"></div>`}
-      <div class="main"><div class="t">${esc(t.name)} ${t.inv?`<span class="inv">#${esc(t.inv)}</span>`:""}</div>
-      <div class="m">${esc(t.cat||"")}${t.brand||t.model?" · "+esc([t.brand,t.model].filter(Boolean).join(" ")):""}</div>
-      <div class="tags">${holderTag(t.holder)}${siteTag(t.site)}${statusTag(t.status)}</div></div>${qtyOf(t)>1?`<span class="count">${qtyOf(t)} шт</span>`:""}</div>`; };
-  const flat=(S.q||"").trim()||S.site||S.person||S.cat||S.holderType!=="all"||S.toolFlat;
-  const modeBtn=`<div style="display:flex;justify-content:flex-end;margin:-2px 0 6px"><button class="btn ghost sm" id="tlMode">${S.toolFlat?"🗂 Групами":"☰ Одним списком"}</button></div>`;
-  if(flat){ let h=((S.q||"").trim()||S.site||S.person||S.cat||S.holderType!=="all"?"":modeBtn)+`<div class="section-t" style="display:flex">Знайдено<span class="count">${list.length}</span></div><div class="list">`+list.map(tcard).join("")+`</div>`;
-    $("#view").innerHTML=h; $("#tlMode")?.addEventListener("click",()=>{ S.toolFlat=!S.toolFlat; renderTools() }); return }
-  // 🗂 групами: склад / об'єкт / бригада / людина — відкривається по натисканню
-  S.toolOpen=S.toolOpen||new Set(); const G=new Map();
-  for(const t of list){ const p=t.holder?person(t.holder):null, s2=t.site?site(t.site):null;
-    const k=p?(p.crew?"c:":"p:")+p.id:s2?(s2.type==="warehouse"?"w:":"s:")+s2.id:"none"; if(!G.has(k)) G.set(k,[]); G.get(k).push(t) }
-  const meta=k=>{ if(k==="none") return {ic:"❓",nm:"Без місця",ord:9}; const [ty,id]=k.split(":");
-    if(ty==="w") return {ic:"🏬",nm:site(id)?.name||"Склад",ord:1}; if(ty==="s") return {ic:"🏗️",nm:site(id)?.name||"Об'єкт",ord:2,sub:site(id)?.active===false?"архів":""};
-    const p=person(id); return {ic:ty==="c"?"👥":p?.role==="owner"?"👤":"🔧",nm:p?.name||"—",ord:ty==="c"?3:p?.role==="owner"?4:5,sub:site(G.get(k)[0]?.site)?.name?("на: "+[...new Set(G.get(k).map(t=>site(t.site)?.name).filter(Boolean))].slice(0,2).join(", ")):""} };
-  const SEC={1:"🏬 Склади",2:"🏗️ Об'єкти",3:"👥 Бригади",4:"👤 Власники",5:"🔧 Виконавці",9:"Інше"};
-  const keys=[...G.keys()].map(k=>({k,...meta(k),n:G.get(k).reduce((a,t)=>a+qtyOf(t),0)})).sort((a,b)=>a.ord-b.ord||b.n-a.n||a.nm.localeCompare(b.nm,"uk"));
-  let h=modeBtn, last=0;
-  for(const g of keys){ if(g.ord!==last){ h+=`<div class="section-t">${SEC[g.ord]}</div>`; last=g.ord } const op=S.toolOpen.has(g.k);
-    h+=`<div class="card" data-tg="${esc(g.k)}" style="display:block;cursor:pointer;margin-bottom:6px"><div style="display:flex;gap:8px;align-items:center"><b style="flex:1">${op?"▾":"▸"} ${g.ic} ${esc(g.nm)}${g.sub?` <span class="m" style="font-weight:400;color:var(--muted)">· ${esc(g.sub)}</span>`:""}</b><span class="count">${g.n} шт</span></div>
-      ${op?`<div class="list" style="margin-top:8px">${G.get(g.k).sort((a,b)=>String(a.name).localeCompare(String(b.name),"uk")).map(tcard).join("")}</div>`:""}</div>` }
-  $("#view").innerHTML=h;
-  $("#tlMode")?.addEventListener("click",()=>{ S.toolFlat=!S.toolFlat; renderTools() });
-  $("#view").querySelectorAll("[data-tg]").forEach(el=>el.addEventListener("click",e=>{ if(e.target.closest("[data-tool]")) return; const k=el.dataset.tg; S.toolOpen.has(k)?S.toolOpen.delete(k):S.toolOpen.add(k); renderTools() }));
+  const q=(S.q||"").trim().replace(/^#/,"");
+  if(q||S.holderType==="repair"){ const l=live.filter(t=>(S.holderType!=="repair"||(t.status&&t.status!=="ok"))&&(!q||String(t.inv||"")===q||wordHit([t.name,t.brand,t.model,t.inv,t.serial,t.cat,person(t.holder)?.name,site(t.site)?.name,t.note].join(" "),q))).sort(byName);
+    $("#view").innerHTML=`<div class="section-t" style="display:flex">${S.holderType==="repair"?"🔧 У ремонті / зламане":"Знайдено"}<span class="count">${l.length}</span></div><div class="list">${l.map(t=>toolRow(t)).join("")||`<div class="empty">Нічого не знайдено</div>`}</div><div style="height:70px"></div>`; return }
+  if(S.tview==="people"){ const G=new Map(); for(const t of live){ if(!person(t.holder)) continue; const g=G.get(t.holder)||{n:0,pl:new Set()}; g.n+=qtyOf(t); const m=placeMeta(placeKey(t)); g.pl.add(m.ty==="car"?"🚐 машина":m.ty==="p"?"при собі":m.nm); G.set(t.holder,g) }
+    const ord=p=>p.role==="owner"?0:p.crew?1:2, SEC=["👤 Власники","👥 Бригади","🔧 Виконавці"]; let h="", last=-1;
+    for(const [id,g] of [...G].sort((a,b)=>ord(person(a[0]))-ord(person(b[0]))||b[1].n-a[1].n)){ const p=person(id), o=ord(p); if(o!==last){ h+=`<div class="section-t">${SEC[o]}</div>`; last=o }
+      h+=`<div class="card" data-pl="h:${id}" style="margin-bottom:6px;align-items:center"><div class="main"><div class="t">${placeMeta("h:"+id).ic} ${esc(p.name)}</div><div class="m">${esc([...g.pl].slice(0,3).join(", "))}${g.pl.size>3?"…":""}</div></div><span class="count">${g.n} шт</span></div>` }
+    $("#view").innerHTML=(h||`<div class="empty">Ні за ким інструмент не записаний</div>`)+`<div style="height:70px"></div>`; return }
+  if(S.tview==="cat"){ S.toolOpen=S.toolOpen||new Set(); const G=new Map(); for(const t of live){ const c=t.cat||"Без категорії"; if(!G.has(c)) G.set(c,[]); G.get(c).push(t) }
+    $("#view").innerHTML=[...G].sort((a,b)=>a[0].localeCompare(b[0],"uk")).map(([c,l])=>`<details class="tcat" data-tc="${esc(c)}" ${S.toolOpen.has(c)?"open":""} style="margin-bottom:6px"><summary class="card" style="align-items:center"><b style="flex:1">${esc(c)}</b><span class="count">${sq(l)} шт</span></summary><div class="list" style="margin-top:6px">${l.sort(byName).map(t=>toolRow(t)).join("")}</div></details>`).join("")+`<div style="height:70px"></div>`;
+    $("#view").querySelectorAll(".tcat").forEach(d=>d.addEventListener("toggle",()=>{ d.open?S.toolOpen.add(d.dataset.tc):S.toolOpen.delete(d.dataset.tc) })); return }
+  // 📍 Місця: склади, машини, об'єкти, люди — великими картками з кількістю
+  const G=new Map(); for(const t of live){ const k=placeKey(t); G.set(k,(G.get(k)||0)+qtyOf(t)) }
+  const card=k=>{ const m=placeMeta(k), r=m.ty==="car"?"у машині":m.ty==="p"?(person(m.id)?.crew?"бригада":"при собі"):person(m.resp)?.name||""; return `<div class="pl" data-pl="${esc(k)}"><span class="ic">${m.ic}</span><span class="n">${G.get(k)||0}</span><b>${esc(m.nm)}</b><span class="m">${esc(r)}${m.arch?" · архів":""}</span></div>` };
+  const wh=[...S.sites.values()].filter(s=>s.type==="warehouse"&&(s.active!==false||G.has("w:"+s.id))).sort(byName).map(s=>"w:"+s.id);
+  const cars=[...S.people.values()].filter(p=>p.role==="owner"&&(p.active!==false||G.has("car:"+p.id))).sort(byName).map(p=>"car:"+p.id);
+  const objs=[...G.keys()].filter(k=>k.startsWith("s:")).sort((a,b)=>G.get(b)-G.get(a)||placeMeta(a).nm.localeCompare(placeMeta(b).nm,"uk"));
+  const ppl=[...G.keys()].filter(k=>k.startsWith("p:")).sort((a,b)=>G.get(b)-G.get(a));
+  const sec=(t,l)=>l.length?`<div class="section-t">${t}</div><div class="plg">${l.map(card).join("")}</div>`:"";
+  $("#view").innerHTML=sec("🏬 Склади",wh)+sec("🚐 Машини",cars)+sec("🏗️ Об'єкти",objs)+sec("👷 У людей (не на об'єкті)",ppl)+(G.has("none")?sec("❓ Без місця",["none"]):"")+
+    `<div class="m" style="text-align:center;margin:14px 8px 90px;color:var(--muted)">Відкрийте місце → натисніть ＋ біля того, що переносите → внизу «Перенести»</div>`;
+}
+// 📍 Вікно місця: що тут лежить, ＋ у кошик, вивантажити з машини, відповідальний
+function placeSheet(k){ const m=placeMeta(k), l=placeTools(k), sum=l.reduce((a,t)=>a+qtyOf(t),0);
+  const g=new Map(); for(const t of l){ const c=t.cat||"Без категорії"; if(!g.has(c)) g.set(c,[]); g.get(c).push(t) }
+  const resp=m.ty==="w"?`Відповідальний: <b>${esc(person(m.resp)?.name||"—")}</b>${S.canWrite?` · <a href="#" id="plResp" style="color:var(--accent)">змінити</a>`:""}`:m.ty==="s"?`Відповідає: <b>${esc(person(m.resp)?.name||"—")}</b>`:m.ty==="car"?"Що зараз у машині: везуть або ще не вивантажили":m.ty==="h"?"Усе, що записано за цією людиною (на будь-якому місці)":"";
+  const unl=(m.ty==="w"||m.ty==="s")&&S.canWrite?[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).map(p=>({p,n:placeTools("car:"+p.id).length})).filter(x=>x.n):[];
+  openSheet(`<h2>${m.ic} ${esc(m.nm)}${m.ty==="car"?" · машина":""}</h2>
+    ${resp?`<div class="m" style="margin:-4px 0 8px">${resp}</div>`:""}
+    <div class="sum">${l.length} поз. · ${sum} шт</div>
+    ${unl.map(x=>`<button class="btn" data-unl="${x.p.id}" style="width:100%;margin:4px 0">⬇️ Вивантажити сюди з машини: ${esc(x.p.name)} (${x.n})</button>`).join("")}
+    ${l.length>8?`<input type="search" id="plQ" placeholder="🔍 Пошук тут" style="margin:6px 0">`:""}
+    ${l.length&&S.canWrite?`<div style="display:flex;gap:6px;margin:6px 0"><button class="btn ghost sm" id="plAll" style="flex:1">＋ Усе в кошик</button><button class="btn ghost sm" id="plNone" style="flex:1">✕ Прибрати з кошика</button></div>`:""}
+    <div id="plL">${[...g].map(([c,ts])=>`<div class="plCat"><div class="section-t">${esc(c)} · ${ts.reduce((a,t)=>a+qtyOf(t),0)}</div><div class="list">${ts.map(t=>toolRow(t,{here:1})).join("")}</div></div>`).join("")||`<div class="empty">Тут порожньо</div>`}</div>
+    <div id="plBar" class="sbar"></div>
+    <div class="actions" style="flex-wrap:wrap">${m.ty==="s"||m.ty==="w"?`<button class="btn ghost" id="plSite">${m.ty==="s"?"🏗️ Об'єкт":"⚙️ Склад"}</button>`:""}${l.length?`<button class="btn ghost" id="plPr">🖨 Друк</button><button class="btn ghost" id="plSh">📤 Надіслати</button>`:""}<button class="btn ghost" data-close>Закрити</button></div>`);
+  const M=$("#modal"), ids=l.map(t=>t.id);
+  const bar=()=>{ cbtnSync(M); const b=$("#plBar"); if(!b) return; const c=cartLive(); b.innerHTML=c.size?`<span>🧰 У кошику: <b>${c.size}</b> поз.</span><button class="btn sm" id="plGo">Перенести →</button>`:""; b.style.display=c.size?"":"none"; $("#plGo")?.addEventListener("click",()=>moveTo([...S.cart.keys()],{cart:true,back:()=>placeSheet(k)})) };
+  bar();
+  M.querySelector("#plL").addEventListener("click",e=>{ const c=e.target.closest("[data-cart]"); if(c){ e.stopPropagation(); cartToggle(c.dataset.cart); bar(); return } const r=e.target.closest("[data-tool]"); if(r) toolCard(r.dataset.tool) });
+  $("#plAll")?.addEventListener("click",()=>{ ids.forEach(i=>cartToggle(i,true)); bar(); toast(`🧰 У кошику ${S.cart.size} поз.`) });
+  $("#plNone")?.addEventListener("click",()=>{ ids.forEach(i=>cartToggle(i,false)); bar() });
+  $("#plQ")?.addEventListener("input",e=>{ const q=e.target.value.trim(); M.querySelectorAll(".plCat").forEach(d=>{ let n=0; d.querySelectorAll("[data-tq]").forEach(r=>{ const ok=!q||wordHit(r.dataset.tq,q); r.style.display=ok?"":"none"; if(ok) n++ }); d.style.display=n?"":"none" }) });
+  M.querySelectorAll("[data-unl]").forEach(b=>b.onclick=()=>moveTo(placeTools("car:"+b.dataset.unl).map(t=>t.id),{dest:k,back:()=>placeSheet(k)}));
+  $("#plSite")?.addEventListener("click",()=>{ const s=site(m.id); if(s){ S.siteTab=m.ty==="s"?"tools":"data"; siteForm(s) } });
+  const hk=m.ty==="w"||m.ty==="s"?["site",m.id]:["person",m.id];
+  $("#plPr")?.addEventListener("click",()=>printDoc(handoverHTML(...hk),"Інструмент — "+m.nm));
+  $("#plSh")?.addEventListener("click",async()=>{ const text=handoverText(...hk); try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return } window.open("https://t.me/share/url?url=%20&text="+encodeURIComponent(text),"_blank") });
+  $("#plResp")?.addEventListener("click",e=>{ e.preventDefault(); const s=site(m.id); if(!s) return;
+    openSheet(`<h2>👤 Хто відповідає за «${esc(s.name)}»?</h2><div class="list">${[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).sort(byName).map(p=>`<div class="card" data-rsp="${p.id}"><div class="main"><div class="t">${m.resp===p.id?"✅ ":""}${esc(p.name)}</div></div></div>`).join("")}</div><div class="actions"><button class="btn ghost" id="rspB">Назад</button></div>`);
+    $("#rspB").onclick=()=>placeSheet(k);
+    $("#modal").querySelectorAll("[data-rsp]").forEach(c=>c.onclick=async()=>{ if(await write(db=>db.doc("sites/"+s.id).update({resp:c.dataset.rsp}))){ toast("Збережено"); setTimeout(()=>placeSheet(k),250) } }) });
+}
+// 🚚 Перенести: що (з кількістю) → куди (великі кнопки) → відповідальний підставлений → готово
+const plRecent=()=>{ try{ return JSON.parse(localStorage.getItem("oblikPlRecent")||"[]") }catch(_){ return [] } };
+function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.get(i)&&S.tools.get(i).status!=="lost"); if(!ids.length){ toast("Немає що переносити"); return }
+  const Q=new Map(ids.map(i=>{ const all=qtyOf(S.tools.get(i)); return [i,Math.min(all,Math.max(1,+(opt.qty?.[i]||(opt.cart?S.cart.get(i):0))||all))] }));
+  const from=new Set(ids.map(i=>placeKey(S.tools.get(i)))); let dest=opt.dest&&placeMeta(opt.dest).ty!=="none"?opt.dest:"";
+  const btn=k=>{ const m=placeMeta(k); return `<button type="button" data-dst="${esc(k)}" data-dq="${esc(m.nm)}" class="${dest===k?"on":""}">${m.ic} ${esc(m.nm)}${from.size===1&&from.has(k)?" <span class='m'>(тут зараз)</span>":""}</button>` };
+  const cnt=new Map(); for(const t of S.tools.values()) if(t.site&&t.status!=="lost") cnt.set(t.site,(cnt.get(t.site)||0)+1);
+  const rec=plRecent().filter(k=>placeMeta(k).ok).slice(0,4);
+  const wh=[...S.sites.values()].filter(s=>s.type==="warehouse"&&s.active!==false).sort(byName).map(s=>"w:"+s.id);
+  const cars=[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).sort(byName).map(p=>"car:"+p.id);
+  const objs=[...S.sites.values()].filter(s=>s.type!=="warehouse"&&s.active!==false).sort((a,b)=>(cnt.get(b.id)||0)-(cnt.get(a.id)||0)||byName(a,b)).map(s=>"s:"+s.id);
+  if(opt.dest&&opt.dest.startsWith("s:")&&!objs.includes(opt.dest)) objs.unshift(opt.dest);
+  const item=i=>{ const t=S.tools.get(i), all=qtyOf(t), m=placeMeta(placeKey(t)); return `<div class="card" data-mi="${i}" style="align-items:center;cursor:default;padding:8px 10px"><div class="main"><div class="t">${esc(t.name)}${t.inv?` <span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="m">з: ${m.ic} ${esc(m.nm)}</div></div>${all>1?`<span style="display:flex;align-items:center;gap:4px;flex:none"><button type="button" class="btn ghost sm" data-qd="-1">–</button><b data-qv>${Q.get(i)}</b><span class="m">/${all}</span><button type="button" class="btn ghost sm" data-qd="1">＋</button></span>`:""}<button type="button" class="btn ghost sm" data-mx aria-label="Прибрати" style="flex:none">✕</button></div>` };
+  openSheet(`<h2>🚚 Перенести</h2>
+    <div class="list" id="mvL" style="max-height:30vh;overflow:auto">${ids.map(item).join("")}</div>
+    <div class="section-t">Куди?</div>
+    ${rec.length?`<div class="dst">${rec.map(btn).join("")}</div><div class="m" style="margin:8px 0 4px">🚐 Машини</div>`:`<div class="m" style="margin:0 0 4px">🚐 Машини</div>`}<div class="dst">${cars.map(btn).join("")}</div>
+    ${wh.length?`<div class="m" style="margin:8px 0 4px">🏬 Склади</div><div class="dst">${wh.map(btn).join("")}</div>`:""}
+    ${objs.length?`<div class="m" style="margin:8px 0 4px">🏗️ Об'єкти</div>${objs.length>6?`<input type="search" id="mvQ" placeholder="🔍 Пошук об'єкта" style="margin-bottom:6px">`:""}<div class="dst" id="mvO">${objs.map(btn).join("")}</div>${objs.length>6?`<a href="#" id="mvMore" class="m" style="display:block;margin:6px 0;color:var(--accent)">Показати всі об'єкти (${objs.length})</a>`:""}`:""}
+    <div class="m" style="margin:8px 0 4px">👷 Людині або бригаді (не на об'єкт)</div><select id="mvP">${personOptions("","— виберіть людину")}</select>
+    <div id="mvC" style="margin-top:12px"></div>
+    <div class="actions"><button class="btn ghost" id="mvX">Скасувати</button></div>`);
+  const M=$("#modal");
+  const objLim=()=>{ const q=($("#mvQ")?.value||"").trim(), all=S.mvAllObj; let n=0; M.querySelectorAll("#mvO [data-dst]").forEach(b=>{ const ok=q?wordHit(b.dataset.dq+" "+(site(b.dataset.dst.slice(2))?.customer||""),q):(all||n<6||b.dataset.dst===dest); b.style.display=ok?"":"none"; if(ok) n++ }); const mo=$("#mvMore"); if(mo) mo.style.display=q||all?"none":"" };
+  S.mvAllObj=false; objLim();
+  $("#mvQ")?.addEventListener("input",objLim); $("#mvMore")?.addEventListener("click",e=>{ e.preventDefault(); S.mvAllObj=true; objLim() });
+  const total=()=>[...Q.values()].reduce((a,b)=>a+b,0);
+  const panel=()=>{ const c=$("#mvC"); if(!dest){ c.innerHTML=""; return } const m=placeMeta(dest), pick=m.ty==="w"||m.ty==="s";
+    c.innerHTML=`<div class="card" style="display:block;cursor:default;border:2px solid var(--accent)"><div class="t" style="margin-bottom:6px">→ ${m.ic} ${esc(m.nm)}${m.ty==="car"?" · машина":""}</div>
+      ${pick?`<div class="field" style="margin-bottom:6px"><label>Відповідальний ${m.ty==="w"?"за склад":"на об'єкті"}</label><select id="mvH">${personOptions(m.resp,"— виберіть")}</select></div>`:`<div class="m" style="margin-bottom:6px">Відповідає: <b>${esc(person(m.resp)?.name||"—")}</b></div>`}
+      ${opt.arch?`<label class="m" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="checkbox" id="mvA" style="width:22px;height:22px"> Після цього перенести об'єкт «${esc(site(opt.arch)?.name||"")}» в архів</label>`:""}
+      <input id="mvN" placeholder="Коментар (необов'язково)" style="margin-bottom:8px">
+      <button class="btn" id="mvGo" style="width:100%;padding:14px">✅ Перенести ${Q.size} поз.${total()>Q.size?` (${total()} шт)`:""}</button></div>`;
+    $("#mvGo").onclick=go; c.scrollIntoView?.({block:"nearest",behavior:"smooth"}) };
+  const setDest=k=>{ dest=k; M.querySelectorAll("[data-dst]").forEach(b=>b.classList.toggle("on",b.dataset.dst===k)); if(!k.startsWith("p:")&&!k.startsWith("car:")) $("#mvP").value=""; panel() };
+  M.querySelectorAll("[data-dst]").forEach(b=>b.onclick=()=>setDest(b.dataset.dst));
+  $("#mvP").onchange=e=>{ const p=person(e.target.value); if(p) setDest((p.role==="owner"?"car:":"p:")+p.id) };
+  $("#mvX").onclick=()=>{ if(opt.back) opt.back(); else closeSheet() };
+  $("#mvL").addEventListener("click",e=>{ const r=e.target.closest("[data-mi]"); if(!r) return; const i=r.dataset.mi, all=qtyOf(S.tools.get(i)||{});
+    const d=e.target.closest("[data-qd]"); if(d){ Q.set(i,Math.min(all,Math.max(1,Q.get(i)+(+d.dataset.qd)))); r.querySelector("[data-qv]").textContent=Q.get(i); if(opt.cart&&S.cart.has(i)){ S.cart.set(i,Q.get(i)); cartSave() } panel(); return }
+    if(e.target.closest("[data-mx]")){ Q.delete(i); r.remove(); if(opt.cart){ S.cart.delete(i); cartSave(); renderBulk() } if(!Q.size){ if(opt.back) opt.back(); else closeSheet() } else panel() } });
+  if(dest) panel();
+  async function go(){ const m=placeMeta(dest), holder=(m.ty==="w"||m.ty==="s")?($("#mvH")?.value||""):m.resp; if(!holder){ toast("Виберіть, хто відповідає"); return }
+    const b=$("#mvGo"); b.disabled=true; b.textContent="⏳ Переношу…"; const note=($("#mvN")?.value||"").trim()||opt.note||"", arch=!!$("#mvA")?.checked;
+    let byName=""; try{ byName=(await S.user?.me?.())?.name||"" }catch(_){}
+    let n=0, same=0, fail=false; for(const [i,q] of [...Q]){ const cur=S.tools.get(i); if(!cur){ S.cart.delete(i); continue }
+      if(cur.holder===holder&&(cur.site||"")===(m.site||"")){ same++; S.cart.delete(i); continue }
+      const ok=await write(db=>moveTool(db,cur,q,holder,m.site||"",note,byName)); if(!ok){ fail=true; break } n++; S.cart.delete(i) }
+    cartSave(); try{ localStorage.setItem("oblikPlRecent",JSON.stringify([dest,...plRecent().filter(x=>x!==dest)].slice(0,8))) }catch(_){}
+    if(arch&&opt.arch&&!fail) await write(db=>db.doc("sites/"+opt.arch).update({active:false}));
+    closeSheet(); render(); toast(fail?`Перенесено ${n} з ${Q.size} — перевірте з'єднання`:`✅ ${n?`Перенесено ${n} поз.`:"Уже там"} → ${m.ic} ${m.nm}${same&&n?` (${same} уже там)`:""}${arch?", об'єкт в архіві":""}`,3500);
+    if(opt.back&&n&&!opt.cart) setTimeout(opt.back,150) }
 }
 
 // ---------- 🏛️ ТЕНДЕРИ (Prozorro): в роботі, аналіз документації, кошторис, документи фірми, результати ----------
@@ -1078,11 +1196,11 @@ async function undoLog(lid){
   if(ok) toast("Повернуто");
 }
 
-function renderBulk(){
-  if(!(S.select&&S.tab==="tools")){ $("#bulk").innerHTML=""; return; }
-  $("#bulk").innerHTML=`<div class="bulkbar"><span>Вибрано: <b>${S.selected.size}</b></span><span class="sp"></span>
-    <button class="btn ghost sm" id="selAll" style="color:inherit">Усі видимі</button>
-    <button class="btn sm" id="bulkMove" ${S.selected.size&&S.canWrite?"":"disabled"}>Перемістити</button></div>`;
+function renderBulk(){ const c=S.tab==="tools"&&S.canWrite?cartLive():null;
+  if(!c||!c.size){ $("#bulk").innerHTML=""; return }
+  const n=[...c.values()].reduce((a,b)=>a+b,0);
+  $("#bulk").innerHTML=`<div class="bulkbar" style="right:84px"><span id="cartOpen" style="cursor:pointer;white-space:nowrap">🧰 <b>${c.size}</b> поз.${n>c.size?` · ${n} шт`:""}</span><span class="sp"></span><button class="btn ghost sm" id="cartClr" style="color:inherit" aria-label="Очистити кошик">✕</button><button class="btn sm" id="cartGo" style="white-space:nowrap">Перенести →</button></div>`;
+  $("#view").querySelectorAll("[data-cart]").length&&cbtnSync($("#view"));
 }
 
 // ---------- Модальні вікна ----------
@@ -1889,11 +2007,12 @@ function toolCard(id){
       ${t.serial?`<dt>Серійний №</dt><dd>${esc(t.serial)}</dd>`:""}
       ${t.note?`<dt>Примітка</dt><dd>${esc(t.note)}</dd>`:""}</dl>
     ${t.status==="lost"&&t.lost?`<div class="banner" style="margin:8px 0">❌ ${esc(LOST_R[t.lost.reason]||"Втрачено")} ${t.lost.date?fmtDay(t.lost.date):""}${t.lost.site?" · "+esc(site(t.lost.site)?.name||""):""}${t.lost.holder?" · відповідальний "+esc(person(t.lost.holder)?.name||""):""}${t.lost.cost?" · ≈"+money(t.lost.cost*qtyOf(t)):""}${t.lost.note?"<br>"+esc(t.lost.note):""}</div>`:""}
-    ${S.canWrite?`<div class="actions" style="margin-top:0"><button class="btn ghost" id="editT">Редагувати</button>${t.status==="lost"?`<button class="btn" id="foundT">↩️ Знайшовся</button>`:`<button class="btn ghost" id="lostT">❌ Втрачено</button><button class="btn" id="moveT">Перемістити</button>`}</div>`:""}
+    ${S.canWrite?`<div class="actions" style="margin-top:0"><button class="btn ghost" id="editT">Редагувати</button>${t.status==="lost"?`<button class="btn" id="foundT">↩️ Знайшовся</button>`:`<button class="btn ghost" id="lostT">❌ Втрачено</button><button class="btn ghost" id="cartT">${S.cart.has(t.id)?"✓ У кошику":"＋ У кошик"}</button><button class="btn" id="moveT">🚚 Перенести</button>`}</div>`:""}
     <div class="section-t">Історія</div>${hist.length?hist.map(moveLine).join(""):`<div class="m" style="color:var(--muted)">Переміщень ще не було</div>`}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#editT")?.addEventListener("click",()=>toolForm(t));
-  $("#moveT")?.addEventListener("click",()=>moveForm([id]));
+  $("#moveT")?.addEventListener("click",()=>moveTo([id]));
+  $("#cartT")?.addEventListener("click",e=>{ cartToggle(id); e.target.textContent=S.cart.has(id)?"✓ У кошику":"＋ У кошик"; cbtnSync(document) });
   $("#lostT")?.addEventListener("click",()=>lostForm([id]));
   $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
@@ -2083,36 +2202,11 @@ function toolsLeftPrompt(siteId){ const st=site(siteId); const l=[...S.tools.val
     <div class="card" style="display:block;cursor:default;margin-bottom:8px">${l.slice(0,15).map(t=>`<div style="padding:2px 0">${esc(t.name)}${qtyOf(t)>1?" ×"+qtyOf(t):""} <span class="m">· ${esc(person(t.holder)?.name||"")}</span></div>`).join("")}${l.length>15?`<div class="m">… і ще ${l.length-15}</div>`:""}</div>
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Поки не заберете — це висітиме на «Сьогодні» як справа.</div>
     <div class="actions"><button class="btn ghost" data-close>Пізніше</button><button class="btn" id="tlMove">🚚 Забрати</button></div>`);
-  $("#tlMove").onclick=()=>{ S.siteTab="tools"; siteForm(S.sites.get(siteId)) };
+  $("#tlMove").onclick=()=>moveTo(l.map(t=>t.id),{back:()=>closeSheet()});
   return true }
 
-function moveForm(ids,opt){ opt=opt||{};
-  const tools=ids.map(i=>S.tools.get(i)).filter(Boolean); if(!tools.length)return;
-  const one=tools.length===1?tools[0]:null;
-  openSheet(`<h2>Перемістити ${one?"«"+esc(one.name)+"»":tools.length+" од."}</h2>
-    ${one?`<p style="margin:0 0 10px;color:var(--muted)">Зараз: ${esc(person(one.holder)?.name||"—")}, ${esc(site(one.site)?.name||"—")}${qtyOf(one)>1?`, ${qtyOf(one)} шт`:""}</p>`:""}
-    <form id="mvForm">
-      ${one&&qtyOf(one)>1?`<div class="field"><label>Скільки перемістити (з ${qtyOf(one)})</label><input name="qty" inputmode="numeric" value="${qtyOf(one)}"></div>`:""}
-      <div class="field"><label>Кому передати *</label><select name="holder" required>${personOptions(one?.holder||meId()||"","— виберіть")}</select></div>
-      <div class="field"><label>Куди (склад / об'єкт)</label><select name="site">${siteOptions(opt.site||(opt.from?"":one?.site)||"","— не вказано")}</select></div>
-      <div class="field"><label>Коментар</label><input name="note" placeholder="необов'язково"></div>
-      <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Перемістити</button></div>
-    </form>`);
-  $("#mvForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); if(!f.holder)return;
-    const btn=e.target.querySelector("[type=submit]"); btn.disabled=true; btn.textContent="Зачекайте…";
-    let byName=""; try{const me=await S.user?.me?.(); byName=me?.name||""}catch(_){}
-    let done=0;
-    for(const t of tools){
-      if(t.holder===f.holder&&(t.site||"")===(f.site||"")){done++;continue}
-      const q=one&&f.qty?Math.max(1,parseInt(f.qty)||1):qtyOf(t);
-      const ok=await write(db=>moveTool(db,t,q,f.holder,f.site||"",f.note.trim(),byName));
-      if(!ok)break; done++;
-    }
-    closeSheet(); S.select=false; S.selected.clear(); render();
-    toast(done===tools.length?"Переміщено":"Переміщено "+done+" з "+tools.length); if(opt.back&&done) setTimeout(opt.back,150);
-  });
-}
+// усі «Перемістити» ведуть в одне вікно «Перенести»
+function moveForm(ids,opt){ opt=opt||{}; const st=opt.site&&site(opt.site); moveTo(ids,{dest:st?siteKey(st):"",back:opt.back}) }
 
 // 📂 приєднати наявні об'єкти як ділянки великого (нічого не переноситься і не видаляється)
 function siteAttach(root){ const l=[...S.sites.values(),...(duoX()?[...duoX().values()]:[])].filter(x=>x.type!=="warehouse"&&x.id!==root.id&&!siteKids(x.id).length&&x.parent!==root.id).sort((a,b)=>(b.active!==false)-(a.active!==false)||byName(a,b));
@@ -2191,6 +2285,7 @@ function siteForm(s,pre){
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
       <div class="field"><label>Назва *</label><input name="name" required value="${esc(s.name)}" placeholder="напр. Склад на Зіньківській / ЖК Сонячний"></div>
       <div class="field"><label>Адреса, примітка</label><input name="note" value="${esc(s.note)}"></div>
+      ${s.type==="warehouse"&&!isNew?`<div class="field"><label>👤 Відповідальний за склад</label><select name="resp">${[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).sort(byName).map(p=>`<option value="${p.id}" ${whResp(s)===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>`:""}
       ${s.type!=="warehouse"?`<div class="field"><label>📞 Телефон замовника</label><div style="display:flex;gap:6px"><input name="custPhone" type="tel" value="${esc(s.custPhone||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost" id="sPickC" style="white-space:nowrap">📇 З контактів</button>`:""}${s.custPhone?`<a class="btn ghost" href="${telHref(s.custPhone)}" style="text-decoration:none">📞</a>`:""}</div></div>
         <div class="field"><label>📞 Інші контакти <span class="m">(технагляд, менеджер…)</span></label><div id="scList">${(s.contacts||[]).map(c=>scRow(c)).join("")}</div><button type="button" class="btn ghost sm" id="scAdd" style="width:100%">＋ Ще номер</button></div>
         <div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я / назва"></div>
@@ -2228,9 +2323,9 @@ function siteForm(s,pre){
   if(!isNew) bindNeeds(s); if(!isNew&&isSite&&tab==="photos") sitePhotos(s);
   $("#segS")?.addEventListener("click",e=>{ const b=e.target.closest("[data-v]"); if(b?.dataset.v==="photos") setTimeout(()=>sitePhotos(s),30) });
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
-  $("#showSite")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",site:s.id,person:"",cat:"",holderType:"all",q:""});render()});
+  $("#showSite")?.addEventListener("click",()=>placeSheet(siteKey(s)));
   $("#siteForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),type,active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),custPhone:(f.custPhone||"").trim(),contacts:[...document.querySelectorAll("#scList .scR")].map(r=>({name:r.querySelector(".scN").value.trim(),tel:r.querySelector(".scT").value.trim()})).filter(c=>c.tel).slice(0,20),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),type,...(type==="warehouse"&&f.resp?{resp:f.resp}:{}),active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),custPhone:(f.custPhone||"").trim(),contacts:[...document.querySelectorAll("#scList .scR")].map(r=>({name:r.querySelector(".scN").value.trim(),tel:r.querySelector(".scT").value.trim()})).filter(c=>c.tel).slice(0,20),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено"); if(!isNew&&s.active!==false&&data.active===false) setTimeout(()=>toolsLeftPrompt(s.id),400)}
   });
@@ -2337,7 +2432,7 @@ function personForm(p){
   $("#isCrew").onchange=e=>{const c=e.target.checked; $("#helpTgl").style.display=c?"none":"flex"; if(c) $("#isHelp").checked=false;$("#crewBox").style.display=c?"block":"none";$("#nmLbl").textContent=c?"Назва бригади *":"Ім'я *";$("#pForm [name=name]").placeholder=c?"напр. Бригада Юри":""};
   $("#showW")?.addEventListener("click",()=>workerSheet(p.id));
   $("#hoP")?.addEventListener("click",()=>handoverSheet("person",p.id));
-  $("#showP")?.addEventListener("click",()=>{closeSheet();Object.assign(S,{tab:"tools",person:p.id,site:"",cat:"",holderType:"all",q:""});render()});
+  $("#showP")?.addEventListener("click",()=>placeSheet("h:"+p.id));
   $("#pForm").addEventListener("submit",async e=>{
     e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const data={name:f.name.trim(),phone:f.phone.trim(),role,since:f.since||"",phones:[...document.querySelectorAll("#phList .phr")].map(r=>({label:r.querySelector(".phL").value.trim(),tel:r.querySelector(".phT").value.trim()})).filter(x=>x.tel)};
     const crew=role==="worker"&&$("#isCrew").checked; data.crew=crew; data.helper=role==="worker"&&!crew&&$("#isHelp").checked; if(role!=="owner"){ const sk=[...document.querySelectorAll(".pSk:checked")].map(x=>x.value); if(sk.join()!==(Array.isArray(p.skills)?p.skills:[]).join()||sk.length) data.skills=sk } data.members=crew?[...document.querySelectorAll(".crewM:checked")].map(x=>x.value):[];
@@ -4069,24 +4164,9 @@ function handoverSheet(kind,id){
   $("#hoAll")?.addEventListener("change",e=>{ M.querySelectorAll(".hoC").forEach(c=>c.checked=e.target.checked); upd() });
   $("#hoSel")?.addEventListener("click",()=>{ const ids=sel(); if(ids.length) returnAllForm(kind,id,ids) });
 }
-function returnAllForm(kind,id,ids){
-  const l=toolsWhere(kind,id).filter(t=>!ids||ids.includes(t.id)), who=kind==="person"?person(id)?.name:site(id)?.name;
+function returnAllForm(kind,id,ids){ const l=toolsWhere(kind,id).filter(t=>t.status!=="lost"&&(!ids||ids.includes(t.id)));
   const wh=[...S.sites.values()].find(s=>s.type==="warehouse"&&s.active!==false);
-  openSheet(`<h2>🚚 Перемістити ${ids?"вибране":"все"} (${l.length} поз. · ${l.reduce((a,t)=>a+qtyOf(t),0)} шт)</h2>
-    ${ids?`<div class="m" style="margin:-4px 0 8px">${l.slice(0,8).map(t=>esc(t.name)).join(", ")}${l.length>8?"…":""}</div>`:""}
-    <p style="margin:0 0 10px;color:var(--muted)">${kind==="person"?"Від: "+esc(who||""):"З об'єкта: "+esc(who||"")}</p>
-    <form id="rbF"><div class="field"><label>Кому * <span class="m">(людина або бригада)</span></label><select name="holder" required>${personOptions(meId()||owners()[0]?.id||"","— виберіть")}</select></div>
-    <div class="field"><label>Куди *</label><select name="site">${siteOptions(wh?.id||"","— не вказано")}</select></div>
-    ${kind==="site"?`<div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="arch" style="width:22px;height:22px"> Після повернення перенести об'єкт в архів</label></div>`:""}
-    <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Перемістити</button></div></form>`);
-  $("#rbF").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));if(!f.holder)return;
-    const btn=e.target.querySelector("[type=submit]");btn.disabled=true;btn.textContent="Зачекайте…";
-    let byName="";try{byName=(await S.user?.me?.())?.name||""}catch(_){}
-    let n=0; for(const t of toolsWhere(kind,id).filter(t=>!ids||ids.includes(t.id))){ const cur=S.tools.get(t.id); if(!cur) continue; if(cur.holder===f.holder&&(cur.site||"")===(f.site||"")){n+=qtyOf(cur);continue}
-      const ok=await write(db=>moveTool(db,cur,qtyOf(cur),f.holder,f.site||"","повернення"+(kind==="site"?" з об'єкта":""),byName)); if(!ok)break; n+=qtyOf(cur); }
-    if(f.arch) await write(db=>db.doc("sites/"+id).update({active:false}));
-    closeSheet(); toast("Переміщено "+n+" шт"+(f.arch?", об'єкт в архіві":""));};
-}
+  moveTo(l.map(t=>t.id),{dest:ids?"":(wh?"w:"+wh.id:""),arch:kind==="site"?id:"",note:"повернення"+(kind==="site"?" з об'єкта":"")}) }
 
 // ---------- Резервна копія на Google Диск ----------
 const BACKUP_DAYS=7;
@@ -4789,7 +4869,8 @@ $("#headTools").addEventListener("change",e=>{
 $("#headTools").addEventListener("click",e=>{
   const bb=e.target.closest("[data-base]"); if(bb){ setBase(bb.dataset.base); return }
   const hb=e.target.closest("[data-hist]"); if(hb){S.htab=hb.dataset.hist;render();return}
-  const st=e.target.closest("[data-ht]"); if(st){S.holderType=st.dataset.ht;render();return}
+  const st=e.target.closest("[data-ht]"); if(st){S.holderType=st.dataset.ht;S.q="";render();return}
+  const tv=e.target.closest("[data-tv]"); if(tv){S.tview=tv.dataset.tv;S.holderType="all";S.q="";window.scrollTo(0,0);render();return}
   const mt=e.target.closest("[data-mt]"); if(mt){S.mtab=mt.dataset.mt;render();return}
   const ow=e.target.closest("[data-own]"); if(ow){Object.assign(S,{mtab:"journal",mOwner:S.mOwner===ow.dataset.own?"":ow.dataset.own});render();return}
   if(e.target.id==="photoBtn"){photoFlow();return}
@@ -4804,6 +4885,8 @@ const archFilter=()=>{ const q=(S.archQ||"").trim(); $("#archL")?.querySelectorA
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){ S.archQ=e.target.value; archFilter() } });
 $("#headTools").addEventListener("click",e=>{ const b=e.target.closest("[data-ssm]"); if(b){ S.sitesMode=b.dataset.ssm; $("#headTools").dataset.b=""; renderSites() } });
 $("#view").addEventListener("click",e=>{
+  const ca=e.target.closest("[data-cart]"); if(ca&&S.tab==="tools"){ cartToggle(ca.dataset.cart); cbtnSync($("#view")); return }
+  const pl=e.target.closest("[data-pl]"); if(pl&&S.tab==="tools"){ placeSheet(pl.dataset.pl); return }
   const bsw=e.target.closest("[data-base]"); if(bsw){ setBase(bsw.dataset.base); return }
   const u=e.target.closest("[data-undo]"); if(u){ undoLog(u.dataset.undo); return }
   const st=e.target.closest("[data-settle]"); if(st){ const [base,from,to,amt]=st.dataset.settle.split("|");
@@ -4823,8 +4906,8 @@ $("#view").addEventListener("click",e=>{
   else if(c.dataset.person) personForm(S.people.get(c.dataset.person));
 });
 $("#bulk").addEventListener("click",e=>{
-  if(e.target.id==="selAll"){filteredTools().forEach(t=>S.selected.add(t.id));render()}
-  if(e.target.id==="bulkMove") moveForm([...S.selected]);
+  if(e.target.closest("#cartGo,#cartOpen")){ moveTo([...cartLive().keys()],{cart:true}); return }
+  if(e.target.id==="cartClr"){ S.cart.clear(); cartSave(); renderBulk(); cbtnSync($("#view")); toast("Кошик очищено") }
 });
 
 init();
