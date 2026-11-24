@@ -309,10 +309,10 @@ async function init(){
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>{ const x={id:d.id,...d.data()}; if(x.helper===undefined&&/^\s*(підсоб|подсоб|помічник|разнораб|різнороб)/i.test(x.name||"")) x.helper=true; return [d.id,x] }))});
   sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,siteN({id:d.id,...d.data()})]));applyBase()});
-  sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));applyBase(); notifyNew("fin",S.B.trio.finRaw,"trio")});
+  sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,finN({id:d.id,...d.data()})]));applyBase(); notifyNew("fin",S.B.trio.finRaw,"trio")});
   // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
   db.doc("duo_meta/info").get().then(()=>{ S.duoOk=true; S.duoChecked=true;
-    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,c==="sites"?siteN({id:d.id,...d.data()}):{id:d.id,...d.data()}])); if(c==="fin"){ S.B.duo.finRaw=S.B.duo.fin; notifyNew("fin",S.B.duo.finRaw,"duo") } applyBase();render()};
+    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,c==="sites"?siteN({id:d.id,...d.data()}):c==="fin"?finN({id:d.id,...d.data()}):{id:d.id,...d.data()}])); if(c==="fin"){ S.B.duo.finRaw=S.B.duo.fin; notifyNew("fin",S.B.duo.finRaw,"duo") } applyBase();render()};
     let n=0; const done=()=>{if(++n===2){S.duoLoaded=true;render()}};
     let f1=0,f2=0;
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
@@ -2421,6 +2421,8 @@ function famHTML(s){ const kids=siteKids(s.id); if(!kids.length) return ""; cons
     <div class="m">${cd!=null?(cd>0?`👤 ${esc(s.customer||"замовник")} винен усього <b class="in">${money(cd)}</b> (договори ${money(all.contract)})`:`👤 оплачено повністю`)+(ov>0.5?` · переплата на ділянках ${money(ov)}`:""):`<span style="color:var(--muted)">суми договорів не вказані</span>`}${wd>0.5?` · 👷 винні виконавцям <b class="out">${money(wd)}</b>`:""}</div>
     <details style="margin-top:6px" open><summary class="m" style="cursor:pointer">По ділянках</summary>${row(s,1)}${kids.map(x=>row(x)).join("")}</details></div>` }
 // ⚖️ коригування боргу замовника: adj додається до суми договору (contract = база + adj), гроші не змінюються
+// 🧱 витрата на матеріали не є виплатою людині: прив'язку до виконавця (якщо була) не рахуємо в його розрахунках
+function finN(f){ if(f.type==="out"&&f.kind==="Матеріали"&&f.worker){ f.mWorker=f.worker; f.worker="" } return f }
 function siteN(x){ if(+x.adj){ x.contractBase=+x.contract||0; x.contract=x.contractBase+(+x.adj) } return x }
 const ctrBase=x=>x?.contractBase??(+x?.contract||0);
 // спільне вікно коригування: для замовника (site) або для людини (worker); delta>0 — борг більшає, <0 — меншає
@@ -2730,7 +2732,7 @@ function finForm(f,preset){
       <div data-m="in out"><div class="field"><label id="ownLbl">Хто</label><select name="owner">${ownOpts(f.owner)}</select></div></div>
       <div data-m="in out accrual"><div class="field"><label>Об'єкт</label><select name="site">${siteOptions(f.site||"","— без об'єкта")}</select></div></div>
       <div data-m="out accrual"><div class="row"><div class="field" data-m="out"><label>Вид</label><select name="kind">${KINDS.map(k=>`<option ${f.kind===k?"selected":""}>${k}</option>`).join("")}</select></div>
-        <div class="field"><label id="wLbl">Виконавець</label><select name="worker"><option value="">—</option>${workers.map(p=>`<option value="${p.id}" ${f.worker===p.id?"selected":""}>${p.crew?"👥 ":""}${esc(p.name)}</option>`).join("")}</select></div></div></div>
+        <div class="field" id="wFld"><label id="wLbl">Виконавець</label><select name="worker"><option value="">—</option>${workers.map(p=>`<option value="${p.id}" ${f.worker===p.id?"selected":""}>${p.crew?"👥 ":""}${esc(p.name)}</option>`).join("")}</select></div></div></div>
       <div id="wDebt"></div>
       ${isNew?`<div data-m="accrual"><label class="m" style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;font-size:14px"><input type="checkbox" id="accPay" checked style="width:20px;height:20px"> 💵 Одразу виплатити (зніміть, якщо платите пізніше)</label>
         <div class="field" id="accPayOwn"><label>Хто платить</label><select id="accOwn">${ownOpts(myOwner()||owners()[0]?.id)}</select></div></div>`:""}
@@ -2759,7 +2761,9 @@ function finForm(f,preset){
     else box.innerHTML=`<div class="banner" style="margin-bottom:8px">${line}${a>0?`<br>Після оплати ${money(a)}: ${d.debt-a>0?`борг <b>${money(d.debt-a)}</b>`:d.debt-a<0?`<b>переплата ${money(a-d.debt)}</b> (аванс наперед)`:"розраховані повністю ✅"}`:""}</div>`;
     $("#toPay")?.addEventListener("click",()=>{ setMode("out"); const k=$("#finForm [name=kind]"); if(k) k.value="Зарплата"; debtInfo() }) };
   $("#finForm [name=worker]")?.addEventListener("change",e=>{ const k=$("#finForm [name=kind]"); if(mode==="out"&&e.target.value&&k){ if(person(e.target.value)?.helper) k.value="Підсоба"; else if(k.value==="Матеріали") k.value="Зарплата" } });
-  ["worker","site","kind"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",debtInfo)); $("#finForm [name=amount]").addEventListener("input",debtInfo);
+  ["worker","site","kind"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",debtInfo));
+  const wHide=()=>{ const k=$("#finForm [name=kind]")?.value, hide=mode==="out"&&k==="Матеріали", fl=$("#wFld"); if(fl) fl.style.display=hide?"none":""; if(hide){ const w=$("#finForm [name=worker]"); if(w&&w.value){ w.value=""; debtInfo() } } };
+  $("#finForm [name=kind]")?.addEventListener("change",wHide); $("#segM").addEventListener("click",()=>setTimeout(wHide)); setTimeout(wHide); $("#finForm [name=amount]").addEventListener("input",debtInfo);
   $("#segM").addEventListener("click",()=>setTimeout(debtInfo)); setTimeout(debtInfo);
   $("#segM").onclick=e=>{const b=e.target.closest("button");if(b)setMode(b.dataset.v)};
   // ✏️ редагування позицій нарахування зі звіту робіт
@@ -2854,7 +2858,7 @@ function finForm(f,preset){
         else { await db.doc("fin/"+f.id).set(data); if(pair) await db.doc("fin/"+pair.id).delete(); }
       }); if(ok&&payNow) toast(`Нараховано і виплачено ${money(amount)}`);
     } else {
-      const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"?(v.worker||""):"",createdAt:f.createdAt||now};
+      const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"&&v.kind!=="Матеріали"?(v.worker||""):"",createdAt:f.createdAt||now};
       if(mode==="out"||mode==="accrual"){ if(f.receipt&&!rcDrop&&!rcImg) data.receipt=f.receipt; if(f.report) data.report=f.report;
         if(rcImg){ try{ const bin=atob(rcImg.b64), arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
           const sv=await saveFile(new File([arr],`чек ${v.date||todayISO()} ${money(amount).replace(/\s/g,"")}.jpg`,{type:"image/jpeg"})); data.receipt=sv.id;
