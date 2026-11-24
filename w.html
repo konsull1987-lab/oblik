@@ -165,7 +165,28 @@ const E=x=>String(x??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;
 const M=v=>Math.round(+v||0).toLocaleString("uk-UA").replace(/,/g," ")+" ₴";
 const D=d=>{ const x=String(d||"").split("-"); return x.length===3?x[2]+"."+x[1]:"" };
 const loc=(dt=new Date())=>new Date(dt-dt.getTimezoneOffset()*6e4).toISOString().slice(0,10);
-let cabOff=null, sentT={}; try{ sentT=JSON.parse(localStorage.getItem("wDoneT")||"{}") }catch(_){}
+let cabOff=null, sentT={}, sentA={}, rcOn=false; try{ sentT=JSON.parse(localStorage.getItem("wDoneT")||"{}"); sentA=JSON.parse(localStorage.getItem("wAckT")||"{}") }catch(_){}
+// 🧰 інструмент на мені: «Прийняв» нове і щотижнева перекличка — ідуть власникам повідомленням
+const wSend=(kind,extra,text)=>addDoc(collection(fs,"inbox"),{site:"",siteName:"",kind,text,photos:[],from:String(prof.name||"").slice(0,80),phone:String(prof.phone||"").slice(0,30),pid:String(prof.pid||"").slice(0,40),k:KEY,email:user?.email||"",uid:user?.uid||"",at:Date.now(),status:"new",...extra});
+function toolsCard(x){ const l=x.tools||[]; if(!l.length) return "";
+  const nw=l.filter(t=>!t.a&&!sentA[t.id]), old=Date.now()-(+x.chk||0)>6*864e5, row=t=>`<span>${E(t.n)}${t.i?` <span class="m">#${E(t.i)}</span>`:""}${t.q>1?` <b>×${t.q}</b>`:""}${t.s?`<div class="m">🏗️ ${E(t.s)}</div>`:""}</span>`;
+  if(rcOn) return `<div class="card" id="rcBox"><b>📋 Перекличка інструменту</b><div class="m" style="margin:6px 0">Торкніться всього, що є на місці. Чого не знайшли — не позначайте.</div>
+    ${l.map(t=>`<label class="tk" style="cursor:pointer"><input type="checkbox" data-rk="${E(t.id)}" style="width:26px;height:26px;flex:none">${row(t)}</label>`).join("")}
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn ghost" id="rcX" style="flex:1">Скасувати</button><button class="btn" id="rcSend" style="flex:2">Надіслати</button></div></div>`;
+  return `<div class="card"><b>🧰 Інструмент на мені</b> <span class="m">(${l.length} поз.)</span>
+    ${nw.length?`<div style="margin:8px 0;padding:10px;border:1px solid #f59e0b;border-radius:12px"><div style="color:#f59e0b;font-weight:600;margin-bottom:4px">⏳ Вам передали — підтвердіть, що отримали:</div>${nw.map(t=>`<div class="tk">${row(t)}</div>`).join("")}<button class="btn" id="ackAll" style="width:100%;margin-top:8px">✅ Прийняв (${nw.length})</button></div>`:""}
+    <details style="margin-top:6px"><summary class="m" style="cursor:pointer">Увесь список</summary>${l.map(t=>`<div class="tk">${row(t)}${t.m?`<span class="m" style="color:#ef4444">❓</span>`:""}</div>`).join("")}</details>
+    <button class="btn ${old?"":"ghost"}" id="rcGo" style="width:100%;margin-top:10px">📋 Перекличка${old?" — час перевірити":""}</button></div>` }
+function toolsBind(x){
+  $("#ackAll")?.addEventListener("click",async e=>{ const b=e.target, ids=(x.tools||[]).filter(t=>!t.a&&!sentA[t.id]).map(t=>t.id); if(!ids.length) return; b.disabled=true; b.textContent="…";
+    try{ await wSend("tack",{ids},"✅ Прийняв інструмент: "+(x.tools||[]).filter(t=>ids.includes(t.id)).map(t=>t.n).join(", ").slice(0,500)); ids.forEach(i=>sentA[i]=1); try{ localStorage.setItem("wAckT",JSON.stringify(sentA)) }catch(_){} cabDraw(x) }
+    catch(er){ b.disabled=false; b.textContent="✅ Прийняв"; alert("Не вдалося ("+(er.code||er.message)+"). Перевірте інтернет.") } });
+  $("#rcGo")?.addEventListener("click",()=>{ rcOn=true; cabDraw(x); $("#rcBox")?.scrollIntoView({behavior:"smooth"}) });
+  $("#rcX")?.addEventListener("click",()=>{ rcOn=false; cabDraw(x) });
+  $("#rcSend")?.addEventListener("click",async e=>{ const cs=[...document.querySelectorAll("[data-rk]")], ok=cs.filter(c=>c.checked).map(c=>c.dataset.rk), miss=cs.filter(c=>!c.checked).map(c=>c.dataset.rk);
+    if(miss.length&&!confirm(`Не знайшли ${miss.length} поз.? Власники побачать це.`)) return; const b=e.target; b.disabled=true; b.textContent="…";
+    try{ await wSend("check",{ok,miss},`📋 Перекличка: є ${ok.length}${miss.length?", не знайшли "+miss.length+": "+(x.tools||[]).filter(t=>miss.includes(t.id)).map(t=>t.n).join(", ").slice(0,400):""}`); rcOn=false; ok.forEach(i=>sentA[i]=1); x.chk=Date.now(); cabDraw(x); alert("✅ Перекличку надіслано") }
+    catch(er){ b.disabled=false; b.textContent="Надіслати"; alert("Не вдалося ("+(er.code||er.message)+")") } }) }
 function cabDraw(x){ if(!x){ $("#cab").innerHTML=`<div class="card m">📋 Ваші завдання і розрахунок з'являться тут, щойно власники відкриють застосунок.</div>`; return }
   const td=loc(), tm=loc(new Date(Date.now()+864e5)), hm=new Date().toTimeString().slice(0,5);
   const tl=(x.tasks||[]).map(t=>{ const done=t.done||sentT[t.id], late=!done&&(t.date<td||(t.date===td&&t.to&&t.to<hm));
@@ -173,7 +194,7 @@ function cabDraw(x){ if(!x){ $("#cab").innerHTML=`<div class="card m">📋 Ва�
     return `<div class="tk" style="${done?"opacity:.55":""}"><div style="flex:1"><div style="${done?"text-decoration:line-through":""}">${E(t.title)}</div><div class="m ${late?"late":""}">${late?"⏰ ":"🕒 "}${E(when)}${t.site?" · 🏗️ "+E(t.site):""}</div></div>
       ${done?`<span class="m">✅</span>`:`<button class="btn ghost" data-td="${E(t.id)}" style="padding:8px 10px;font-size:14px">✅ Виконав</button>`}</div>` }).join("");
   const debt=+x.debt||0;
-  $("#cab").innerHTML=`<div class="card"><b>📋 Мої завдання</b>${tl||`<div class="m" style="margin-top:6px">Завдань немає</div>`}</div>
+  $("#cab").innerHTML=`<div class="card"><b>📋 Мої завдання</b>${tl||`<div class="m" style="margin-top:6px">Завдань немає</div>`}</div>${toolsCard(x)}
     <div class="card"><b>💰 Розрахунок</b>
       ${(x.crews||[]).length?`<div class="m" style="margin-top:4px">👥 Разом із бригадою: ${E(x.crews.join(", "))}</div>`:""}<div class="rw" style="margin-top:6px"><span>Нараховано за роботу</span><b class="acc">${M(x.acc)}</b></div>
       <div class="rw"><span>Виплачено (аванси, оплата)</span><b>${M(x.paid)}</b></div>
@@ -181,6 +202,7 @@ function cabDraw(x){ if(!x){ $("#cab").innerHTML=`<div class="card m">📋 Ва�
       ${(x.sites||[]).length>1||((x.sites||[])[0]?.site)?`<details style="margin-top:8px"><summary class="m" style="cursor:pointer">По об'єктах</summary>${x.sites.map(s=>`<div class="rw m"><span>${E(s.site||"без об'єкта")}</span><span>${M(s.acc)} / ${M(s.paid)} → <b style="color:#e8eaed">${M(s.acc-s.paid)}</b></span></div>`).join("")}<div class="m" style="font-size:12px">нараховано / виплачено → залишок</div></details>`:""}
       ${(x.ops||[]).length?`<details style="margin-top:6px"><summary class="m" style="cursor:pointer">Останні записи</summary>${x.ops.map(o=>`<div class="rw m"><span>${D(o.d)} · ${o.t==="a"?"🔧 нараховано":"💵 виплачено"}${o.s?" · "+E(o.s):""}</span><b style="color:${o.t==="a"?"#38bdf8":"#e8eaed"}">${M(o.a)}</b></div>`).join("")}</details>`:""}
       <div class="m" style="font-size:12px;margin-top:6px">Оновлено ${x.at?new Date(x.at).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}. Якщо щось не так — напишіть нижче «💬 Інше».</div></div>`;
+  toolsBind(x);
   $("#cab").querySelectorAll("[data-td]").forEach(b=>b.onclick=async()=>{ const t=(x.tasks||[]).find(y=>y.id===b.dataset.td); if(!t) return;
     if(!(prof.name&&prof.phone)){ $("#pfBox").style.display="block"; alert("Спершу заповніть «Про вас» і натисніть «Зберегти»"); return }
     b.disabled=true; b.textContent="…";
