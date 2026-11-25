@@ -3488,6 +3488,51 @@ async function addWorksToPrice(rows,src){ if(!S.canWrite||!S.db) return 0;
 async function savePrice(items){ const data={items,updatedAt:Date.now(),by:window.__fbEmail||"",seedVer:PRICE_VER};
   if(await write(db=>db.doc("meta/price").set(data))){ S.price=data; S.priceMerged=null; render(); return true } return false }
 function priceModeSeg(){ return `<div class="seg" style="margin-bottom:8px"><button type="button" data-pm="work" class="${S.priceMode==="mat"?"":"on"}">🛠 Роботи</button><button type="button" data-pm="mat" class="${S.priceMode==="mat"?"on":""}">🧱 Матеріали</button></div>` }
+// ---------- 📈 Актуальні ринкові ціни робіт: свіжі (2026) пропозиції на Кабанчику, Робітниках UA тощо, беремо МАКСИМУМ ----------
+const WM_SRC="ринок 2026 (макс.)";
+const wmRes=()=>{ try{ return JSON.parse(localStorage.getItem("wmRes")||"{}") }catch(_){ return {} } };
+async function workMarketPrices(batch){ if(!window.__fbAIWeb) throw new Error("ШІ недоступний");
+  const prompt=`Ти — кошторисник будівельної фірми в Полтаві (Україна). Для кожної роботи знайди в інтернеті АКТУАЛЬНІ ціни ${new Date().getFullYear()} року за 1 одиницю (грн, лише робота, без матеріалів): kabanchik.ua, rabotniki.ua, інші українські сайти майстрів і бригад, прайси фірм.
+ВАЖЛИВО: бери лише свіжі пропозиції цього року (як при сортуванні «за актуальністю»), а НЕ середні ціни сайту за кілька років. Поверни МАКСИМАЛЬНУ актуальну ціну і мінімальну. Якщо на сайті інша одиниця — перерахуй на нашу. Якщо свіжих даних немає — max 0.
+Роботи (номер. назва | одиниця):
+${batch.map((x,i)=>`${i}. ${x.name} | ${x.unit}`).join("\n")}
+Відповідь — лише JSON без пояснень: {"items":[{"i":0,"max":0,"min":0,"src":"kabanchik.ua"}]}`;
+  const r=await window.__fbAIWeb(prompt); const j=JSON.parse(String(r?.text||"").replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1"));
+  const res=wmRes(), at=Date.now(); let n=0;
+  for(const x of j.items||[]){ const b=batch[+x.i], mx=Math.round(+x.max||0); if(!b||!(mx>0)) continue; res[b.name]={max:mx,min:Math.round(+x.min||0),src:String(x.src||"").slice(0,60),at,web:!!r.web}; n++ }
+  try{ localStorage.setItem("wmRes",JSON.stringify(res)) }catch(_){} return n }
+async function wmUpdate(list){ list=list.filter(x=>x.unit!=="%"); if(!list.length) return;
+  const rr=()=>{ if(S.tab==="money"&&S.mtab==="price"&&S.priceMode!=="mat") renderMoneyPrice() };
+  S.wmRun={done:0,total:list.length,found:0,stop:false}; rr();
+  let wl=null; const lock=async()=>{ try{ if(navigator.wakeLock&&!wl&&document.visibilityState==="visible"){ wl=await navigator.wakeLock.request("screen"); wl.addEventListener?.("release",()=>{ wl=null }) } }catch(_){} };
+  const onVis=()=>{ if(document.visibilityState==="visible") lock() }; document.addEventListener("visibilitychange",onVis); await lock();
+  try{ localStorage.setItem("wmResume",JSON.stringify(list.map(x=>x.name))) }catch(_){}
+  let errs=0; const B=12;
+  for(let k=0;k<list.length&&!S.wmRun.stop;k+=B){ const b=list.slice(k,k+B);
+    while(document.visibilityState==="hidden"&&!S.wmRun.stop) await new Promise(r=>setTimeout(r,1500));
+    try{ S.wmRun.found+=await workMarketPrices(b); errs=0 }
+    catch(e){ if(document.visibilityState==="hidden"){ k-=B; continue } if(++errs>=3){ toast("Пошук цін зупинено: "+String(e?.message||e).slice(0,60),4000); break } k-=B; continue }
+    S.wmRun.done=Math.min(list.length,k+B); try{ localStorage.setItem("wmResume",JSON.stringify(list.slice(k+B).map(x=>x.name))) }catch(_){} rr() }
+  const f=S.wmRun.found, fin=S.wmRun.done>=list.length; S.wmRun=null; document.removeEventListener("visibilitychange",onVis); try{ wl&&wl.release() }catch(_){}
+  try{ if(fin) localStorage.removeItem("wmResume") }catch(_){}
+  rr(); toast(`📈 Знайдено актуальних цін: ${f}${fin?"":" — решту можна дошукати кнопкою «Продовжити»"}`,4000); if(f) wmReview() }
+// перегляд: наша ціна → максимум ринку; підозрілі стрибки (×3 і більше або вдвічі менше) не позначені
+function wmReview(){ const res=wmRes(), items=priceList(), rows=items.map((it,i)=>({it,i,r:res[it.name]})).filter(x=>x.r&&x.r.max>0&&x.r.max!==Math.round(+x.it.price));
+  if(!rows.length){ toast("Нових ринкових цін немає"); return }
+  const sus=x=>+x.it.price>0&&(x.r.max>+x.it.price*3||x.r.max<+x.it.price*0.5);
+  openSheet(`<h2>📈 Актуальні ціни ринку</h2><div class="m" style="margin-bottom:8px">Максимальна ціна свіжих (${new Date().getFullYear()}) пропозицій. Позначене стане ціною прайсу; стара ціна запам'ятається — можна повернути. Червоні — підозрілий стрибок, перевірте.</div>
+    <div style="display:flex;gap:6px;margin-bottom:6px"><button class="btn ghost sm" id="wmA" style="flex:1">Позначити все</button><button class="btn ghost sm" id="wmUp" style="flex:1">Лише подорожчання</button><button class="btn ghost sm" id="wmN" style="flex:1">Зняти все</button></div>
+    <div class="list" id="wmL">${rows.map(x=>{ const d=+x.it.price>0?Math.round((x.r.max/x.it.price-1)*100):0, s=sus(x); return `<label class="card" style="align-items:center;cursor:pointer;padding:8px 10px${s?";border:1px solid #ef4444":""}"><input type="checkbox" data-wm="${x.i}" data-up="${x.r.max>+x.it.price?1:0}" ${s?"":"checked"} style="width:22px;height:22px;flex:none"><div class="main"><div class="t" style="font-size:14px">${esc(x.it.name)}</div><div class="m">${money(x.it.price)} → <b>${money(x.r.max)}</b> / ${esc(x.it.unit)}${+x.it.price>0?` <span style="color:${d>=0?"var(--green,#3fb950)":"#ef4444"}">${d>=0?"+":""}${d}%</span>`:""}${x.r.min?` · від ${money(x.r.min)}`:""}${x.r.src?` · ${esc(x.r.src)}`:""}</div></div></label>` }).join("")}</div>
+    <div class="actions"><button class="btn ghost" data-close>Пізніше</button><button class="btn" id="wmGo">✅ Застосувати</button></div>`);
+  const M=$("#modal"), cs=()=>[...M.querySelectorAll("[data-wm]")], upd=()=>{ $("#wmGo").textContent=`✅ Застосувати (${cs().filter(c=>c.checked).length})` }; upd();
+  M.querySelector("#wmL").addEventListener("change",upd);
+  $("#wmA").onclick=()=>{ cs().forEach(c=>c.checked=true); upd() }; $("#wmN").onclick=()=>{ cs().forEach(c=>c.checked=false); upd() }; $("#wmUp").onclick=()=>{ cs().forEach(c=>c.checked=c.dataset.up==="1"); upd() };
+  $("#wmGo").onclick=async()=>{ const sel=cs().filter(c=>c.checked).map(c=>+c.dataset.wm); if(!sel.length) return; const l=priceList().map(x=>({...x})), at=Date.now();
+    for(const i of sel){ const it=l[i], r=res[it.name]; if(!r) continue; if(it.src!==WM_SRC){ it.prevPrice=+it.price; it.prevSrc=it.src||"" } it.price=r.max; it.src=WM_SRC; it.mkt={max:r.max,min:r.min,from:r.src,at:r.at} }
+    if(await savePrice(l)){ closeSheet(); toast(`📈 Оновлено цін: ${sel.length}`,3500) } } }
+async function wmRevert(){ const l=priceList().map(x=>({...x})), b=l.filter(x=>x.src===WM_SRC&&+x.prevPrice>0); if(!b.length) return;
+  if(!confirm(`Повернути ціни прайсу фірми для ${b.length} робіт?`)) return; for(const x of b){ x.price=x.prevPrice; x.src=x.prevSrc||"Прайс фірми"; delete x.prevPrice; delete x.prevSrc }
+  if(await savePrice(l)) toast(`↩️ Повернуто: ${b.length}`) }
 function renderMoneyPrice(){
   if(S.priceMode==="mat") return renderMoneyMat();
   if(!S.priceLoaded){ loadPrice(); $("#view").innerHTML=`<div class="empty">Завантажую прайс…</div>`; return }
@@ -3496,14 +3541,23 @@ function renderMoneyPrice(){
   let h=priceModeSeg()+`
     <input id="priceQ" type="search" placeholder="Пошук роботи…" value="${esc(S.priceQ||"")}" style="margin-bottom:6px">
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">${items.length} робіт · ${S.price?"змінено "+fmtDate(S.price.updatedAt):"стартовий прайс"}. Натисніть на роботу, щоб змінити ціну.</div>`;
+  { const run=S.wmRun, nRes=Object.keys(wmRes()).length, nRev=items.filter(x=>x.src===WM_SRC&&+x.prevPrice>0).length, nRes2=(()=>{ try{ return JSON.parse(localStorage.getItem("wmResume")||"[]").length }catch(_){ return 0 } })();
+    if(run) h+=`<div class="banner" style="margin-bottom:8px">⏳ Шукаю актуальні ціни: ${run.done} з ${run.total} (знайдено ${run.found})… Екран не згасне; якщо згорнути — пауза. <button class="btn ghost sm" id="wmStop">Зупинити</button></div>`;
+    else if(S.canWrite) h+=`<div class="actions" style="margin:0 0 8px;flex-wrap:wrap"><button class="btn" id="wmAll">📈 Актуальні ціни ринку (макс.)</button>${nRes2?`<button class="btn ghost" id="wmCont">▶️ Продовжити (${nRes2})</button>`:""}${nRes?`<button class="btn ghost" id="wmRev">👀 Знайдені ціни</button>`:""}${nRev?`<button class="btn ghost" id="wmBack">↩️ Ціни фірми (${nRev})</button>`:""}</div>`; }
   for(const c of cats){ const l=items.map((it,i)=>({...it,i})).filter(it=>it.cat===c&&(!q||wordHit(it.name+" "+(it.alt||""),q))); if(!l.length&&!(S.canWrite&&!q&&PRICE_CATS.includes(c)&&false)) continue;
     const open=q||S.priceOpen===c;
     h+=`<div class="card" style="display:block;cursor:pointer;margin-bottom:6px" data-pcat="${esc(c)}"><div style="display:flex"><b style="flex:1">${open?"▾":"▸"} ${esc(c)}</b><span class="count">${l.length}</span></div>
       ${open?`<div style="margin-top:6px">${l.map(it=>`<div data-pi="${it.i}" style="display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--line,#2a2f38)"><span style="flex:1">${esc(it.name)}${it.src&&it.src!=="Медіон"?` <span style="color:var(--muted);font-size:11px">${esc(it.src)}</span>`:""}</span><b style="white-space:nowrap">${money(it.price)}<span style="color:var(--muted);font-weight:400">/${esc(it.unit)}</span></b></div>`).join("")}
-        ${S.canWrite?`<button class="btn ghost sm" data-padd="${esc(c)}" style="margin-top:6px">+ Додати роботу</button>`:""}</div>`:""}</div>`; }
+        ${S.canWrite?`<button class="btn ghost sm" data-padd="${esc(c)}" style="margin-top:6px">+ Додати роботу</button>${S.wmRun?"":` <button class="btn ghost sm" data-wmc="${esc(c)}" style="margin-top:6px">📈 Ціни ринку для «${esc(c)}» (${l.length})</button>`}`:""}</div>`:""}</div>`; }
   $("#view").innerHTML=h;
   const qi=$("#priceQ"); qi.oninput=()=>{S.priceQ=qi.value; const p=qi.selectionStart; renderMoneyPrice(); const n=$("#priceQ"); n.focus(); try{n.setSelectionRange(p,p)}catch(_){}};
   $("#view").onclick=e=>{ const pm=e.target.closest("[data-pm]"); if(pm){ S.priceMode=pm.dataset.pm; renderMoneyPrice(); return }
+    if(e.target.closest("#wmStop")){ if(S.wmRun) S.wmRun.stop=true; return }
+    if(e.target.closest("#wmAll")){ const l=priceList().filter(x=>x.unit!=="%"); if(confirm(`Знайти актуальні (${new Date().getFullYear()}) ціни для ${l.length} робіт і взяти максимальні?\nЦе займе приблизно ${Math.ceil(l.length/12*0.5)} хв. Прайс зміниться лише після вашого перегляду.`)) wmUpdate(l); return }
+    if(e.target.closest("#wmCont")){ let n=[]; try{ n=JSON.parse(localStorage.getItem("wmResume")||"[]") }catch(_){} const set=new Set(n); wmUpdate(priceList().filter(x=>set.has(x.name))); return }
+    if(e.target.closest("#wmRev")){ wmReview(); return }
+    if(e.target.closest("#wmBack")){ wmRevert(); return }
+    const wc=e.target.closest("[data-wmc]"); if(wc){ e.stopPropagation(); wmUpdate(priceList().filter(x=>x.cat===wc.dataset.wmc)); return }
     const pi=e.target.closest("[data-pi]"); if(pi){ e.stopPropagation(); if(S.canWrite) priceItemForm(+pi.dataset.pi); return }
     const pa=e.target.closest("[data-padd]"); if(pa){ e.stopPropagation(); priceItemForm(-1,pa.dataset.padd); return }
     const pc=e.target.closest("[data-pcat]"); if(pc){ S.priceOpen=S.priceOpen===pc.dataset.pcat?"":pc.dataset.pcat; renderMoneyPrice() } };
