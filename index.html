@@ -4550,10 +4550,11 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
+const APP_V="v236"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")}</div>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")} · версія <b>${APP_V}</b></div>
     ${S.installEv?`<button class="btn" id="mInst" style="width:100%;margin-bottom:6px">📲 Встановити застосунок (щоб ділитися файлами в Облік)</button>`:matchMedia("(display-mode: standalone)").matches?"":`<div class="banner" style="margin-bottom:8px;font-size:13px">📲 Щоб у меню «Поділитися» з'явився «Облік»: Chrome → ⋮ → <b>«Встановити застосунок»</b> (або «Додати на головний екран» → «Встановити»).</div>`}
     <button class="btn ghost" id="mNotif" style="width:100%;margin-bottom:6px">🔔 Сповіщення</button>
     <div class="section-t">Google-таблиця ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</div>
