@@ -3670,6 +3670,52 @@ function packOf(it,items){ if(!it) return []; items=items||priceList(); const at
   const l=own||(rule?rule.c.map(([rx,k,a])=>{ let re; try{ re=new RegExp(rx,"i") }catch(_){ return null } const p=items.findIndex(x=>x!==it&&re.test(x.name)); return p<0?null:{n:items[p].name,k,a:!!a,p} }).filter(Boolean):[]);
   return l.filter(x=>x.p>=0&&items[x.p]&&items[x.p].name!==it.name).map(x=>({...x,u:items[x.p].unit,price:+items[x.p].price||0,cat:items[x.p].cat})) }
 const packQty=(q,k,u)=>{ const v=(+q||0)*k; return /шт|точ|компл/.test(u||"")?Math.max(1,Math.ceil(v)):Math.round(v*10)/10 };
+// ---------- 🏠 Приміщення в кошторисі: розміри → площі й периметри самі ----------
+const SURF={floor:"підлога",ceil:"стеля",walls:"стіни",perim:"периметр",skirt:"плінтус",slopes:"укоси"};
+const SURF_U={floor:"м²",ceil:"м²",walls:"м²",perim:"м.п.",skirt:"м.п.",slopes:"м.п."};
+// яка поверхня кімнати відповідає роботі: за назвою й одиницею (null — не вгадуємо)
+function surfOf(name,unit){ const n=String(name||"").toLowerCase(), sq=/м²|м2|кв/.test(unit||""), lin=/м\.?п|пог/.test(unit||"");
+  if(lin){ if(/укос|відкос/.test(n)) return "slopes"; if(/плінтус/.test(n)) return "skirt"; if(/демпфер|багет|молдінг|тіньов|периметр|карниз/.test(n)) return "perim"; return null }
+  if(!sq) return null;
+  if(/стел/.test(n)) return "ceil";
+  if(/підлог|стяжк|ламінат|кварцвініл|лінолеум|ковролін|паркет|настил|самовирівн|лаг|тепла підлога|електричн.*підлог/.test(n)) return "floor";
+  if(/стін|стіни|перегород|шпалер|штукатур|шпаклів|фарбуван|склополот|вагонк|3 д панел|декоратив/.test(n)) return "walls";
+  return null }
+const r1=v=>Math.round((+v||0)*10)/10;
+function roomM(rm){ if(!rm) return {}; const l=+rm.l||0, w=+rm.w||0, h=+rm.h||0, win=(+rm.wn||0), dor=(+rm.dn||0), ww=+rm.ww||1.4, wh=+rm.wh||1.5, dw=+rm.dw||0.9, dh=+rm.dh||2.05;
+  const floor=+rm.area||l*w, perim=+rm.perim||(l&&w?2*(l+w):0), open=win*ww*wh+dor*dw*dh;
+  return {floor:r1(floor),ceil:r1(floor),perim:r1(perim),walls:r1(Math.max(0,perim*h-open)),skirt:r1(Math.max(0,perim-dor*dw)),slopes:r1(win*(2*wh+ww))} }
+const roomLine=rm=>{ const m=roomM(rm); return [m.floor?`підлога ${m.floor} м²`:"",m.walls?`стіни ${m.walls} м²`:"",m.perim?`периметр ${m.perim} м`:"",m.slopes?`укоси ${m.slopes} м`:""].filter(Boolean).join(" · ") };
+// «кухня 3 на 4, висота 2,7, 2 вікна 1,4 на 1,5, двері» → розміри
+function parseRoom(t){ const s=" "+String(t||"").toLowerCase().replace(/,(\d)/g,".$1")+" ", num="(\\d+(?:\\.\\d+)?)", by="\\s*(?:на|x|х|\\*|×)\\s*", o={}, KW=/\s(?:довжин|ширин|висот|площ|периметр|h\s|\d|вікн|вікон|двер)/;
+  const head=s.split(/[,;:]/)[0], cut=head.search(KW), nm=(cut<0?head:head.slice(0,cut)).trim(); if(nm.length>1&&/[a-zа-яіїєґ]/i.test(nm)) o.name=nm.replace(/^./,c=>c.toUpperCase());
+  let m=s.match(new RegExp("(?:^|[^\\d.])"+num+by+num+"(?!\\s*(?:на|x|х))")); if(m&&!/(вікн|вікон|двер)[^\d]{0,12}$/.test(s.slice(0,m.index+1))){ o.l=+m[1]; o.w=+m[2] }
+  if((m=s.match(new RegExp("довжин\\S*\\s*"+num)))) o.l=+m[1]; if((m=s.match(new RegExp("ширин\\S*\\s*"+num)))) o.w=+m[1];
+  if((m=s.match(new RegExp("(?:висот\\S*|стел\\S*|\\sh)\\s*"+num)))) o.h=+m[1];
+  if((m=s.match(new RegExp("площ\\S*\\s*"+num)))) o.area=+m[1]; if((m=s.match(new RegExp("периметр\\S*\\s*"+num)))) o.perim=+m[1];
+  const cnt=w=>{ const c=s.match(new RegExp("(?:^|[\\s,])(\\d{1,2})\\s*"+w)); return c?+c[1]:1 };
+  if((m=s.match(new RegExp("(?:вікн|вікон)\\S*(?:\\s*"+num+by+num+")?")))){ o.wn=cnt("(?:вікн|вікон)"); if(m[1]){ o.ww=+m[1]; o.wh=+m[2] } }
+  if((m=s.match(new RegExp("двер\\S*(?:\\s*"+num+by+num+")?")))){ o.dn=cnt("двер"); if(m[1]){ o.dw=+m[1]; o.dh=+m[2] } }
+  return o }
+function roomForm(rm,cb,onDel){ rm={h:(()=>{ try{ return +localStorage.getItem("roomH")||2.7 }catch(_){ return 2.7 } })(),wn:0,dn:1,...rm};
+  const f=(k,l,ph)=>`<div class="field"><label>${l}</label><input name="${k}" inputmode="decimal" value="${rm[k]??""}" placeholder="${ph||""}"></div>`;
+  const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100"; const Q=q=>ov.querySelector(q), close=()=>ov.remove();
+  ov.innerHTML=`<div class="sheet" style="max-height:92vh;overflow:auto"><h2>🏠 ${rm.id?"Приміщення":"Нове приміщення"}</h2>
+    <div class="field"><label>Надиктуйте або напишіть</label><div class="row"><input id="rmT" placeholder="кухня 3 на 4, висота 2,7, вікно 1,4 на 1,5, двері" style="flex:1"><button type="button" class="btn ghost sm" id="rmP">Розібрати</button></div></div>
+    <form id="rmF"><div class="field"><label>Назва</label><input name="name" value="${esc(rm.name||"")}" list="rmNames" placeholder="Кухня"><datalist id="rmNames">${["Кухня","Санвузол","Ванна","Туалет","Спальня","Вітальня","Дитяча","Коридор","Кабінет","Балкон","Гардероб"].map(x=>`<option value="${x}">`).join("")}</datalist></div>
+    <div class="row">${f("l","Довжина, м")}${f("w","Ширина, м")}${f("h","Висота, м")}</div>
+    <div class="row">${f("wn","Вікон, шт")}${f("ww","ширина","1,4")}${f("wh","висота","1,5")}</div>
+    <div class="row">${f("dn","Дверей, шт")}${f("dw","ширина","0,9")}${f("dh","висота","2,05")}</div>
+    <details style="margin:4px 0 8px"><summary class="m">Кімната не прямокутна — вписати площу й периметр</summary><div class="row" style="margin-top:6px">${f("area","Площа підлоги, м²")}${f("perim","Периметр, м")}</div></details>
+    <div class="m" id="rmSum" style="margin-bottom:8px"></div>
+    <div class="actions">${onDel?`<button type="button" class="btn danger" id="rmDel">🗑</button>`:""}<button type="button" class="btn ghost" id="rmX">Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form></div>`;
+  document.body.appendChild(ov); ov.addEventListener("click",e=>{ if(e.target===ov) close() }); Q("#rmX").onclick=close;
+  const F=Q("#rmF"), read=()=>{ const v=Object.fromEntries(new FormData(F)), o={...rm,name:String(v.name||"").trim()||"Приміщення"}; for(const k of ["l","w","h","wn","ww","wh","dn","dw","dh","area","perim"]){ const x=parseFloat(String(v[k]||"").replace(",",".")); if(x>0) o[k]=x; else delete o[k] } return o };
+  const sum=()=>{ Q("#rmSum").textContent=roomLine(read())||"Вкажіть довжину і ширину (або площу й периметр)" }; F.addEventListener("input",sum); sum();
+  Q("#rmP").onclick=()=>{ const o=parseRoom(Q("#rmT").value); for(const [k,v] of Object.entries(o)){ const el=F.querySelector(`[name=${k}]`); if(el) el.value=String(v).replace(".",",") } sum(); if(!Object.keys(o).length) toast("Не зрозумів — впишіть цифри в поля") };
+  if(typeof addMics==="function") addMics(ov);
+  Q("#rmDel")?.addEventListener("click",()=>{ if(confirm("Видалити приміщення? Роботи з нього стануть «загальними».")){ close(); onDel() } });
+  F.onsubmit=e=>{ e.preventDefault(); const o=read(); if(!o.id) o.id="r"+Date.now().toString(36); try{ if(o.h) localStorage.setItem("roomH",o.h) }catch(_){} close(); cb(o) } }
 function priceItemForm(i,cat){
   const items=priceList().map(x=>({...x})), it=i>=0?items[i]:{cat,name:"",unit:"м²",price:0,src:"власна"};
   openSheet(`<h2>${i>=0?"Ціна роботи":"Нова робота"}</h2><form id="piF">
@@ -3706,9 +3752,16 @@ function kpFlow(saved,opts){
   const tot=()=>n2(st.rows.filter(r=>r.on!==false&&!r.rec&&(st.withMat||!r.mat)).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0));
   // ➕ під рядком — супутні роботи з пакета; 💡 рядок «Рекомендуємо також» (не в сумі)
   const packCard=(r,i)=>{ if(r.mat||r.on===false||r.rec||r.packDone||!(r.p>=0)||!items[r.p]) return "";
-    const pk=packOf(items[r.p],items).filter(c=>!st.rows.some(x=>!x.mat&&(x.p===c.p||normW(x.name)===normW(c.n)))); if(!pk.length) return "";
+    const pk=packOf(items[r.p],items).filter(c=>!st.rows.some(x=>!x.mat&&(x.room||"")===(r.room||"")&&(x.p===c.p||normW(x.name)===normW(c.n)))); if(!pk.length) return "";
     return `<div class="card" style="display:block;cursor:default;margin:-2px 0 8px 12px;border-left:3px solid var(--accent)"><div class="m" style="font-size:12.5px;margin-bottom:4px">➕ Зазвичай разом із «${esc(r.name)}»:</div>${pk.map((c,j)=>`<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:13.5px"><input type="checkbox" data-pk="${i}:${j}" ${c.a?"checked":""} style="width:20px;height:20px;flex:none"><span style="flex:1;min-width:0">${esc(c.n)} <span class="m" style="font-size:11.5px">${money(c.price)}/${esc(c.u)}</span></span><input data-pq="${i}:${j}" inputmode="decimal" value="${c.k!=null?packQty(r.qty,c.k,c.u):""}" placeholder="к-сть" style="flex:0 0 62px;text-align:center;padding:4px"><span class="m" style="flex:0 0 30px;font-size:12px">${esc(c.u)}</span></label>`).join("")}
       <div class="row" style="margin-top:6px"><button type="button" class="btn sm" data-pkgo="${i}" style="flex:2">✅ Додати позначене</button><button type="button" class="btn ghost sm" data-pkx="${i}" style="flex:1">Сховати</button></div><div class="m" style="font-size:11.5px;margin-top:4px">Не позначене, але з кількістю, піде клієнту окремим блоком «Рекомендуємо також» (не в сумі).</div></div>` };
+  // групи: кожне приміщення з його розмірами, далі — загальні роботи й матеріали
+  const kpGroups=()=>{ const rooms=st.rooms||[], all=st.rows.map((_,i)=>i); if(!rooms.length) return [{h:"",ids:all}];
+    const has=id=>rooms.some(r=>r.id===id), out=rooms.map(rm=>({h:`<div class="section-t" style="display:flex;align-items:center;gap:6px;margin-top:14px;flex-wrap:wrap">🏠 ${esc(rm.name)}<button type="button" class="btn ghost sm" data-rmed="${rm.id}" style="padding:3px 8px;margin-left:auto;text-transform:none;letter-spacing:0">✏️ Розміри</button><div class="m" style="flex-basis:100%;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px">${esc(roomLine(rm))||"розміри не вказані — натисніть «Розміри»"}</div></div>`,ids:all.filter(i=>st.rows[i].room===rm.id)}));
+    const rest=all.filter(i=>!has(st.rows[i].room)); if(rest.length) out.push({h:`<div class="section-t" style="margin-top:12px">Загальні роботи${st.withMat?" і матеріали":""}</div>`,ids:rest}); return out };
+  // підставити обсяг з розмірів кімнати одним дотиком
+  const surfChips=(r,i)=>{ if(r.mat||r.on===false||!r.room) return ""; const m=roomM((st.rooms||[]).find(x=>x.id===r.room)); const ks=Object.keys(SURF).filter(k=>m[k]>0&&(SURF_U[k]===(r.unit||"").replace("м2","м²")||(SURF_U[k]==="м.п."&&/м\.?п|пог/.test(r.unit||"")))); if(!ks.length) return "";
+    return `<div style="display:flex;gap:4px;flex-wrap:wrap;margin:-2px 0 8px">${ks.map(k=>`<button type="button" class="chip ${r.surf===k?"on":""}" data-sq="${i}:${k}" style="font:inherit;font-size:12px;padding:3px 8px">${SURF[k]} ${m[k]}</button>`).join("")}</div>` };
   const recBar=(r,i)=>r.rec&&r.on!==false?`<div class="m" style="font-size:12px;margin:-2px 0 6px;display:flex;gap:6px;align-items:center">💡 «Рекомендуємо також» — не входить у суму<button type="button" class="btn ghost sm" data-recin="${i}" style="margin-left:auto;padding:3px 8px">➕ У суму</button></div>`:(!r.mat&&r.on!==false&&r.of?`<div style="text-align:right;margin:-4px 0 6px"><button type="button" class="btn ghost sm" data-recout="${i}" style="padding:3px 8px;font-size:12px">💡 У «Рекомендуємо»</button></div>`:"");
   const draw=()=>{
     openSheet(`<h2>📄 Кошторис${st.id&&[...S.sites.values()].some(x=>x.approved?.id===st.id)?" · ✅ погоджено":""}</h2><div class="m" style="margin:-6px 0 8px;font-size:12.5px">До погодження друкується як «Комерційна пропозиція», після — як «Кошторис».</div>
@@ -3741,11 +3794,11 @@ function kpFlow(saved,opts){
     $("#kpFile").onchange=e=>pick(e.target.files[0]); $("#kpCam").onchange=e=>pick(e.target.files[0]);
     $("#kpGo").onclick=go;
     // додати роботу пошуком по прайсу (можна багато разів поспіль) або порожній рядок
-    const addPick=()=>pickWork(items,-1,v=>{ if(v<0) return; const it=items[v]; const ex=st.rows.find(r=>r.p===v&&r.on!==false); if(ex){ toast("Ця робота вже є — змініть кількість"); return }
-      st.rows.push({on:true,name:it.name,orig:"",qty:1,unit:it.unit,price:it.price,p:v,cat:it.cat}); draw(); toast("Додано: "+it.name+" — вкажіть обсяг") },"Скасувати");
+    const addPick=()=>pickWork(items,-1,v=>{ if(v<0) return; const it=items[v]; const ex=st.rows.find(r=>r.p===v&&r.on!==false&&(r.room||"")===(st.room||"")); if(ex){ toast("Ця робота вже є"+(st.room?" в цьому приміщенні":"")+" — змініть кількість"); return }
+      const rq=roomQty(it.name,it.unit); st.rows.push({on:true,name:it.name,orig:"",qty:rq.qty,unit:it.unit,price:it.price,p:v,cat:it.cat,...(st.room?{room:st.room}:{}),...(rq.surf?{surf:rq.surf}:{})}); draw(); toast("Додано: "+it.name+(rq.surf?` — ${SURF[rq.surf]} ${rq.qty} ${it.unit}`:" — вкажіть обсяг")) },"Скасувати");
     $("#kpPick").onclick=addPick;
-    $("#kpManual").onclick=()=>{ st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"}); draw() };
-    if(st.rows.length) drawRows();
+    $("#kpManual").onclick=()=>{ st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи",...(st.room?{room:st.room}:{})}); draw() };
+    drawRows(); // приміщення видно й до перших робіт
   };
   function localP(name){ const al=aliasOf(name); if(al){ const i=items.findIndex(it=>it.name===al); if(i>=0) return i }
     const q=normW(name).split(" ").filter(w=>w.length>2).join(" "); if(!q) return -1;
@@ -3753,23 +3806,27 @@ function kpFlow(saved,opts){
     return -1 }
   function localParse(text){ return String(text).split(/[\n;,]+/).map(x=>x.trim()).filter(Boolean).map(seg=>{
       const m=seg.match(/(\d+(?:[.,]\d+)?)\s*(м2|м²|кв\.?\s*м|квадрат\S*|м\.?\s*п\.?|пог\S*\s*м\S*|метр\S*|м3|м³|куб\S*|шт\S*|точ\S*|отв\S*)?/i);
-      const qty=m?parseFloat(m[1].replace(",",".")):1, u=m&&m[2]?m[2].toLowerCase():"";
+      const qty=m?parseFloat(m[1].replace(",",".")):0, u=m&&m[2]?m[2].toLowerCase():"";
       const unit=/2|²|кв/.test(u)?"м²":/3|³|куб/.test(u)?"м³":/п|метр/.test(u)?"м.п.":/шт/.test(u)?"шт":/точ/.test(u)?"точка":/отв/.test(u)?"отвір":"";
       return {name:(m?seg.replace(m[0]," "):seg).replace(/\s+/g," ").trim()||seg,qty,unit} }) }
-  function rowOf(x,p){ const it=p>=0?items[p]:null; return {on:true,name:it?it.name:String(x.name).trim(),orig:String(x.name).trim(),qty:+x.qty||1,unit:it?it.unit:String(x.unit||""),price:it?it.price:0,p,cat:it?it.cat:"Інші роботи"} }
+  function rowOf(x,p){ const it=p>=0?items[p]:null, room=x.roomId||st.room||"", unit=it?it.unit:String(x.unit||""), name=it?it.name:String(x.name).trim(); let qty=+x.qty||0, surf="";
+    if(!(qty>0)&&room){ const sf=surfOf(name,unit), m=roomM((st.rooms||[]).find(r=>r.id===room)); if(sf&&m[sf]>0){ qty=m[sf]; surf=sf } }
+    return {on:true,name,orig:String(x.name).trim(),qty:qty||1,unit,price:it?it.price:0,p,cat:it?it.cat:"Інші роботи",...(room?{room}:{}),...(surf?{surf}:{})} }
+  const roomQty=(name,unit)=>{ const sf=surfOf(name,unit), m=roomM((st.rooms||[]).find(r=>r.id===st.room)); return sf&&m[sf]>0?{qty:m[sf],surf:sf}:{qty:1} };
   async function go(){
     if(!st.text.trim()&&!st.fileParts.length){toast("Вставте перелік або додайте файл — або додавайте роботи кнопкою «🔍 Додати роботу з прайсу»");return}
     if(!window.__fbAI){toast("Розпізнавання недоступне");return}
     const b=$("#kpGo"); b.disabled=true; const t0=Date.now(); const tick=setInterval(()=>{const el=$("#kpGo");if(el)el.textContent=`⏳ Підбираю… ${Math.round((Date.now()-t0)/1000)} с`},1000);
-    const prompt=`Це перелік будівельних робіт від замовника (текст, таблиця, кошторис або фото). Випиши КОЖНУ роботу окремим рядком: name — назва як у замовника; qty — обсяг числом (якщо не вказано — 1); unit — одиниця.
+    const prompt=`Це перелік будівельних робіт від замовника (текст, таблиця, кошторис або фото). Випиши КОЖНУ роботу окремим рядком: name — назва як у замовника; qty — обсяг числом (якщо НЕ вказано — 0, ми порахуємо з розмірів кімнати); unit — одиниця; room — приміщення, якщо в переліку робота належить до названого приміщення (кухня, санвузол, спальня…), інакше "".
 Потім для кожної знайди в нашому прайсі (номер. категорія | назва | од. | ціна) рядок з тією самою за змістом роботою і сумісною одиницею: p — номер рядка, або -1, якщо такої роботи в прайсі справді немає. Не підставляй роботу іншого виду.
 ${AI_SYN}${Object.keys(S.aliases||{}).length?`\nВідомі відповідності (так пишуть → наша назва):\n${Object.entries(S.aliases).slice(-150).map(([k,v])=>`${k} → ${v}`).join("\n")}`:""}
 Прайс:
 ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:""} | ${x.unit} | ${x.price}`).join("\n")}
-Відповідь — лише JSON {"items":[{"name":"","qty":1,"unit":"","p":-1}]}.`;
+Відповідь — лише JSON {"items":[{"name":"","qty":1,"unit":"","p":-1,"room":""}]}.`;
     try{ const txt=await window.__fbAI([...(st.text.trim()?[{text:"Перелік замовника:\n"+st.text}]:[]),...st.fileParts],prompt);
       clearInterval(tick); const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
       let ai=(j.items||[]).filter(x=>x&&x.name); if(!ai.length&&st.text.trim()) ai=localParse(st.text);
+      st.rooms=st.rooms||[]; ai.forEach(x=>{ const rn=String(x.room||"").trim(); if(!rn) return; let rm=st.rooms.find(r=>normW(r.name)===normW(rn)); if(!rm){ rm={id:"r"+Date.now().toString(36)+st.rooms.length,name:rn.replace(/^./,c=>c.toUpperCase())}; st.rooms.push(rm) } x.roomId=rm.id });
       const before=st.rows.length; st.rows=[...st.rows,...ai.map(x=>{ let p=Number.isInteger(+x.p)&&+x.p>=0&&+x.p<items.length?+x.p:-1; const al=aliasOf(x.name); if(al){ const i=items.findIndex(it=>it.name===al); if(i>=0) p=i } if(p<0) p=localP(x.name); return rowOf(x,p) })];
       if(st.rows.length===before){ toast("Робіт не знайдено — текст залишився, можна виправити й спробувати ще раз"); b.disabled=false; b.textContent="🔍 Спробувати ще раз"; return }
       st.text=""; draw();
@@ -3781,12 +3838,14 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
   function drawRows(){
     const t=tot(), d=n2(t*(+st.disc||0)/100), miss=st.rows.filter(r=>r.on!==false&&!(+r.price>0)).length;
     $("#kpRes").innerHTML=`<div class="section-t" style="display:flex">Роботи<span class="count">${st.rows.filter(r=>r.on!==false).length} поз.</span></div>
-      ${st.rows.map((r,i)=>r.mat&&!st.withMat?"":`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on===false?"opacity:.5":""};${r.on!==false&&!(+r.price>0)?"border:1px solid var(--bad,#e57373)":""}">${r.mat?`<div class="m" style="font-size:11.5px;color:var(--muted)">🧱 матеріал</div>`:""}
+      <div class="card" style="display:block;cursor:default;margin-bottom:8px"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b style="font-size:14px">🏠 Приміщення</b>${(st.rooms||[]).map(rm=>`<button type="button" class="chip ${st.room===rm.id?"on":""}" data-rmsel="${rm.id}" style="font:inherit;font-size:13px">${esc(rm.name)}</button>`).join("")}<button type="button" class="chip" data-rmadd="1" style="font:inherit;font-size:13px">+ Додати</button></div>
+        <div class="m" style="font-size:12px;margin-top:4px">${(st.rooms||[]).length?(st.room?`Нові роботи йдуть у «${esc((st.rooms.find(r=>r.id===st.room)||{}).name||"")}» і обсяг береться з її розмірів. Торкніться ще раз — зняти вибір.`:"Виберіть приміщення — нові роботи підуть у нього з обсягами з розмірів."):"Додайте кімнати з розмірами — площі стін, підлоги, стелі й периметр порахуються самі."}</div></div>
+      ${kpGroups().map(g=>g.h+g.ids.map(i=>{ const r=st.rows[i]; return r.mat&&!st.withMat?"":`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on===false?"opacity:.5":""};${r.on!==false&&!(+r.price>0)?"border:1px solid var(--bad,#e57373)":""}">${r.mat?`<div class="m" style="font-size:11.5px;color:var(--muted)">🧱 матеріал</div>`:""}
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on!==false?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         ${r.orig&&r.orig!==r.name?`<div class="m" style="font-size:12px;color:var(--muted)">у замовника: ${esc(r.orig)}</div>`:""}
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-i="${i}" data-k="unit"`,r.unit,"flex:0 0 74px;padding-left:4px;padding-right:2px")}<span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center">${+r.price>0?`<button type="button" class="btn ghost sm" data-rpct="${i}" style="flex:0 0 auto;padding:4px 7px" title="Змінити ціну цього рядка на %">%</button>`:""}<b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>${(()=>{ if(!S.canWrite||!(+r.price>0)||r.on===false) return ""; const lp=rowListPrice(r); if(lp!=null&&Math.abs(lp-(+r.price))<0.01) return "";
           return `<label class="m" style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:4px;color:var(--muted)"><input type="checkbox" data-tp="${i}" ${r.toPrice?"checked":""} style="width:18px;height:18px"> 📌 Зберегти ціну в ${r.mat?"прайс матеріалів":"прайс робіт"}${lp!=null?` (зараз там ${money(lp)})`:" (нова позиція)"}</label>` })()}
-        ${r.mat?`${r.priceSrc?`<div class="m" style="font-size:11.5px;color:var(--muted);margin-top:4px">💲 ${esc(r.priceSrc)}</div>`:""}<button type="button" class="btn ghost sm" data-epi="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">💲 ${+r.price>0?"Оновити ціну з Епіцентру":"Знайти ціну в Епіцентрі"}</button></div>`:`<button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`}${recBar(r,i)}${packCard(r,i)}`).join("")}
+        ${r.mat?`${r.priceSrc?`<div class="m" style="font-size:11.5px;color:var(--muted);margin-top:4px">💲 ${esc(r.priceSrc)}</div>`:""}<button type="button" class="btn ghost sm" data-epi="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">💲 ${+r.price>0?"Оновити ціну з Епіцентру":"Знайти ціну в Епіцентрі"}</button></div>`:`<button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`}${surfChips(r,i)}${recBar(r,i)}${packCard(r,i)}` }).join("")).join("")}
       ${st.rows.length?(()=>{ const noP=st.rows.filter(r=>r.mat&&r.on!==false&&!(+r.price>0)).length, mats=st.withMat&&st.rows.some(r=>r.mat&&r.on!==false), md=(st.prMode==="pull"&&!mats)?"pct":(st.prMode||(noP?"pull":"pct"));
         return `<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b style="flex:1;font-size:14px">💰 Ціни</b>${st.mkHist?`<span class="m" style="font-size:11.5px;color:var(--muted)">застосовано: ${esc(st.mkHist)}</span>`:""}</div>
         <div class="seg" id="kpPrSeg" style="margin-bottom:8px">${mats?`<button type="button" data-prm="pull" class="${md==="pull"?"on":""}">💲 Підтягнути${noP?` (${noP})`:""}</button>`:""}<button type="button" data-prm="pct" class="${md==="pct"?"on":""}">📈 + %</button><button type="button" data-prm="fit" class="${md==="fit"?"on":""}">🎯 Під суму</button></div>
@@ -3811,7 +3870,7 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       ${S.canWrite?`<button class="btn" id="kpSave" style="width:100%;margin-top:6px">💾 ${st.id?"Зберегти зміни":"Зберегти"}${st.site?" в об'єкті":""} + PDF</button>`:""}`;
     $("#kpRes").onchange=e=>{const i=e.target.dataset.i,k=e.target.dataset.k; if(e.target.id==="kpNote"){st.note=e.target.value;return} if(i==null)return; const r=st.rows[i];
       if(k==="on") r.on=e.target.checked; else if(k==="name"||k==="unit") r[k]=e.target.value;
-      else if(k==="qty"||k==="price") r[k]=parseFloat(String(e.target.value).replace(",","."))||0;
+      else if(k==="qty"||k==="price"){ r[k]=parseFloat(String(e.target.value).replace(",","."))||0; if(k==="qty") delete r.surf }
       else if(k==="p"){ r.p=+e.target.value; const it=items[r.p]; if(it&&r.orig) learnAlias(r.orig,it.name); if(it){ r.name=it.name; r.unit=it.unit; r.price=it.price; r.cat=it.cat } }
       drawRows()};
     async function epiRows(idx,btn){ if(!window.__fbAIWeb){toast("ШІ недоступний");return} const l=idx.map(i=>st.rows[i]); if(!l.length) return;
@@ -3861,9 +3920,15 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       if(!idx.length) all.forEach(i=>{ const k=normName(st.rows[i].name); if(S.matprices&&S.matprices[k]&&S.matprices[k].src!=="вручну") delete S.matprices[k] });
       epiRows(all,e.target) }));
     $("#kpRes").onclick=e=>{
-      const pg=e.target.closest("[data-pkgo]"); if(pg){ const i=+pg.dataset.pkgo, r=st.rows[i], pk=packOf(items[r.p],items).filter(c=>!st.rows.some(x=>!x.mat&&(x.p===c.p||normW(x.name)===normW(c.n)))), add=[]; let ask="";
+      const ra=e.target.closest("[data-rmadd]"); if(ra){ roomForm({},rm=>{ st.rooms=[...(st.rooms||[]),rm]; st.room=rm.id; drawRows(); toast(`🏠 ${rm.name}: нові роботи підуть сюди`) }); return }
+      const rs=e.target.closest("[data-rmsel]"); if(rs){ st.room=st.room===rs.dataset.rmsel?"":rs.dataset.rmsel; drawRows(); return }
+      const re_=e.target.closest("[data-rmed]"); if(re_){ const id=re_.dataset.rmed, old=(st.rooms||[]).find(r=>r.id===id); if(!old) return;
+        roomForm(old,rm=>{ st.rooms=st.rooms.map(r=>r.id===id?rm:r); const m=roomM(rm); let n=0; st.rows.forEach(r=>{ if(r.room===id&&r.surf&&m[r.surf]>0&&r.qty!==m[r.surf]){ r.qty=m[r.surf]; n++ } }); drawRows(); if(n) toast(`Обсяги оновлено: ${n} поз.`) },
+          ()=>{ st.rooms=st.rooms.filter(r=>r.id!==id); st.rows.forEach(r=>{ if(r.room===id) delete r.room }); if(st.room===id) st.room=""; drawRows() }); return }
+      const sq=e.target.closest("[data-sq]"); if(sq){ const [i,k]=sq.dataset.sq.split(":"), r=st.rows[+i], m=roomM((st.rooms||[]).find(x=>x.id===r.room)); if(m[k]>0){ r.qty=m[k]; r.surf=k; drawRows() } return }
+      const pg=e.target.closest("[data-pkgo]"); if(pg){ const i=+pg.dataset.pkgo, r=st.rows[i], pk=packOf(items[r.p],items).filter(c=>!st.rows.some(x=>!x.mat&&(x.room||"")===(r.room||"")&&(x.p===c.p||normW(x.name)===normW(c.n)))), add=[]; let ask="";
         pk.forEach((c,j)=>{ const on=$(`[data-pk="${i}:${j}"]`)?.checked, q=parseFloat(String($(`[data-pq="${i}:${j}"]`)?.value||"").replace(",","."))||0; if(on&&!(q>0)&&!ask) ask=c.n;
-          if(on||q>0) add.push({on:true,name:c.n,orig:"",qty:q,unit:c.u,price:c.price,p:c.p,cat:c.cat,of:r.name,...(on?{}:{rec:true})}) }); // без кількості й без галочки — не додаємо
+          if(on||q>0) add.push({on:true,name:c.n,orig:"",qty:q,unit:c.u,price:c.price,p:c.p,cat:c.cat,of:r.name,...(r.room?{room:r.room}:{}),...(on?{}:{rec:true})}) }); // без кількості й без галочки — не додаємо
         if(ask){ toast("Вкажіть кількість: "+ask.slice(0,50),3500); return }
         r.packDone=true; st.rows.splice(i+1,0,...add); drawRows(); toast(`➕ Додано: ${add.filter(x=>!x.rec).length}${add.some(x=>x.rec)?` · у «Рекомендуємо»: ${add.filter(x=>x.rec).length}`:""}`); return }
       const px=e.target.closest("[data-pkx]"); if(px){ st.rows[+px.dataset.pkx].packDone=true; drawRows(); return }
@@ -3898,7 +3963,7 @@ ${mc.map(m=>m.name+" | "+m.unit).join("\n")}
     $("#kpShare").onclick=()=>{ const c=$("#kpC")?.value; if(c) st.client=c; sharePdf(kpHTML(st),`Кошторис ${st.no}${st.client?" — "+st.client:""}`,`Комерційна пропозиція № ${st.no}${st.object?" · "+st.object:""}`) };
     $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
     $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити кошторис № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ unapproveOffer(st.id); toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
-    $("#kpSave").onclick=async()=>{ const data={kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat,...(r.rec?{rec:true}:{}),...(r.of?{of:r.of}:{}),...(r.packDone?{packDone:true}:{})})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
+    $("#kpSave").onclick=async()=>{ const data={kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat,...(r.rec?{rec:true}:{}),...(r.of?{of:r.of}:{}),...(r.packDone?{packDone:true}:{}),...(r.room?{room:r.room}:{}),...(r.surf?{surf:r.surf}:{})})),rooms:(st.rooms||[]).filter(rm=>st.rows.some(r=>r.room===rm.id&&r.on!==false)||rm.l||rm.area),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
       const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; S.kpDraftClear?.(); S.kpClean=JSON.stringify(st.rows); toast(st.site?"Кошторис збережено в об'єкті («📁 Документи»)":"Кошторис збережено"); printDoc(kpHTML(st),"Кошторис "+st.no); draw();
         if(st.tender){ const on=st.rows.filter(r=>r.on!==false), w=n2(on.filter(r=>!r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)), m=st.withMat?n2(on.filter(r=>r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)):0;
           write(db=>db.doc("tenders/"+st.tender).update({kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m,updatedAt:Date.now()})).then(()=>{ const t=S.tz?.get(st.tender); if(t) Object.assign(t,{kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m}) }) }
@@ -3921,6 +3986,10 @@ function kpHTML(st){
   const f=S.fops.get(st.fop)||{}, rows=st.rows.filter(r=>r.on!==false&&r.name&&!r.rec&&(st.withMat||!r.mat)).sort((a,b)=>(a.mat?1:0)-(b.mat?1:0)), n2=v=>Math.round((+v||0)*100)/100;
   const recs=st.rows.filter(r=>r.on!==false&&r.name&&r.rec&&!r.mat), rt=n2(recs.reduce((a,r)=>a+n2(r.qty*r.price),0)), ok=!!(st.id&&[...S.sites.values()].some(x=>x.approved?.id===st.id));
   const groups=[]; for(const r of rows){ const c=r.mat?"Матеріали":(r.cat||"Інші роботи"); let g=groups.find(x=>x.c===c); if(!g) groups.push(g={c,l:[]}); g.l.push(r) }
+  // є приміщення — групуємо по кімнатах (з розмірами й підсумком), далі загальні роботи й матеріали
+  const rms=(st.rooms||[]).filter(rm=>rows.some(r=>!r.mat&&r.room===rm.id));
+  if(rms.length){ groups.length=0; for(const rm of rms) groups.push({c:rm.name,sub:roomLine(rm),l:rows.filter(r=>!r.mat&&r.room===rm.id),st:1});
+    const rest=rows.filter(r=>!r.mat&&!rms.some(x=>x.id===r.room)); if(rest.length) groups.push({c:"Загальні роботи",l:rest,st:1}); const mt=rows.filter(r=>r.mat); if(mt.length) groups.push({c:"Матеріали",l:mt,st:1}) }
   const tot=n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0)), d=n2(tot*(+st.disc||0)/100), pay=n2(tot-d);
   const till=new Date(new Date(st.date).getTime()+(+st.valid||14)*864e5).toISOString().slice(0,10);
   let k=0;
@@ -3929,7 +3998,7 @@ function kpHTML(st){
   <h3>${ok?"КОШТОРИС":"КОМЕРЦІЙНА ПРОПОЗИЦІЯ"} № ${esc(st.no)}<br>від ${dLong(st.date)}</h3>
   ${st.client?`<p><b>Замовник:</b> ${esc(st.client)}</p>`:""}${st.object?`<p><b>Об'єкт:</b> ${esc(st.object)}</p>`:""}
   <table class="items"><tr><th>№</th><th>Найменування робіт</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr>
-  ${groups.map(g=>`${groups.length>1?`<tr><td colspan="6"><b>${esc(g.c)}</b></td></tr>`:""}${g.l.map(r=>`<tr><td class="r">${++k}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="r">${+r.qty}</td><td class="r">${n2(r.price).toFixed(2)}</td><td class="r">${n2(r.qty*r.price).toFixed(2)}</td></tr>`).join("")}`).join("")}
+  ${groups.map(g=>`${groups.length>1||g.sub?`<tr><td colspan="6"><b>${esc(g.c)}</b>${g.sub?` <span style="font-weight:normal;color:#555">(${esc(g.sub)})</span>`:""}</td></tr>`:""}${g.l.map(r=>`<tr><td class="r">${++k}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="r">${+r.qty}</td><td class="r">${n2(r.price).toFixed(2)}</td><td class="r">${n2(r.qty*r.price).toFixed(2)}</td></tr>`).join("")}${g.st&&groups.length>1?`<tr><td colspan="5" class="r">Разом «${esc(g.c)}»:</td><td class="r">${n2(g.l.reduce((a,r)=>a+n2(r.qty*r.price),0)).toFixed(2)}</td></tr>`:""}`).join("")}
   <tr class="tot"><td colspan="5" class="r b">Разом:</td><td class="r b box">${tot.toFixed(2)}</td></tr>
   ${d?`<tr class="tot"><td colspan="5" class="r b">Знижка ${+st.disc}%:</td><td class="r b box">−${d.toFixed(2)}</td></tr><tr class="tot"><td colspan="5" class="r b">До сплати:</td><td class="r b box">${pay.toFixed(2)}</td></tr>`:""}</table>
   <p>Загальна вартість робіт: <b>${uaWords(pay)}</b>.</p>
@@ -4632,7 +4701,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v237"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v238"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
