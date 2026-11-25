@@ -3702,7 +3702,7 @@ function roomForm(rm,cb,onDel){ rm={h:(()=>{ try{ return +localStorage.getItem("
   const f=(k,l,ph)=>`<div class="field"><label>${l}</label><input name="${k}" inputmode="decimal" value="${rm[k]??""}" placeholder="${ph||""}"></div>`;
   const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100"; const Q=q=>ov.querySelector(q), close=()=>ov.remove();
   ov.innerHTML=`<div class="sheet" style="max-height:92vh;overflow:auto"><h2>🏠 ${rm.id?"Приміщення":"Нове приміщення"}</h2>
-    <div class="field"><label>Надиктуйте або напишіть</label><div class="row"><input id="rmT" placeholder="кухня 3 на 4, висота 2,7, вікно 1,4 на 1,5, двері" style="flex:1"><button type="button" class="btn ghost sm" id="rmP">Розібрати</button></div></div>
+    <div class="field"><label>🎤 Надиктуйте або напишіть — поля заповняться самі</label><textarea id="rmT" rows="2" placeholder="кухня 3 на 4, висота 2,7, вікно 1,4 на 1,5, двері"></textarea><button type="button" class="btn ghost sm" id="rmP" style="width:100%;margin-top:6px">Розібрати</button></div>
     <form id="rmF"><div class="field"><label>Назва</label><input name="name" value="${esc(rm.name||"")}" list="rmNames" placeholder="Кухня"><datalist id="rmNames">${["Кухня","Санвузол","Ванна","Туалет","Спальня","Вітальня","Дитяча","Коридор","Кабінет","Балкон","Гардероб"].map(x=>`<option value="${x}">`).join("")}</datalist></div>
     <div class="row">${f("l","Довжина, м")}${f("w","Ширина, м")}${f("h","Висота, м")}</div>
     <div class="row">${f("wn","Вікон, шт")}${f("ww","ширина","1,4")}${f("wh","висота","1,5")}</div>
@@ -3713,7 +3713,8 @@ function roomForm(rm,cb,onDel){ rm={h:(()=>{ try{ return +localStorage.getItem("
   document.body.appendChild(ov); ov.addEventListener("click",e=>{ if(e.target===ov) close() }); Q("#rmX").onclick=close;
   const F=Q("#rmF"), read=()=>{ const v=Object.fromEntries(new FormData(F)), o={...rm,name:String(v.name||"").trim()||"Приміщення"}; for(const k of ["l","w","h","wn","ww","wh","dn","dw","dh","area","perim"]){ const x=parseFloat(String(v[k]||"").replace(",",".")); if(x>0) o[k]=x; else delete o[k] } return o };
   const sum=()=>{ Q("#rmSum").textContent=roomLine(read())||"Вкажіть довжину і ширину (або площу й периметр)" }; F.addEventListener("input",sum); sum();
-  Q("#rmP").onclick=()=>{ const o=parseRoom(Q("#rmT").value); for(const [k,v] of Object.entries(o)){ const el=F.querySelector(`[name=${k}]`); if(el) el.value=String(v).replace(".",",") } sum(); if(!Object.keys(o).length) toast("Не зрозумів — впишіть цифри в поля") };
+  const fill=quiet=>{ const o=parseRoom(Q("#rmT").value); for(const [k,v] of Object.entries(o)){ const el=F.querySelector(`[name=${k}]`); if(el) el.value=String(v).replace(".",",") } sum(); if(!quiet&&!Object.keys(o).length) toast("Не зрозумів — впишіть цифри в поля") };
+  Q("#rmP").onclick=()=>fill(false); let ft=null; Q("#rmT").addEventListener("input",()=>{ clearTimeout(ft); ft=setTimeout(()=>fill(true),500) }); Q("#rmT").addEventListener("change",()=>fill(true)); // голос: заповнюємо, щойно договорили
   if(typeof addMics==="function") addMics(ov);
   Q("#rmDel")?.addEventListener("click",()=>{ if(confirm("Видалити приміщення? Роботи з нього стануть «загальними».")){ close(); onDel() } });
   F.onsubmit=e=>{ e.preventDefault(); const o=read(); if(!o.id) o.id="r"+Date.now().toString(36); try{ if(o.h) localStorage.setItem("roomH",o.h) }catch(_){} close(); cb(o) } }
@@ -4768,7 +4769,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v239"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v240"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
