@@ -1054,7 +1054,7 @@ function tzView(t){ if(!t) return; const a=t.analysis, fds=[...(S.fd||new Map())
     <button class="btn" id="tzPack" style="width:100%;margin-bottom:6px">📦 Зібрати повний пакет документів (ШІ підбере договори)</button>
     <button class="btn ghost" id="tzDocs" style="width:100%;margin-bottom:8px">📄 Лише довідки (Word)</button>
     <div class="section-t">💰 Кошторис і ціна</div>
-    ${t.kpId?`<div class="card" style="display:block;cursor:default;margin-bottom:6px"><div style="display:flex"><span style="flex:1">Наш кошторис (КП)</span><b>${money(t.kpTotal||0)}</b></div>
+    ${t.kpId?`<div class="card" style="display:block;cursor:default;margin-bottom:6px"><div style="display:flex"><span style="flex:1">Наш кошторис</span><b>${money(t.kpTotal||0)}</b></div>
       ${cost!=null?`<div class="m">собівартість ≈ ${money(cost)} (роботи людям −40% + матеріали) · прибуток ≈ <b>${money((price||t.kpTotal)-cost)}</b></div>`:""}
       ${t.value&&t.kpTotal?`<div class="m">${t.kpTotal<=t.value?`на ${Math.round((1-t.kpTotal/t.value)*100)}% нижче очікуваної`:`⚠️ на ${Math.round((t.kpTotal/t.value-1)*100)}% вище очікуваної вартості`}</div>`:""}</div>`:""}
     ${S.canWrite?`<div class="row" style="margin-bottom:6px"><button type="button" class="btn sm" id="tzKp" style="flex:1">${t.kpId?"📄 Відкрити кошторис":"📄 Скласти кошторис з нашого прайсу"}</button></div>
@@ -2250,7 +2250,7 @@ async function pdfPages(blob){ if(!window.pdfjsLib){ await new Promise((ok,bad)=
 async function docDock(siteId,anchor){ const st=site(siteId); if(!st){ toast("Спершу виберіть об'єкт"); return }
   let off=[]; try{ const q=await S.db.collection(R("offers")).where("site","==",siteId).get(); off=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)) }catch(_){}
   const items=[]; if(st.approved?.items?.length) items.push({k:"ap",t:`✅ Погоджений кошторис${st.approved.no?" № "+st.approved.no:""}`});
-  off.forEach(o=>items.push({k:o.id,t:(o.kind==="smeta"?"📋 Смета":o.kind==="file"?"📎 "+(o.sub||"Документ"):"💼 КП")+(o.no?" № "+o.no:"")+(o.fileName?" · "+o.fileName:"")}));
+  off.forEach(o=>items.push({k:o.id,t:(o.kind==="smeta"?"📋 Акт":o.kind==="file"?"📎 "+(o.sub||"Документ"):"📄 Кошторис")+(o.no?" № "+o.no:"")+(o.fileName?" · "+o.fileName:"")}));
   if(!items.length){ toast("У об'єкта немає документів (📁 Документи)"); return }
   const pk=document.createElement("div"); pk.style.cssText="position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px";
   pk.innerHTML=`<div style="background:var(--card);border-radius:14px;padding:14px;width:100%;max-width:440px;max-height:80vh;overflow:auto"><b>📄 Що відкрити поруч?</b><div class="list" style="margin-top:8px">${items.map(x=>`<div class="card" data-dk="${x.k}" style="cursor:pointer"><div class="t">${esc(x.t)}</div></div>`).join("")}</div><button class="btn ghost" data-dk="" style="width:100%;margin-top:8px">Скасувати</button></div>`;
@@ -2429,7 +2429,7 @@ function siteForm(s,pre){
           <div class="empty" id="stNone" style="display:none">Нічого не знайдено</div>` })():`<div class="empty">Інструменту тут немає</div>`}`):""}
     ${!isNew&&isSite?T("needs",`<div id="needsBox">${needsHTML(s)}</div>`):""}
     ${!isNew&&isSite?T("works",`<div id="apBox">${approvedHTML(s)}</div>${S.canWrite?`<button class="btn" id="sRep" style="width:100%;margin-bottom:6px">📋 Звіт робіт по цьому об'єкту</button>`:""}
-      ${reps.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)} · ${esc(person(f.worker)?.name||"")}</div><div class="m" style="font-size:12px">${(f.report.items||[]).slice(0,3).map(i=>esc(i.name)).join(", ")}${(f.report.items||[]).length>3?"…":""}</div></div><b>${money(f.amount)}</b></div>`).join("")||`<div class="empty">Звітів робіт ще немає. Роботи зі звітів збираються в смету для замовника («📁 Документи» → «📋 Смета»).</div>`}`):""}
+      ${reps.map(f=>`<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1"><div class="when">${fmtDay(f.date)} · ${esc(person(f.worker)?.name||"")}</div><div class="m" style="font-size:12px">${(f.report.items||[]).slice(0,3).map(i=>esc(i.name)).join(", ")}${(f.report.items||[]).length>3?"…":""}</div></div><b>${money(f.amount)}</b></div>`).join("")||`<div class="empty">Звітів робіт ще немає. Роботи зі звітів збираються в акт для замовника («📁 Документи» → «📋 Акт»).</div>`}`):""}
     ${!isNew&&isSite?T("photos",`<div id="phBox"><div class="empty">Завантажую фото…</div></div>`):""}
     ${!isNew&&isSite?T("docs",siteDocsHTML(s)):""}
     ${T("data",`    <form id="siteForm">
@@ -2839,7 +2839,7 @@ function workReport(workerId,opts){
         <label class="btn ghost sm" style="flex:1;text-align:center">📷 Фото<input type="file" id="wrC" accept="image/*" capture="environment" style="display:none"></label></div><div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin:-4px 0 8px">Файл не видно? У «Мої файли» довго натисніть на нього → «Поділитися» → «Облік»</div>
       ${st.file?`<div class="m" style="margin:-4px 0 8px">📎 ${esc(st.file.name)}</div>`:""}
       ${st.shots?.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 8px">${st.shots.map((x,i)=>`<img src="${x}" data-wsh="${i}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line,#2a2f38)">`).join("")}<button type="button" class="btn ghost sm" data-wdock="1" style="align-self:center">📌 Поруч зі списком</button></div>`:""}
-      <button type="button" class="btn ghost sm" data-wdoc="1" style="width:100%;margin-bottom:8px">📄 Договір / КП / смета об'єкта поруч</button>
+      <button type="button" class="btn ghost sm" data-wdoc="1" style="width:100%;margin-bottom:8px">📄 Договір / кошторис / акт поруч</button>
       <button class="btn" id="wrGo" style="width:100%">🔍 Розібрати й перевірити</button>
       <div id="wrRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
@@ -2893,7 +2893,7 @@ total — загальна сума, якщо виконавець її напи
     const on=st.rows.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+r.pay,0)), theirSum=n2(on.reduce((a,r)=>a+(r.sum||n2(r.qty*r.price)),0));
     const errs=on.filter(r=>r.err).length, need=on.filter(r=>r.need).length;
     const estOpt=r=>{ const e=r.est>=0?st.est[r.est]:null; return `<button type="button" class="btn ghost sm" data-pick="${st.rows.indexOf(r)}" style="width:100%;text-align:left;font-size:12.5px">🔍 ${e?`${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}`:"Вибрати роботу з кошторису/прайсу…"}</button>${r.est<0&&r.aiDrop?`<div class="m" style="font-size:12px;margin-top:3px">ШІ пропонував «${esc(r.aiDrop.slice(0,50))}» — не схоже на «${esc(r.orig.slice(0,40))}», тому не підставлено. Виберіть вручну — застосунок запам'ятає.</div>`:""}` };
-    $("#wrRes").innerHTML=(!st.shots?.length?`<button class="btn ghost" data-wdoc="1" style="width:100%;margin:8px 0 4px;position:sticky;top:0;z-index:2">📄 Відкрити договір / КП / смету поруч</button>`:"")+(st.shots?.length?`<div style="display:flex;gap:6px;margin:8px 0 4px;position:sticky;top:0;z-index:2;background:var(--card)"><button class="btn" data-wdock="1" style="flex:1">📌 Фото поруч</button><button class="btn ghost" data-wdoc="1" style="flex:1">📄 Документ поруч</button><button class="btn ghost" data-wsh="0" style="flex:0 0 auto">🔍 На весь екран</button></div>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
+    $("#wrRes").innerHTML=(!st.shots?.length?`<button class="btn ghost" data-wdoc="1" style="width:100%;margin:8px 0 4px;position:sticky;top:0;z-index:2">📄 Відкрити договір / кошторис / акт поруч</button>`:"")+(st.shots?.length?`<div style="display:flex;gap:6px;margin:8px 0 4px;position:sticky;top:0;z-index:2;background:var(--card)"><button class="btn" data-wdock="1" style="flex:1">📌 Фото поруч</button><button class="btn ghost" data-wdoc="1" style="flex:1">📄 Документ поруч</button><button class="btn ghost" data-wsh="0" style="flex:0 0 auto">🔍 На весь екран</button></div>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span style="flex:0 0 auto">${esc(r.unit)} ×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
@@ -3615,6 +3615,61 @@ async function updateMatPrices(list){
   try{ if(fin) localStorage.removeItem("mpResume") }catch(_){}
   rr(); toast(`Оновлено цін: ${f} з ${d}${fin?"":" — решту можна дооновити кнопкою «Продовжити»"}`);
 }
+// ---------- ➕ Пакети робіт: основна робота → супутні, що окремо коштують гроші ----------
+// [регулярка супутньої роботи в прайсі, коефіцієнт до обсягу основної (null = вкажіть обсяг), 1 = додавати завжди / 0 = запропонувати]
+const PACK_RULES=[
+ {m:/^Монтаж гіпсокартону на стіни|^Монтаж радіусних конструкцій|^Монтаж конструкцій \(перегородки/i, c:[["^Заробка стиків у гіпсокартоні",1.2,1],["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Шпаклівка стін під фарбування",1,0],["^Шпаклівка стін під склополотно",1,0],["^Утеплення мінватою в один шар",1,0],["^Установка перфорованих кутів",null,0],["^Отвір для підрозетника \\(в гіпсокартоні\\)",null,0],["^Вирізка отворів в гіпсокартоні",null,0]]},
+ {m:/^Монтаж гіпсокартону на стелю/i, c:[["^Заробка стиків у гіпсокартоні",1.2,1],["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Шпаклівка стелі під фарбування",1,0],["^Утеплення мінватою в один шар",1,0],["^Свердління під встановлення точкового світильника в гіпсокартоні",null,0],["^Монтаж стельових багетів \\(простих",null,0]]},
+ {m:/^Монтаж короба|^Монтаж ніші під прихований карниз/i, c:[["^Заробка стиків у гіпсокартоні",1,1],["^Шпаклівка коробів, укосів",1,0],["^Установка перфорованих кутів",1,0],["^Монтаж світлодіодної стрічки",null,0]]},
+ {m:/^Монтаж укосів із гіпсокартону/i, c:[["^Шпаклівка коробів, укосів",1,0],["^Установка перфорованих кутів",2,0]]},
+ {m:/^Каркасна звукоізоляція|^Безкаркасна звукоізоляція|^Звукоізоляція стін/i, c:[["^Герметизація швів, стиків герметиком",null,0],["^Заробка стиків у гіпсокартоні",1.2,0],["^Грунтовка поверхонь перед шпаклівкою",1,0]]},
+ {m:/^Штукатурка стін/i, c:[["^Грунтовка поверхонь перед штукатуркою",1,1],["^Армування сіткою",1,0],["^Шпаклівка \\(старт\\) по цементній штукатурці",1,0],["^Штукатурка укосів",null,0],["^Виведення геометрії стін",null,0],["^Захист підлоги картоном",null,0]]},
+ {m:/^Штукатурка укосів/i, c:[["^Шпаклівка коробів, укосів",1,0],["^Установка перфорованих кутів",1,0]]},
+ {m:/^Шпаклівка стін під фарбування/i, c:[["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Фарбування стін водоемульсійною",1,0],["^Поклейка склополотна",1,0],["^Установка перфорованих кутів",null,0],["^Поклейка сітки в кути",null,0]]},
+ {m:/^Шпаклівка стелі під фарбування/i, c:[["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Фарбування стелі водоемульсійною",1,0],["^Поклейка склополотна",1,0],["^Монтаж стельових багетів \\(простих",null,0]]},
+ {m:/^Шпаклівка стін під склополотно|^Шпаклівка стелі під склополотно/i, c:[["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Поклейка шпалер шириною 100 см на стіну \\(без",1,0],["^Поклейка склополотна",1,0]]},
+ {m:/^Фарбування стін водоемульсійною/i, c:[["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Шпаклівка стін під фарбування",1,0],["^Виведення кутів пофарбуванням",null,0]]},
+ {m:/^Фарбування стелі водоемульсійною/i, c:[["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Шпаклівка стелі під фарбування",1,0],["^Фарбування стельових багетів \\(простих",null,0]]},
+ {m:/^Поклейка шпалер|^Поклейка фотошпалер/i, c:[["^Грунтовка поверхонь перед шпаклівкою",1,1],["^Шпаклівка стін під склополотно",1,0],["^Монтаж стельових багетів \\(простих",null,0]]},
+ {m:/^Укладання мозаїки|^Укладання декоративної плитки/i, c:[["^Грунтовка поверхонь \\(проста\\)",1,1],["^Затирка швів у декоративній плитці",1,1],["^Вирізка отворів в плитці",null,0]]},
+ {m:/^Укладання плитки (?!по діагоналі|на слой)|^Укладання клінкерної плитки/i, c:[["^Грунтовка поверхонь \\(проста\\)",1,1],["^Затирка швів проста$",1,1],["^Затирка швів двокомпонентною затиркою$",1,0],["^Гідроізоляція підлоги\\/стін в санвузлі",1,0],["^Поклейка клейкої стрічки в кути",null,0],["^Вирізка отворів в плитці",null,0],["^Порізка плитки під кутом в 45",null,0],["^Укладка плінтуса із плитки",null,0]]},
+ {m:/^Гідроізоляція підлоги\/стін в санвузлі/i, c:[["^Монтаж гідроізоляційної стрічки",null,1],["^Грунтовка поверхонь \\(проста\\)",1,0]]},
+ {m:/^Цементно-піщана стяжка/i, c:[["^Грунтовка під стяжку",1,1],["^Монтаж демпферної стрічки",null,1],["^Плівкова ізоляція під стяжку",1,0],["^Армування підлоги сіткою під стяжку",1,0],["^Монтаж утеплювача$",1,0]]},
+ {m:/^Вирівнювання підлоги самовирівнюючим/i, c:[["^Грунтовка підлоги",1,1],["^Монтаж демпферної стрічки",null,0]]},
+ {m:/^Укладка ламінату|^Укладка кварцвінілу|^Настил лінолеуму/i, c:[["^Чистка підлоги порохотягом",1,0],["^Монтаж плінтуса \\(пластик\\)",null,0],["^Монтаж плінтуса шпонованого",null,0],["^Монтаж міжкімнатного порога",null,0],["^Підрізка ламінату",null,0]]},
+ {m:/^Настил підлоги із дошки/i, c:[["^Влаштування дерев'яних лаг",1,0],["^Шліфування дерев'яної підлоги",1,0],["^Нанесення лаку\\/тонера",1,0],["^Монтаж плінтуса дерев'яного",null,0]]},
+ {m:/^Установка та підключення розеток та вимикачів|^Установка розетки/i, c:[["^Монтаж підрозетника",1,1],["^Отвір для підрозетника \\(в цеглі\\)",1,0],["^Прокладка кабелю \\(в гофрі\\)",null,0],["^Штроблення під електрокабель 20\\*20 мм \\(в цеглі\\)",null,0]]},
+ {m:/^Штроблення під електрокабель|^Штроблення під кабель канал/i, c:[["^Заробка штроб$",1,1],["^Прокладка кабелю \\(в гофрі\\)",1,0]]},
+ {m:/^Установка та підключення точкового світильника/i, c:[["^Свердління під встановлення точкового світильника в гіпсокартоні",1,0],["^Установка та підключення трансформатора",null,0],["^Прокладка кабелю$",null,0]]},
+ {m:/^Укладка підлоги електричної/i, c:[["^Установка та підключення терморегулятора теплої підлоги",null,1],["^Прокладка закладної гофри в штробі для теплої підлоги",null,0],["^ФІксація нагрівального мата",1,0]]},
+ {m:/^Монтаж електрощита/i, c:[["^Установка автомата однополюсного",null,0],["^Установка пристрою захисного відключення \\(ПЗВ\\) - двухполюсний",null,0],["^Монтаж нульової шини",null,0],["^Установка реле напруги \\(однофазне\\)",null,0],["^Вирізка ніші під електрощит \\(12-36",null,0]]},
+ {m:/^Монтаж світлодіодної стрічки/i, c:[["^Спайка світлодіодної стрічки",null,0],["^Установка та підключення трансформатора",null,0]]},
+ {m:/^Установка радіатора опалення/i, c:[["^Обв'язка радіатора",2,1],["^Установка терморегулятора на радіатор",1,0],["^Установка ніжок під радіатор",null,0]]},
+ {m:/^Монтаж інсталяції для унітазу/i, c:[["^Установка унітазу на готову інсталяцію",1,1],["^Монтаж панелі з клавішами змиву",1,1],["^Обшивка інсталяціі",1,0]]},
+ {m:/^Установки ванни|^Установка ванни/i, c:[["^Герметизація ванни силіконом",null,1],["^Установка сифона",1,0],["^Установка декоративного экрану під ванну",1,0],["^Шумоізоляція ванни",1,0],["^Установка змішувача простого",1,0]]},
+ {m:/^Установка умивальника/i, c:[["^Установка сифона",1,1],["^Установка змішувача простого",1,0]]},
+ {m:/^Установка душової кабіни/i, c:[["^Установка змішувача простого",null,0],["^Герметизація ванни силіконом",null,0]]},
+ {m:/^Розводка труб \(точка\)|^Виводи по точках/i, c:[["^Перевірка системи водопроводу тиском",null,0],["^Штроблення в цеглі, газобетоні",null,0],["^Заробка штроб \\(пог\\.м\\)",null,0]]},
+ {m:/^Штроблення в цеглі|^Штроблення в бетоні|^Штроблення в газобетоні|^Штроблення під трубу/i, c:[["^Заробка штроб \\(пог\\.м\\)",1,1]]},
+ {m:/^Монтаж трубної системи "тепла підлога"/i, c:[["^Монтаж колектора\\/гребінки",null,0],["^Перевірка системи опалення тиском",null,0],["^Цементно-піщана стяжка \\(понад",1,0]]},
+ {m:/^Монтаж пінопласта|^Монтаж вати/i, c:[["^Армування фасаду",1,1],["^Грунтовка поверхні кварцгрунтом",1,1],["^Декоративна штукатурка фасаду",1,0],["^Монтаж стартової планки",null,0],["^Утеплення укосів пінопластом",null,0],["^Армування укосів",null,0],["^Монтаж будівельного риштування",1,0],["^Демонтаж будівельного риштування",1,0]]},
+ {m:/^Утеплення фасада\. Комплекс/i, c:[["^Монтаж стартової планки",null,0],["^Утеплення укосів пінопластом",null,0],["^Армування укосів",null,0],["^Фарбування фасаду",1,0],["^Монтаж відливів на вікна",null,0],["^Монтаж будівельного риштування",1,0],["^Демонтаж будівельного риштування",1,0]]},
+ {m:/^Декоративна штукатурка фасаду/i, c:[["^Грунтовка поверхні кварцгрунтом",1,1],["^Фарбування фасаду",1,0]]},
+ {m:/^Монтаж (одно|дво|чотирьох)скатного даху/i, c:[["^Гідробар'єр, паробарє'р",1,0],["^Монтаж утеплювача на покрівлю до 100",1,0],["^Обробка антисептиком",null,0],["^Монтаж мауерлату",null,0],["^Монтаж лобової, вітрової, конькової",null,0],["^Підшива даху сайдінгом",null,0],["^Монтаж водостоків",null,0],["^Облаштування водостічної воронки",null,0]]},
+ {m:/^Укладання металочерепиці|^Укладання профнастилу|^Укладання шиферу|^Монтаж фальцевої/i, c:[["^Гідробар'єр, паробарє'р",1,0],["^Монтаж лобової, вітрової, конькової",null,0],["^Монтаж водостоків",null,0]]},
+ {m:/^Укладання бітумної черепиці/i, c:[["^Монтаж ОСБ плити",1,1],["^Укладання підкладкового килима",1,1],["^Монтаж крапельника",null,0],["^Монтаж водостоків",null,0]]},
+ {m:/^Кладка стін|^Кладка цегли|^Кладка стіни з керамоблока/i, c:[["^Гідроізоляція перед першим рядом",null,0],["^Армування кладки \\(сіткою, арматурою\\)$",null,0],["^Монтаж перемичок над прорізами",null,0],["^Облаштування перемичок бетонних",null,0]]},
+ {m:/^Кладка перегородки/i, c:[["^Анкерування однієї стіни до іншої",null,0],["^Армування кладки",null,0],["^Облаштування дверної пройми",null,0]]},
+ {m:/^Облаштування фундаменту/i, c:[["^Монтаж та демонтаж опалубки для фундаменту",null,0],["^Копання траншей, ям, котловану вручну",null,0],["^Піщана подушка з ущільненням",null,0],["^Гідроізоляція фундамету мастикою",null,0],["^Зворотня засипка траншеї",null,0]]},
+ {m:/^Укладання тротуарної плитки|^Укладання бруківки/i, c:[["^Планування і ущільнення віброплитої",1,1],["^Установка бордюру для тротуарної плитки",null,0],["^Приготування гарцовки",0.05,0],["^Підрізка примикань тротуарної плитки",null,0],["^Укладання армованої сітки",null,0]]},
+ {m:/^Установка підвіконня/i, c:[["^Вирівнювання пройми під підвіконня",1,0],["^Заробка штроби під підвіконням",1,0]]}];
+// супутні роботи для роботи прайсу: власний список (змінений у прайсі) або правило вище
+function packOf(it,items){ if(!it) return []; items=items||priceList(); const at=n=>{ const i=items.findIndex(x=>x.name===n); return i };
+  const own=Array.isArray(it.pack)?it.pack.map(x=>({...x,p:at(x.n)})):null;
+  const rule=own?null:PACK_RULES.find(r=>r.m.test(it.name));
+  const l=own||(rule?rule.c.map(([rx,k,a])=>{ let re; try{ re=new RegExp(rx,"i") }catch(_){ return null } const p=items.findIndex(x=>x!==it&&re.test(x.name)); return p<0?null:{n:items[p].name,k,a:!!a,p} }).filter(Boolean):[]);
+  return l.filter(x=>x.p>=0&&items[x.p]&&items[x.p].name!==it.name).map(x=>({...x,u:items[x.p].unit,price:+items[x.p].price||0,cat:items[x.p].cat})) }
+const packQty=(q,k,u)=>{ const v=(+q||0)*k; return /шт|точ|компл/.test(u||"")?Math.max(1,Math.ceil(v)):Math.round(v*10)/10 };
 function priceItemForm(i,cat){
   const items=priceList().map(x=>({...x})), it=i>=0?items[i]:{cat,name:"",unit:"м²",price:0,src:"власна"};
   openSheet(`<h2>${i>=0?"Ціна роботи":"Нова робота"}</h2><form id="piF">
@@ -3622,25 +3677,41 @@ function priceItemForm(i,cat){
     <div class="row"><div class="field"><label>Од.</label><input name="unit" value="${esc(it.unit)}"></div><div class="field"><label>Ціна, ₴ *</label><input name="price" inputmode="decimal" value="${it.price||""}"></div></div>
     <div class="field"><label>Інші назви (через кому) — як цю роботу можуть написати хлопці чи замовник</label><input name="alt" value="${esc(it.alt||"")}" placeholder="напр. арміровка, армування сіткою"></div>
     <div class="field"><label>Категорія</label><select name="cat">${[...new Set([...PRICE_CATS,it.cat])].map(c=>`<option ${c===it.cat?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
+    <div class="section-t" style="margin-top:8px">➕ Разом з цією роботою</div><div class="m" style="font-size:12px;margin-bottom:6px">Супутні роботи, які кошторис запропонує під цим рядком. Коефіцієнт — частка від обсягу (порожньо = питати кількість). «Завжди» — одразу позначено.</div><div id="piPk"></div>
+    <button type="button" class="btn ghost sm" id="piPkAdd" style="width:100%;margin-bottom:8px">+ Додати супутню роботу з прайсу</button>
     <div class="actions">${i>=0?`<button type="button" class="btn danger" id="piDel">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
+  let pk=packOf(it,items).map(x=>({n:x.n,k:x.k,a:!!x.a,u:x.u})), pkT=false;
+  const pkDraw=()=>{ $("#piPk").innerHTML=pk.length?pk.map((x,j)=>`<div class="card" style="display:flex;gap:6px;align-items:center;cursor:default;padding:6px 8px;margin-bottom:4px"><span style="flex:1;min-width:0;font-size:13px">${esc(x.n)}</span><input data-pkk="${j}" inputmode="decimal" value="${x.k??""}" placeholder="к-сть?" title="коефіцієнт" style="flex:0 0 56px;text-align:center;padding:4px"><label class="m" style="display:flex;gap:4px;align-items:center;font-size:11.5px;flex:none"><input type="checkbox" data-pka="${j}" ${x.a?"checked":""} style="width:18px;height:18px">завжди</label><button type="button" class="btn ghost sm" data-pkd="${j}" style="flex:none;padding:3px 8px">✕</button></div>`).join(""):`<div class="m" style="font-size:12.5px;margin-bottom:6px">Немає</div>`;
+    $("#piPk").querySelectorAll("[data-pkk]").forEach(c=>c.onchange=()=>{ const v=parseFloat(String(c.value).replace(",",".")); pk[+c.dataset.pkk].k=v>0?v:null; pkT=true });
+    $("#piPk").querySelectorAll("[data-pka]").forEach(c=>c.onchange=()=>{ pk[+c.dataset.pka].a=c.checked; pkT=true });
+    $("#piPk").querySelectorAll("[data-pkd]").forEach(b=>b.onclick=()=>{ pk.splice(+b.dataset.pkd,1); pkT=true; pkDraw() }) };
+  pkDraw();
+  $("#piPkAdd").onclick=()=>{ const f=$("#piF"), keep=Object.fromEntries(new FormData(f)); pickWork(items,-1,v=>{ priceItemForm(i,cat,{...keep,pk,pkT:pkT||v>=0,add:v}) },"Скасувати") };
+  if(arguments[2]){ const z=arguments[2]; for(const k of ["name","unit","price","alt","cat"]){ const el=$("#piF [name="+k+"]"); if(el&&z[k]!=null) el.value=z[k] } pk=z.pk; pkT=z.pkT; if(z.add>=0&&items[z.add]&&!pk.some(x=>x.n===items[z.add].name)) pk.push({n:items[z.add].name,k:/м²|м2/.test(items[z.add].unit)&&/м²|м2/.test(it.unit)?1:null,a:false,u:items[z.add].unit}); pkDraw() }
   $("#piF").onsubmit=async e=>{ e.preventDefault(); const v=Object.fromEntries(new FormData(e.target)); const pr=parseFloat(String(v.price).replace(",","."));
     if(!v.name.trim()||!(pr>0)){toast("Вкажіть назву і ціну");return}
-    const n={...it,name:v.name.trim(),unit:v.unit.trim(),price:pr,cat:v.cat,alt:String(v.alt||"").trim(),src:i>=0&&pr===it.price?it.src:"власна"}; if(i>=0) items[i]=n; else items.push(n);
+    const n={...it,name:v.name.trim(),unit:v.unit.trim(),price:pr,cat:v.cat,alt:String(v.alt||"").trim(),src:i>=0&&pr===it.price?it.src:"власна",...(pkT?{pack:pk.map(x=>({n:x.n,k:x.k??null,a:!!x.a}))}:{})}; if(i>=0) items[i]=n; else items.push(n);
     if(await savePrice(items)){closeSheet();toast("Збережено")} };
   $("#piDel")?.addEventListener("click",async()=>{ items.splice(i,1); if(await savePrice(items)){closeSheet();toast("Видалено")} });
 }
 function kpList(){
   S.db.collection(R("offers")).get().then(sn=>{ const l=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-    openSheet(`<h2>Збережені КП і смети</h2>${l.length?`<div class="list">${l.map(o=>`<div class="card" data-kp="${o.id}"><div class="main"><div class="t">${o.kind==="smeta"?"Смета":o.kind==="file"?"📎 "+esc(o.sub||"Документ"):"КП"} № ${esc(o.no||"")} · ${esc(o.client||site(o.site)?.customer||(o.site?"замовник не вказаний":"без замовника"))}</div><div class="m">${fmtDay(o.date)}${site(o.site)?" · 🏗️ "+esc(site(o.site).name):o.object?" · "+esc(o.object):""} · ${o.site&&site(o.site)?.approved?.id===o.id?"✅ погоджено":o.site?"📁 в об'єкті":"попередня, без об'єкта"}</div></div><span class="amt">${money(o.total||0)}</span></div>`).join("")}</div>`:`<div class="empty">Ще немає збережених КП</div>`}
+    openSheet(`<h2>Кошториси і акти</h2>${l.length?`<div class="list">${l.map(o=>`<div class="card" data-kp="${o.id}"><div class="main"><div class="t">${o.kind==="smeta"?"📋 Акт":o.kind==="file"?"📎 "+esc(o.sub||"Документ"):"📄 Кошторис"} № ${esc(o.no||"")} · ${esc(o.client||site(o.site)?.customer||(o.site?"замовник не вказаний":"без замовника"))}</div><div class="m">${fmtDay(o.date)}${site(o.site)?" · 🏗️ "+esc(site(o.site).name):o.object?" · "+esc(o.object):""} · ${o.site&&site(o.site)?.approved?.id===o.id?"✅ погоджено":o.site?"📁 в об'єкті":"попередня, без об'єкта"}</div></div><span class="amt">${money(o.total||0)}</span></div>`).join("")}</div>`:`<div class="empty">Ще немає збережених КП</div>`}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     document.querySelectorAll("[data-kp]").forEach(el=>el.onclick=()=>openOffer(l.find(o=>o.id===el.dataset.kp))) }).catch(e=>toast("Не вдалося завантажити: "+String(e?.message||e).slice(0,60)));
 }
 function kpFlow(saved,opts){
   const items=priceList(); const n2=v=>Math.round((+v||0)*100)/100; loadMatCat(); loadMatPrices();
   let st=saved?{...saved,rows:(saved.rows||[]).map(r=>({...r})),text:"",fileParts:[],file:null}:{id:"",withMat:false,site:opts?.site||"",no:String(new Date().getFullYear()).slice(2)+"-"+String(Date.now()).slice(-4),date:todayISO(),client:opts?.client||site(opts?.site)?.customer||"",object:opts?.object||site(opts?.site)?.name||"",tender:opts?.tender||"",fop:[...S.fops.values()][0]?.id||"",disc:0,valid:14,note:MAT_NOTE[0],text:"",fileParts:[],file:null,rows:[]};
-  const tot=()=>n2(st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat)).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0));
+  const tot=()=>n2(st.rows.filter(r=>r.on!==false&&!r.rec&&(st.withMat||!r.mat)).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0));
+  // ➕ під рядком — супутні роботи з пакета; 💡 рядок «Рекомендуємо також» (не в сумі)
+  const packCard=(r,i)=>{ if(r.mat||r.on===false||r.rec||r.packDone||!(r.p>=0)||!items[r.p]) return "";
+    const pk=packOf(items[r.p],items).filter(c=>!st.rows.some(x=>!x.mat&&(x.p===c.p||normW(x.name)===normW(c.n)))); if(!pk.length) return "";
+    return `<div class="card" style="display:block;cursor:default;margin:-2px 0 8px 12px;border-left:3px solid var(--accent)"><div class="m" style="font-size:12.5px;margin-bottom:4px">➕ Зазвичай разом із «${esc(r.name)}»:</div>${pk.map((c,j)=>`<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:13.5px"><input type="checkbox" data-pk="${i}:${j}" ${c.a?"checked":""} style="width:20px;height:20px;flex:none"><span style="flex:1;min-width:0">${esc(c.n)} <span class="m" style="font-size:11.5px">${money(c.price)}/${esc(c.u)}</span></span><input data-pq="${i}:${j}" inputmode="decimal" value="${c.k!=null?packQty(r.qty,c.k,c.u):""}" placeholder="к-сть" style="flex:0 0 62px;text-align:center;padding:4px"><span class="m" style="flex:0 0 30px;font-size:12px">${esc(c.u)}</span></label>`).join("")}
+      <div class="row" style="margin-top:6px"><button type="button" class="btn sm" data-pkgo="${i}" style="flex:2">✅ Додати позначене</button><button type="button" class="btn ghost sm" data-pkx="${i}" style="flex:1">Сховати</button></div><div class="m" style="font-size:11.5px;margin-top:4px">Не позначене, але з кількістю, піде клієнту окремим блоком «Рекомендуємо також» (не в сумі).</div></div>` };
+  const recBar=(r,i)=>r.rec&&r.on!==false?`<div class="m" style="font-size:12px;margin:-2px 0 6px;display:flex;gap:6px;align-items:center">💡 «Рекомендуємо також» — не входить у суму<button type="button" class="btn ghost sm" data-recin="${i}" style="margin-left:auto;padding:3px 8px">➕ У суму</button></div>`:(!r.mat&&r.on!==false&&r.of?`<div style="text-align:right;margin:-4px 0 6px"><button type="button" class="btn ghost sm" data-recout="${i}" style="padding:3px 8px;font-size:12px">💡 У «Рекомендуємо»</button></div>`:"");
   const draw=()=>{
-    openSheet(`<h2>📄 Комерційна пропозиція</h2>
+    openSheet(`<h2>📄 Кошторис${st.id&&[...S.sites.values()].some(x=>x.approved?.id===st.id)?" · ✅ погоджено":""}</h2><div class="m" style="margin:-6px 0 8px;font-size:12.5px">До погодження друкується як «Комерційна пропозиція», після — як «Кошторис».</div>
       <div class="row"><div class="field"><label>№</label><input id="kpNo" value="${esc(st.no)}"></div><div class="field"><label>Дата</label><input type="date" id="kpD" value="${st.date}"></div></div>
       <div class="field"><label>Замовник</label><input id="kpC" list="kpCl" value="${esc(st.client)}" placeholder="ПІБ або організація"><datalist id="kpCl">${[...S.clients.values()].map(c=>`<option value="${esc(c.name)}">`).join("")}</datalist></div>
       <div class="row"><div class="field"><label>Прив'язати до об'єкта</label><select id="kpS">${siteOptions(st.site||"","— новий / без об'єкта")}</select></div><div class="field"><label>Об'єкт / адреса в документі</label><input id="kpO" value="${esc(st.object)}"></div></div>
@@ -3715,7 +3786,7 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
         ${r.orig&&r.orig!==r.name?`<div class="m" style="font-size:12px;color:var(--muted)">у замовника: ${esc(r.orig)}</div>`:""}
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-i="${i}" data-k="unit"`,r.unit,"flex:0 0 74px;padding-left:4px;padding-right:2px")}<span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center">${+r.price>0?`<button type="button" class="btn ghost sm" data-rpct="${i}" style="flex:0 0 auto;padding:4px 7px" title="Змінити ціну цього рядка на %">%</button>`:""}<b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>${(()=>{ if(!S.canWrite||!(+r.price>0)||r.on===false) return ""; const lp=rowListPrice(r); if(lp!=null&&Math.abs(lp-(+r.price))<0.01) return "";
           return `<label class="m" style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:4px;color:var(--muted)"><input type="checkbox" data-tp="${i}" ${r.toPrice?"checked":""} style="width:18px;height:18px"> 📌 Зберегти ціну в ${r.mat?"прайс матеріалів":"прайс робіт"}${lp!=null?` (зараз там ${money(lp)})`:" (нова позиція)"}</label>` })()}
-        ${r.mat?`${r.priceSrc?`<div class="m" style="font-size:11.5px;color:var(--muted);margin-top:4px">💲 ${esc(r.priceSrc)}</div>`:""}<button type="button" class="btn ghost sm" data-epi="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">💲 ${+r.price>0?"Оновити ціну з Епіцентру":"Знайти ціну в Епіцентрі"}</button></div>`:`<button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`}`).join("")}
+        ${r.mat?`${r.priceSrc?`<div class="m" style="font-size:11.5px;color:var(--muted);margin-top:4px">💲 ${esc(r.priceSrc)}</div>`:""}<button type="button" class="btn ghost sm" data-epi="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">💲 ${+r.price>0?"Оновити ціну з Епіцентру":"Знайти ціну в Епіцентрі"}</button></div>`:`<button type="button" class="btn ghost sm" data-pick="${i}" style="margin-top:6px;width:100%;text-align:left;font-size:12.5px">🔍 ${r.p>=0&&items[r.p]?`${esc(items[r.p].cat)}: ${esc(items[r.p].name)} · ${money(items[r.p].price)}/${esc(items[r.p].unit)}`:"Вибрати роботу з прайсу…"}</button></div>`}${recBar(r,i)}${packCard(r,i)}`).join("")}
       ${st.rows.length?(()=>{ const noP=st.rows.filter(r=>r.mat&&r.on!==false&&!(+r.price>0)).length, mats=st.withMat&&st.rows.some(r=>r.mat&&r.on!==false), md=(st.prMode==="pull"&&!mats)?"pct":(st.prMode||(noP?"pull":"pct"));
         return `<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b style="flex:1;font-size:14px">💰 Ціни</b>${st.mkHist?`<span class="m" style="font-size:11.5px;color:var(--muted)">застосовано: ${esc(st.mkHist)}</span>`:""}</div>
         <div class="seg" id="kpPrSeg" style="margin-bottom:8px">${mats?`<button type="button" data-prm="pull" class="${md==="pull"?"on":""}">💲 Підтягнути${noP?` (${noP})`:""}</button>`:""}<button type="button" data-prm="pct" class="${md==="pct"?"on":""}">📈 + %</button><button type="button" data-prm="fit" class="${md==="fit"?"on":""}">🎯 Під суму</button></div>
@@ -3733,10 +3804,10 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       ${st.mlOpen?`<div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="font-size:12.5px;margin-bottom:4px">Надиктуйте або вставте весь перелік — ШІ розбере назви й кількість і підбере ціни Епіцентру (максимальні серед поширених брендів).</div><textarea id="kpMT" rows="5" placeholder="Напр.: клей для плитки 20 мішків, ґрунтовка глибокого проникнення 30 літрів, гіпсокартон стіновий 40 листів, профіль CD 60 штук…">${esc(st.mtext||"")}</textarea><button class="btn" id="kpMGo" style="width:100%;margin-top:6px">🤖 Розібрати й підібрати ціни</button></div>`:""}`:""}
       <div class="sum">Разом: <b>${money(t)}</b>${+st.disc?` · знижка ${st.disc}%: −${money(d)} · <b>до сплати ${money(n2(t-d))}</b>`:""}</div>
       ${miss?`<div class="banner">Без ціни: ${miss} поз. — впишіть ціну або виберіть роботу з прайсу.</div>`:""}
-      <div class="field"><label>Примітка в КП</label><input id="kpNote" value="${esc(st.note)}"></div>
+      <div class="field"><label>Примітка в кошторисі</label><input id="kpNote" value="${esc(st.note)}"></div>
       <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Просто отримати й переслати:</div>
       <div class="actions" style="margin-top:4px"><button class="btn" id="kpShare">📤 Надіслати</button><button class="btn ghost" id="kpPrint">🖨️ PDF</button>${st.id&&S.canWrite?`<button class="btn ghost" id="kpAp">✅ Погоджено${st.site?"":" → в об'єкт"}</button><button class="btn danger" id="kpDel">🗑 Видалити</button>`:""}</div>
-      ${S.canWrite?(()=>{ const c=st.rows.filter(r=>r.on!==false&&+r.price>0&&(()=>{ const lp=rowListPrice(r); return lp==null||Math.abs(lp-(+r.price))>=0.01 })()); return c.length?`<label class="m" style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="kpTpAll" ${c.every(r=>r.toPrice)?"checked":""} style="width:20px;height:20px"> 📌 Зберегти ціни з цієї КП в основний прайс (${c.length} поз. відрізняються або нові)</label>`:"" })():""}
+      ${S.canWrite?(()=>{ const c=st.rows.filter(r=>r.on!==false&&+r.price>0&&(()=>{ const lp=rowListPrice(r); return lp==null||Math.abs(lp-(+r.price))>=0.01 })()); return c.length?`<label class="m" style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="kpTpAll" ${c.every(r=>r.toPrice)?"checked":""} style="width:20px;height:20px"> 📌 Зберегти ціни з цього кошторису в основний прайс (${c.length} поз. відрізняються або нові)</label>`:"" })():""}
       ${S.canWrite?`<button class="btn" id="kpSave" style="width:100%;margin-top:6px">💾 ${st.id?"Зберегти зміни":"Зберегти"}${st.site?" в об'єкті":""} + PDF</button>`:""}`;
     $("#kpRes").onchange=e=>{const i=e.target.dataset.i,k=e.target.dataset.k; if(e.target.id==="kpNote"){st.note=e.target.value;return} if(i==null)return; const r=st.rows[i];
       if(k==="on") r.on=e.target.checked; else if(k==="name"||k==="unit") r[k]=e.target.value;
@@ -3789,7 +3860,16 @@ ${items.map((x,i)=>`${i}. ${x.cat} | ${x.name}${x.alt?` (також: ${x.alt})`:
       if(!idx.length&&!st.mkPrev) st.mkPrev=st.rows.map(r=>r.price);
       if(!idx.length) all.forEach(i=>{ const k=normName(st.rows[i].name); if(S.matprices&&S.matprices[k]&&S.matprices[k].src!=="вручну") delete S.matprices[k] });
       epiRows(all,e.target) }));
-    $("#kpRes").onclick=e=>{ const eb=e.target.closest("[data-epi]"); if(eb){ loadMatPrices(()=>epiRows([+eb.dataset.epi],eb)); return } const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
+    $("#kpRes").onclick=e=>{
+      const pg=e.target.closest("[data-pkgo]"); if(pg){ const i=+pg.dataset.pkgo, r=st.rows[i], pk=packOf(items[r.p],items).filter(c=>!st.rows.some(x=>!x.mat&&(x.p===c.p||normW(x.name)===normW(c.n)))), add=[]; let ask="";
+        pk.forEach((c,j)=>{ const on=$(`[data-pk="${i}:${j}"]`)?.checked, q=parseFloat(String($(`[data-pq="${i}:${j}"]`)?.value||"").replace(",","."))||0; if(on&&!(q>0)&&!ask) ask=c.n;
+          if(on||q>0) add.push({on:true,name:c.n,orig:"",qty:q,unit:c.u,price:c.price,p:c.p,cat:c.cat,of:r.name,...(on?{}:{rec:true})}) }); // без кількості й без галочки — не додаємо
+        if(ask){ toast("Вкажіть кількість: "+ask.slice(0,50),3500); return }
+        r.packDone=true; st.rows.splice(i+1,0,...add); drawRows(); toast(`➕ Додано: ${add.filter(x=>!x.rec).length}${add.some(x=>x.rec)?` · у «Рекомендуємо»: ${add.filter(x=>x.rec).length}`:""}`); return }
+      const px=e.target.closest("[data-pkx]"); if(px){ st.rows[+px.dataset.pkx].packDone=true; drawRows(); return }
+      const ri=e.target.closest("[data-recin]"); if(ri){ delete st.rows[+ri.dataset.recin].rec; drawRows(); return }
+      const ro=e.target.closest("[data-recout]"); if(ro){ st.rows[+ro.dataset.recout].rec=true; drawRows(); return }
+      const eb=e.target.closest("[data-epi]"); if(eb){ loadMatPrices(()=>epiRows([+eb.dataset.epi],eb)); return } const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
       pickWork(items,st.rows[i].p,v=>$("#kpRes").onchange({target:{dataset:{i,k:"p"},value:String(v)}})) };
     $("#kpAdd2").onclick=()=>$("#kpPick").click();
     $("#kpAddM")?.addEventListener("click",()=>{ const mc=matCat(); pickWork(mc.map(m=>({name:m.name,unit:m.unit,alt:m.alt,cat:m.cat,price:matPriceOf({name:m.name,unit:m.unit})?.price||0})),-1,v=>{ if(v<0) return; const m=mc[v], p=matPriceOf({name:m.name,unit:m.unit});
@@ -3814,16 +3894,16 @@ ${mc.map(m=>m.name+" | "+m.unit).join("\n")}
         st.mtext=""; st.mlOpen=false; drawRows(); toast(`Додано ${list.length} матеріалів, з ціною ${got}${web?"":" (ціни орієнтовні, без пошуку)"}${got<list.length?" — решті впишіть ціну":""}`);
       }catch(e){ b.disabled=false; b.textContent="🔍 Спробувати ще раз"; toast("Не вдалося: "+String(e?.message||e).slice(0,60)) } }
     $("#kpAdd").onclick=()=>{st.rows.push({on:true,name:"",qty:1,unit:"м²",price:0,p:-1,cat:"Інші роботи"});drawRows()};
-    $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"КП "+st.no);
-    $("#kpShare").onclick=()=>{ const c=$("#kpC")?.value; if(c) st.client=c; sharePdf(kpHTML(st),`КП ${st.no}${st.client?" — "+st.client:""}`,`Комерційна пропозиція № ${st.no}${st.object?" · "+st.object:""}`) };
+    $("#kpPrint").onclick=()=>printDoc(kpHTML(st),"Кошторис "+st.no);
+    $("#kpShare").onclick=()=>{ const c=$("#kpC")?.value; if(c) st.client=c; sharePdf(kpHTML(st),`Кошторис ${st.no}${st.client?" — "+st.client:""}`,`Комерційна пропозиція № ${st.no}${st.object?" · "+st.object:""}`) };
     $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
-    $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити КП № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ unapproveOffer(st.id); toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
-    $("#kpSave").onclick=async()=>{ const data={kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
-      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; S.kpDraftClear?.(); S.kpClean=JSON.stringify(st.rows); toast(st.site?"КП збережено в об'єкті («📁 Документи»)":"КП збережено"); printDoc(kpHTML(st),"КП "+st.no); draw();
+    $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити кошторис № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ unapproveOffer(st.id); toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
+    $("#kpSave").onclick=async()=>{ const data={kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat,...(r.rec?{rec:true}:{}),...(r.of?{of:r.of}:{}),...(r.packDone?{packDone:true}:{})})),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
+      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; S.kpDraftClear?.(); S.kpClean=JSON.stringify(st.rows); toast(st.site?"Кошторис збережено в об'єкті («📁 Документи»)":"Кошторис збережено"); printDoc(kpHTML(st),"Кошторис "+st.no); draw();
         if(st.tender){ const on=st.rows.filter(r=>r.on!==false), w=n2(on.filter(r=>!r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)), m=st.withMat?n2(on.filter(r=>r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)):0;
           write(db=>db.doc("tenders/"+st.tender).update({kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m,updatedAt:Date.now()})).then(()=>{ const t=S.tz?.get(st.tender); if(t) Object.assign(t,{kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m}) }) }
-        savePricesFromRows(st.rows,"з КП № "+st.no).then(n=>{ if(n) setTimeout(()=>{ toast(`📌 Ціни збережено в прайс: ${n}`); drawRows() },3200) });
-        addWorksToPrice(st.rows,"з КП № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}${st.rows.some(r=>!r.mat&&r.on!==false&&!(+r.price>0))?" (без ціни — допишете в прайсі)":""}`),1500) }) } };
+        savePricesFromRows(st.rows,"з кошторису № "+st.no).then(n=>{ if(n) setTimeout(()=>{ toast(`📌 Ціни збережено в прайс: ${n}`); drawRows() },3200) });
+        addWorksToPrice(st.rows,"з кошторису № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}${st.rows.some(r=>!r.mat&&r.on!==false&&!(+r.price>0))?" (без ціни — допишете в прайсі)":""}`),1500) }) } };
   }
   // 📝 чернетка КП: зберігається на телефоні кожні 3 с і при згортанні — не пропаде, якщо зник інтернет чи закрили застосунок
   const dk="kpDraft:"+(saved?.id||"new"), dSave=()=>{ try{ if(!st.rows.length&&!String(st.text||"").trim()) return; if(S.kpClean===JSON.stringify(st.rows)) return; const {fileParts,file,...rest}=st; localStorage.setItem(dk,JSON.stringify({at:Date.now(),st:rest})) }catch(_){} };
@@ -3838,20 +3918,22 @@ ${mc.map(m=>m.name+" | "+m.unit).join("\n")}
   const dVis=()=>{ if(document.hidden&&!document.getElementById("kpDr")) dSave() }; document.addEventListener("visibilitychange",dVis);
 }
 function kpHTML(st){
-  const f=S.fops.get(st.fop)||{}, rows=st.rows.filter(r=>r.on!==false&&r.name&&(st.withMat||!r.mat)).sort((a,b)=>(a.mat?1:0)-(b.mat?1:0)), n2=v=>Math.round((+v||0)*100)/100;
+  const f=S.fops.get(st.fop)||{}, rows=st.rows.filter(r=>r.on!==false&&r.name&&!r.rec&&(st.withMat||!r.mat)).sort((a,b)=>(a.mat?1:0)-(b.mat?1:0)), n2=v=>Math.round((+v||0)*100)/100;
+  const recs=st.rows.filter(r=>r.on!==false&&r.name&&r.rec&&!r.mat), rt=n2(recs.reduce((a,r)=>a+n2(r.qty*r.price),0)), ok=!!(st.id&&[...S.sites.values()].some(x=>x.approved?.id===st.id));
   const groups=[]; for(const r of rows){ const c=r.mat?"Матеріали":(r.cat||"Інші роботи"); let g=groups.find(x=>x.c===c); if(!g) groups.push(g={c,l:[]}); g.l.push(r) }
   const tot=n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0)), d=n2(tot*(+st.disc||0)/100), pay=n2(tot-d);
   const till=new Date(new Date(st.date).getTime()+(+st.valid||14)*864e5).toISOString().slice(0,10);
   let k=0;
   return `<div class="doc">
   ${f.name?`<p style="text-align:right">${esc(f.name)}${f.phone?"<br>тел. "+esc(f.phone):""}${f.address?"<br>"+esc(f.address):""}</p>`:""}
-  <h3>КОМЕРЦІЙНА ПРОПОЗИЦІЯ № ${esc(st.no)}<br>від ${dLong(st.date)}</h3>
+  <h3>${ok?"КОШТОРИС":"КОМЕРЦІЙНА ПРОПОЗИЦІЯ"} № ${esc(st.no)}<br>від ${dLong(st.date)}</h3>
   ${st.client?`<p><b>Замовник:</b> ${esc(st.client)}</p>`:""}${st.object?`<p><b>Об'єкт:</b> ${esc(st.object)}</p>`:""}
   <table class="items"><tr><th>№</th><th>Найменування робіт</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr>
   ${groups.map(g=>`${groups.length>1?`<tr><td colspan="6"><b>${esc(g.c)}</b></td></tr>`:""}${g.l.map(r=>`<tr><td class="r">${++k}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="r">${+r.qty}</td><td class="r">${n2(r.price).toFixed(2)}</td><td class="r">${n2(r.qty*r.price).toFixed(2)}</td></tr>`).join("")}`).join("")}
   <tr class="tot"><td colspan="5" class="r b">Разом:</td><td class="r b box">${tot.toFixed(2)}</td></tr>
   ${d?`<tr class="tot"><td colspan="5" class="r b">Знижка ${+st.disc}%:</td><td class="r b box">−${d.toFixed(2)}</td></tr><tr class="tot"><td colspan="5" class="r b">До сплати:</td><td class="r b box">${pay.toFixed(2)}</td></tr>`:""}</table>
   <p>Загальна вартість робіт: <b>${uaWords(pay)}</b>.</p>
+  ${recs.length?`<p style="margin-top:14px"><b>Рекомендуємо також</b> (не входить у суму вище — за вашим бажанням):</p><table class="items"><tr><th>№</th><th>Найменування робіт</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr>${recs.map((r,j)=>`<tr><td class="r">${j+1}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="r">${+r.qty}</td><td class="r">${n2(r.price).toFixed(2)}</td><td class="r">${n2(r.qty*r.price).toFixed(2)}</td></tr>`).join("")}<tr class="tot"><td colspan="5" class="r b">Разом рекомендоване:</td><td class="r b box">${rt.toFixed(2)}</td></tr><tr class="tot"><td colspan="5" class="r b">Усього з рекомендованим:</td><td class="r b box">${n2(pay+rt).toFixed(2)}</td></tr></table>`:""}
   ${st.note?`<p>${esc(st.note)}</p>`:""}<p>Пропозиція дійсна до ${dLong(till)}</p>
   <p class="sign" style="margin-top:28px">${esc(f.name||"")} <span class="line"></span></p></div>`;
 }
@@ -3883,11 +3965,11 @@ function smetaFlow(siteId){
     return {on:true,mat:true,manual:true,name,unit,qty,price:Math.round(base*(1+st.mmk/100)*100)/100,cost:Math.round(base*qty*100)/100} };
   const draw=()=>{ if(!st.rows) build();
     const allR=[...st.rows,...(st.withMat?st.mrows:[])], on=allR.filter(r=>r.on), tot=n2(on.reduce((a,r)=>a+n2(r.qty*r.price),0)), cost=n2(on.reduce((a,r)=>a+r.cost,0));
-    openSheet(`<h2>📋 Смета виконаних робіт</h2><div class="m" style="margin:-6px 0 8px">${esc(s.name||"")}${s.customer?" · "+esc(s.customer):""}</div>
+    openSheet(`<h2>📋 Акт виконаних робіт</h2><div class="m" style="margin:-6px 0 8px">${esc(s.name||"")}${s.customer?" · "+esc(s.customer):""}</div>
       <div class="row"><div class="field"><label>З</label><input type="date" id="smF" value="${st.from}"></div><div class="field"><label>По</label><input type="date" id="smT" value="${st.to}"></div></div>
       <div class="row"><div class="field"><label>Націнка, %</label><input id="smMk" inputmode="decimal" value="${st.mk}"></div><div class="field"><label>№</label><input id="smNo" value="${esc(st.no)}"></div></div>
       <label class="m" style="display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:13.5px"><input type="checkbox" id="smUP" ${st.usePrice?"checked":""} style="width:20px;height:20px"> Де робота є в прайсі/кошторисі — брати ціну звідти, а не ставку + націнку</label>
-      ${s.billedTo?`<div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Попередня смета виставлена по ${fmtDay(s.billedTo)}</div>`:""}
+      ${s.billedTo?`<div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Попередній акт виставлено по ${fmtDay(s.billedTo)}</div>`:""}
       <div class="seg" id="smMat" style="margin-bottom:8px"><button type="button" data-v="0" class="${st.withMat?"":"on"}">Матеріали не входять</button><button type="button" data-v="1" class="${st.withMat?"on":""}">Матеріали входять</button></div>
       ${st.withMat?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="m" style="flex:1">Націнка на матеріали, %</span><input id="smMmk" inputmode="decimal" value="${st.mmk}" style="width:70px;text-align:center"></div>`:""}
       ${st.rows.length||st.withMat?`<div class="section-t" style="display:flex">Роботи<span class="count">${st.rows.filter(r=>r.on).length} поз.</span></div>
@@ -3901,14 +3983,14 @@ function smetaFlow(siteId){
           :`<div class="m" style="color:var(--muted);margin-bottom:6px">Немає привезених матеріалів у «Потрібно» цього об'єкта — додайте вручну нижче.</div>`}
         <div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="margin-bottom:4px">➕ Додати матеріали вручну — кожен з нового рядка: <i>назва, к-сть, од., ціна</i> (ціну можна не писати — візьметься з прайсу). Можна голосом 🎤.</div>
           <textarea id="smMAdd" rows="3" placeholder="цемент 10 мішків 180&#10;профіль CD-60 24 шт&#10;клей для плитки 5 мішків 320"></textarea>
-          <button type="button" class="btn sm" id="smMAddB" style="width:100%;margin-top:6px">➕ Додати в смету</button></div>`:""}
+          <button type="button" class="btn sm" id="smMAddB" style="width:100%;margin-top:6px">➕ Додати в акт</button></div>`:""}
       <div class="sum">Замовнику: <b>${money(tot)}</b> · собівартість ${money(cost)} · різниця <b class="in">${money(n2(tot-cost))}</b></div>
       <div class="m" style="color:var(--muted);font-size:12px;margin-top:6px">Просто отримати й переслати:</div>
       <div class="actions" style="margin-top:4px"><button class="btn" id="smShare">📤 Надіслати</button><button class="btn ghost" id="smXls">⬇️ Excel</button><button class="btn ghost" id="smPrint">🖨️ PDF</button></div>
       ${S.canWrite&&[...st.rows,...(st.withMat?st.mrows:[])].some(r=>r.toPrice)?`<button class="btn ghost" id="smPin" style="width:100%;margin-top:6px">📌 Зберегти позначені ціни в прайс (${[...st.rows,...(st.withMat?st.mrows:[])].filter(r=>r.toPrice).length})</button>`:""}
       ${S.canWrite?`<button class="btn" id="smSave" style="width:100%;margin-top:6px">💾 Зберегти в об'єкті + PDF</button><button type="button" class="btn ghost" id="smAp" style="width:100%;margin-top:6px">✅ Погоджено замовником</button>`:""}
       ${S.canWrite?`<button class="btn ghost" id="smMark" style="width:100%;margin-top:6px">✅ Позначити як виставлене (по ${fmtDay(st.to)})</button>`:""}`
-      :`<div class="empty">За цей період немає робіт зі «Звіту робіт» по цьому об'єкту. Смета збирається з нарахувань, зроблених через «📋 Звіт робіт».</div>`}
+      :`<div class="empty">За цей період немає робіт зі «Звіту робіт» по цьому об'єкту. Акт збирається з нарахувань, зроблених через «📋 Звіт робіт».</div>`}
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     const re=()=>{st.rows=null;draw()};
     $("#smF").onchange=e=>{st.from=e.target.value;re()}; $("#smT").onchange=e=>{st.to=e.target.value;re()};
@@ -3921,18 +4003,18 @@ function smetaFlow(siteId){
     document.querySelectorAll("#modal [data-mi]").forEach(el=>el.onchange=e=>{const r=st.mrows[e.target.dataset.mi],k=e.target.dataset.k; if(k==="on") r.on=e.target.checked; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()}); $("#smNo").onchange=e=>st.no=e.target.value;
     document.querySelectorAll("#modal [data-i]").forEach(el=>el.onchange=e=>{const r=st.rows[e.target.dataset.i],k=e.target.dataset.k;
       if(k==="on") r.on=e.target.checked; else if(k==="name") r.name=e.target.value; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()});
-    $("#smPrint")?.addEventListener("click",()=>printDoc(smetaHTML(s,st),"Смета "+st.no));
-    $("#smShare")?.addEventListener("click",()=>sharePdf(smetaHTML(s,st),`Смета ${st.no} — ${s.name||""}`,`Смета виконаних робіт № ${st.no} · ${s.name||""}`));
+    $("#smPrint")?.addEventListener("click",()=>printDoc(smetaHTML(s,st),"Акт "+st.no));
+    $("#smShare")?.addEventListener("click",()=>sharePdf(smetaHTML(s,st),`Акт ${st.no} — ${s.name||""}`,`Акт виконаних робіт № ${st.no} · ${s.name||""}`));
     document.querySelectorAll("#modal [data-pw]").forEach(b=>b.onclick=()=>{ const r=st.rows[+b.dataset.pw]; r.toPrice=!r.toPrice; draw() });
     document.querySelectorAll("#modal [data-pm]").forEach(b=>b.onclick=()=>{ const r=st.mrows[+b.dataset.pm]; r.toPrice=!r.toPrice; draw() });
     const pinRows=()=>[...st.rows.map(r=>({...r,mat:false,ref:r})),...(st.withMat?st.mrows:[]).map(r=>({...r,mat:true,price:st.mmk?Math.round(r.price/(1+st.mmk/100)*100)/100:r.price,ref:r}))].filter(r=>r.toPrice);
-    $("#smPin")?.addEventListener("click",async()=>{ const l=pinRows(); if(await pinSave(l,"зі смети № "+st.no)) l.forEach(x=>x.ref.toPrice=false); draw() });
+    $("#smPin")?.addEventListener("click",async()=>{ const l=pinRows(); if(await pinSave(l,"з акта № "+st.no)) l.forEach(x=>x.ref.toPrice=false); draw() });
     $("#smSave")?.addEventListener("click",async()=>{ const clean=l=>(l||[]).filter(r=>r.on&&r.name).map(r=>({name:r.name,unit:r.unit,qty:r.qty,price:r.price,cost:r.cost||0}));
       const rows=clean(st.rows), mrows=st.withMat?clean(st.mrows):[], total=Math.round([...rows,...mrows].reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
       const data={kind:"smeta",site:siteId,no:st.no,date:todayISO(),from:st.from,to:st.to,withMat:!!st.withMat,rows,mrows,total,client:s.customer||"",object:s.name||"",createdAt:st.savedAt||Date.now(),updatedAt:Date.now()};
       const ok=await write(async db=>{ if(st.savedId) await db.doc(R("offers")+"/"+st.savedId).set(data); else { const r=await db.collection(R("offers")).add(data); st.savedId=r.id; st.savedAt=data.createdAt } });
-      if(ok){ toast("Смету збережено в об'єкті («📁 Документи»)"); printDoc(smetaHTML(s,st),"Смета "+st.no); { const l=pinRows(); if(l.length) pinSave(l,"зі смети № "+st.no).then(()=>l.forEach(x=>x.ref.toPrice=false)) }
-        addWorksToPrice(rows,"зі смети № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}`),1500) }) } });
+      if(ok){ toast("Акт збережено в об'єкті («📁 Документи»)"); printDoc(smetaHTML(s,st),"Акт "+st.no); { const l=pinRows(); if(l.length) pinSave(l,"з акта № "+st.no).then(()=>l.forEach(x=>x.ref.toPrice=false)) }
+        addWorksToPrice(rows,"з акта № "+st.no).then(n=>{ if(n) setTimeout(()=>toast(`📋 У прайс додано нових робіт: ${n}`),1500) }) } });
     $("#smAp")?.addEventListener("click",async()=>{ const clean=l=>(l||[]).filter(r=>r.on&&r.name).map(r=>({name:r.name,unit:r.unit,qty:r.qty,price:r.price,cost:r.cost||0}));
       const rows=clean(st.rows), mrows=st.withMat?clean(st.mrows):[], total=Math.round([...rows,...mrows].reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
       if(!rows.length&&!mrows.length){ toast("Немає позицій"); return }
@@ -3940,17 +4022,17 @@ function smetaFlow(siteId){
       const ok=await write(async db=>{ if(st.savedId) await db.doc(R("offers")+"/"+st.savedId).set(data); else { const r=await db.collection(R("offers")).add(data); st.savedId=r.id; st.savedAt=data.createdAt } });
       if(ok&&st.savedId) approveOffer({id:st.savedId,...data}) });
     $("#smXls")?.addEventListener("click",async()=>{ try{ const X=await loadXLSX(); const rows=[...st.rows,...(st.withMat?st.mrows:[])].filter(r=>r.on);
-      const aoa=[["Смета виконаних робіт № "+st.no],["Об'єкт: "+(s.name||"")+(s.customer?" · Замовник: "+s.customer:"")],["Період: "+fmtDay(st.from)+" – "+fmtDay(st.to)],[],["№","Найменування робіт","Од.","К-сть","Ціна, грн","Сума, грн"],
+      const aoa=[["Акт виконаних робіт № "+st.no],["Об'єкт: "+(s.name||"")+(s.customer?" · Замовник: "+s.customer:"")],["Період: "+fmtDay(st.from)+" – "+fmtDay(st.to)],[],["№","Найменування робіт","Од.","К-сть","Ціна, грн","Сума, грн"],
         ...rows.map((r,i)=>[i+1,r.name,r.unit,r.qty,r.price,n2(r.qty*r.price)]),[],["","Всього","","","",n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0))]];
-      const ws=X.utils.aoa_to_sheet(aoa); ws["!cols"]=[{wch:4},{wch:48},{wch:7},{wch:9},{wch:11},{wch:13}]; const wb=X.utils.book_new(); X.utils.book_append_sheet(wb,ws,"Смета");
-      X.writeFile(wb,`Смета ${(s.name||"").replace(/[\\/:*?"<>|]/g,"")} ${st.no}.xlsx`) }catch(e){ toast("Не вдалося: "+String(e?.message||e).slice(0,60)) } });
-    $("#smMark")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("sites/"+siteId).update({billedTo:st.to}))){ s.billedTo=st.to; toast("Позначено: наступна смета почнеться з "+fmtDay(dayAfter(st.to))); draw() } });
+      const ws=X.utils.aoa_to_sheet(aoa); ws["!cols"]=[{wch:4},{wch:48},{wch:7},{wch:9},{wch:11},{wch:13}]; const wb=X.utils.book_new(); X.utils.book_append_sheet(wb,ws,"Акт");
+      X.writeFile(wb,`Акт ${(s.name||"").replace(/[\\/:*?"<>|]/g,"")} ${st.no}.xlsx`) }catch(e){ toast("Не вдалося: "+String(e?.message||e).slice(0,60)) } });
+    $("#smMark")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("sites/"+siteId).update({billedTo:st.to}))){ s.billedTo=st.to; toast("Позначено: наступний акт почнеться з "+fmtDay(dayAfter(st.to))); draw() } });
   };
   draw();
 }
 function smetaHTML(s,st){ const n2=v=>Math.round((+v||0)*100)/100, rows=st.rows.filter(r=>r.on&&r.name), mrows=st.withMat?(st.mrows||[]).filter(r=>r.on&&r.name):[], tw=n2(rows.reduce((a,r)=>a+n2(r.qty*r.price),0)), tm=n2(mrows.reduce((a,r)=>a+n2(r.qty*r.price),0)), tot=n2(tw+tm);
   const tr=(r,i)=>`<tr><td class="r">${i+1}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="r">${+r.qty}</td><td class="r">${n2(r.price).toFixed(2)}</td><td class="r">${n2(r.qty*r.price).toFixed(2)}</td></tr>`;
-  return `<div class="doc"><h3>КОШТОРИС ВИКОНАНИХ РОБІТ${mrows.length?" ТА ВИКОРИСТАНИХ МАТЕРІАЛІВ":""} № ${esc(st.no)}<br>за період з ${dLong(st.from)} по ${dLong(st.to)}</h3>
+  return `<div class="doc"><h3>АКТ ВИКОНАНИХ РОБІТ${mrows.length?" ТА ВИКОРИСТАНИХ МАТЕРІАЛІВ":""} № ${esc(st.no)}<br>за період з ${dLong(st.from)} по ${dLong(st.to)}</h3>
   <p><b>Об'єкт:</b> ${esc(s.name||"")}${s.note?", "+esc(s.note):""}</p>${s.customer?`<p><b>Замовник:</b> ${esc(s.customer)}</p>`:""}
   <table class="items"><tr><th>№</th><th>Найменування робіт</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr>
   ${mrows.length?`<tr><td colspan="6"><b>Роботи</b></td></tr>`:""}${rows.map(tr).join("")}
@@ -4550,7 +4632,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v236"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v237"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -4837,7 +4919,7 @@ if(SR){ let t=null; new MutationObserver(()=>{ clearTimeout(t); t=setTimeout(()=
 // ---------- ✅ Погоджена смета: стає кошторисом об'єкта (ставки хлопцям −%), сумою договору; перегляд для замовника і для людей ----------
 function offerToSite(o,cb){
   const l=[...S.sites.values()].filter(x=>x.type!=="warehouse"&&x.active!==false).sort((a,b)=>(a.order||0)-(b.order||0));
-  openSheet(`<h2>КП № ${esc(o.no||"")} погодили</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Пропозиція була без об'єкта. Створіть новий об'єкт — або виберіть існуючий.</div>
+  openSheet(`<h2>Кошторис № ${esc(o.no||"")} погодили</h2><div class="m" style="color:var(--muted);margin-bottom:8px">Пропозиція була без об'єкта. Створіть новий об'єкт — або виберіть існуючий.</div>
     <div class="card" style="display:block;cursor:default"><div class="field"><label>Назва нового об'єкта</label><input id="otName" value="${esc(o.object||o.client||"")}"></div>
     <div class="field"><label>Замовник</label><input id="otCust" value="${esc(o.client||"")}"></div><button class="btn" id="otNew" style="width:100%">➕ Створити об'єкт і погодити</button></div>
     ${l.length?`<div class="section-t">або в існуючий</div><div class="list">${l.map(x=>`<div class="card" data-ots="${x.id}"><div class="main"><div class="t">${esc(x.name)}</div>${x.customer?`<div class="m">${esc(x.customer)}</div>`:""}</div></div>`).join("")}</div>`:""}
@@ -4845,15 +4927,15 @@ function offerToSite(o,cb){
   const link=async st=>{ if(o.id) await write(db=>db.doc(R("offers")+"/"+o.id).update({site:st.id,object:st.name})); closeSheet(); cb(st) };
   document.querySelectorAll("[data-ots]").forEach(el=>el.onclick=()=>link(site(el.dataset.ots)));
   $("#otNew").onclick=async()=>{ const name=$("#otName").value.trim(); if(!name){toast("Вкажіть назву");return}
-    const data={perm:false,name,note:o.no?"За КП № "+o.no:"",type:"site",active:true,split:false,customer:$("#otCust").value.trim(),contract:0,order:Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1};
+    const data={perm:false,name,note:o.no?"За кошторисом № "+o.no:"",type:"site",active:true,split:false,customer:$("#otCust").value.trim(),contract:0,order:Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1};
     let id=null; $("#otNew").disabled=true; if(await write(async db=>{ const r=await db.collection("sites").add(data); id=r.id })&&id){ const st={id,...data}; S.sites.set?.(id,st); link(st) } else $("#otNew").disabled=false };
 }
 async function approveOffer(o,stIn){
   const st=stIn||site(o.site); if(!st){ offerToSite(o,s2=>approveOffer({...o,site:s2.id},s2)); return }
-  const items=[...(o.rows||[]),...(o.mrows||[]).map(r=>({...r,mat:true}))].filter(r=>r.name).map(r=>({name:r.name,unit:r.unit||"",qty:+r.qty||0,price:+r.price||0,mat:!!r.mat}));
+  const items=[...(o.rows||[]),...(o.mrows||[]).map(r=>({...r,mat:true}))].filter(r=>r.name&&!r.rec).map(r=>({name:r.name,unit:r.unit||"",qty:+r.qty||0,price:+r.price||0,mat:!!r.mat}));
   if(!items.length){ toast("У документі немає позицій — спершу розберіть їх"); return }
   const total=Math.round(items.reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
-  if(st.approved&&!confirm(`На об'єкті вже є погоджена смета № ${st.approved.no||""}. Замінити її на № ${o.no||""}?`)) return;
+  if(st.approved&&!confirm(`На об'єкті вже є погоджений кошторис № ${st.approved.no||""}. Замінити його на № ${o.no||""}?`)) return;
   const docT=+o.total>0?Math.round(+o.total*100)/100:0, diff=docT&&Math.abs(docT-total)>Math.max(1,docT*0.005);
   const cT=diff?docT:total;
   const setC=confirm(diff?`Сума документа ${money(docT)}, а позиції дають ${money(total)} (різниця ${money(Math.round((docT-total)*100)/100)}).\n\nЗаписати суму ДОКУМЕНТА ${money(docT)} як суму договору з замовником?`:`Записати суму ${money(total)} як суму договору з замовником?\n(тоді буде видно «замовник винен»)`);
@@ -4871,14 +4953,14 @@ function unapproveUpd(st){ const ap=st.approved||{}, c=ctrBase(st), fromAp=c>0&&
 async function unapproveOffer(oid){ const l=[...S.sites.values()].filter(x=>x.approved?.id===oid); if(!l.length) return;
   await write(async db=>{ for(const x of l) await db.doc("sites/"+x.id).update(unapproveUpd(x)) }); toast("Погодження знято — сума договору з цієї смети більше не рахується") }
 async function apOrphanCheck(st){ if(!st?.approved?.id||!S.db||S.canWrite===false) return; S._apChk=S._apChk||{}; if(S._apChk[st.id]) return; S._apChk[st.id]=1;
-  try{ const d=await S.db.doc(R("offers")+"/"+st.approved.id).get(); if(d&&d.exists===false){ const u=unapproveUpd(st); await S.db.doc((isDuo()?"duo_sites/":"sites/")+st.id).update(u); toast("Погоджену смету видалено раніше — знято її з об'єкта"+(u.contract===0?" і обнулено суму договору":"")) } }catch(_){} }
-function approvedHTML(s){ const ap=s.approved; if(!ap) return `<div class="empty" style="margin-bottom:8px">Погодженої смети ще немає.<br><span class="m">Відкрийте КП чи смету в «📁 Документи» → «✅ Погоджено» — тут з'явиться список робіт з галочками.</span></div>`;
+  try{ const d=await S.db.doc(R("offers")+"/"+st.approved.id).get(); if(d&&d.exists===false){ const u=unapproveUpd(st); await S.db.doc((isDuo()?"duo_sites/":"sites/")+st.id).update(u); toast("Погоджений кошторис видалено раніше — знято його з об'єкта"+(u.contract===0?" і обнулено суму договору":"")) } }catch(_){} }
+function approvedHTML(s){ const ap=s.approved; if(!ap) return `<div class="empty" style="margin-bottom:8px">Погодженого кошторису ще немає.<br><span class="m">Відкрийте кошторис у «📁 Документи» → «✅ Погоджено» — тут з'явиться список робіт з галочками.</span></div>`;
   const pct=(()=>{ try{ const v=parseFloat(localStorage.getItem("wrPct")); return isFinite(v)?v:40 }catch(_){ return 40 } })();
   const mode=S.apMode||"client", done=new Set(s.approvedDone||[]), items=ap.items.map((r,i)=>({...r,i})).filter(r=>mode==="client"||!r.mat);
   const pr=r=>mode==="client"?r.price:Math.ceil(r.price*(1-pct/100)/10-1e-9)*10, sum=l=>Math.round(l.reduce((a,r)=>a+r.qty*pr(r),0));
   const got=apProgress(s); for(const r of items){ const g=got[r.i]||0; if(g>0&&g>=(+r.qty||0)*0.999) done.add(r.i) }
   const left=items.filter(r=>!done.has(r.i));
-  return `<div class="section-t" style="display:flex;margin-top:4px">✅ Погоджена смета № ${esc(ap.no)}<span class="count">${done.size?`виконано ${items.length-left.length} з ${items.length}`:""}</span></div>
+  return `<div class="section-t" style="display:flex;margin-top:4px">✅ Погоджений кошторис № ${esc(ap.no)}<span class="count">${done.size?`виконано ${items.length-left.length} з ${items.length}`:""}</span></div>
     <div class="seg" id="apMode" style="margin-bottom:6px"><button type="button" data-v="client" class="${mode==="client"?"on":""}">Для замовника</button><button type="button" data-v="crew" class="${mode==="crew"?"on":""}">Для людей −${pct}%</button></div>
     ${mode==="crew"?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="m" style="flex:1">Мінус від цін замовника, %</span><input id="apPct" inputmode="decimal" value="${pct}" style="width:64px;text-align:center"></div>`:""}
     <div class="card" style="display:block;cursor:default">${items.map(r=>`<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line,#2a2f38);font-size:13.5px;${done.has(r.i)?"opacity:.45;text-decoration:line-through":""}"><input type="checkbox" data-apd="${r.i}" ${done.has(r.i)?"checked":""} style="width:20px;height:20px;flex:0 0 20px"><span style="flex:1;min-width:0">${r.mat?"🧱 ":""}${esc(r.name)}<div class="m" style="font-size:11.5px;color:var(--muted)">${+r.qty} ${esc(r.unit)} × ${money(pr(r))}${got[r.i]?` · <span style="color:var(--accent,#3b9)">за звітами ${Math.round(got[r.i]*100)/100} з ${+r.qty}</span>`:""}</div></span><b style="white-space:nowrap">${money(Math.round(r.qty*pr(r)))}</b></label>`).join("")}
@@ -4887,7 +4969,7 @@ function approvedHTML(s){ const ap=s.approved; if(!ap) return `<div class="empty
     <div class="m" style="color:var(--muted);font-size:12px;margin:4px 0 6px">Галочки ставляться самі, коли звіти робіт закривають обсяг; можна ставити й вручну. На гроші й зарплати не впливають.</div>
     <div class="actions" style="margin-top:0"><button class="btn ghost sm" id="apPrint">🖨️ PDF ${mode==="crew"?"для людей":"для замовника"}</button>${S.canWrite?`<button class="btn ghost sm" id="apUn" style="color:#ef4444">✖ Зняти погодження</button>`:""}</div>` }
 function bindApproved(s){ const box=$("#apBox"); if(!box) return; const re=()=>{ box.innerHTML=approvedHTML(s); bindApproved(s) };
-  box.querySelector("#apUn")?.addEventListener("click",async()=>{ const u=unapproveUpd(s); if(!confirm(`Зняти погоджену смету № ${s.approved?.no||""} з об'єкта?${u.contract===0?`\nСума договору ${money(s.contract)} теж обнулиться.`:""}\n\nСама смета залишиться в «📁 Документи».`)) return;
+  box.querySelector("#apUn")?.addEventListener("click",async()=>{ const u=unapproveUpd(s); if(!confirm(`Зняти погоджений кошторис № ${s.approved?.no||""} з об'єкта?${u.contract===0?`\nСума договору ${money(s.contract)} теж обнулиться.`:""}\n\nСама смета залишиться в «📁 Документи».`)) return;
     if(await write(db=>db.doc("sites/"+s.id).update(u))){ Object.assign(s,u); re(); toast("Погодження знято") } });
   $("#apMode")?.addEventListener("click",e=>{ const b=e.target.closest("button"); if(b){ S.apMode=b.dataset.v; re() } });
   $("#apPct")?.addEventListener("change",e=>{ const v=parseFloat(String(e.target.value).replace(",",".")); if(isFinite(v)&&v>=0&&v<100) try{localStorage.setItem("wrPct",String(v))}catch(_){} re() });
@@ -4896,7 +4978,7 @@ function bindApproved(s){ const box=$("#apBox"); if(!box) return; const re=()=>{
     const ap=s.approved, l=ap.items.filter(r=>!crew||!r.mat), pr=r=>crew?Math.ceil(r.price*(1-pct/100)/10-1e-9)*10:r.price, tot=l.reduce((a,r)=>a+r.qty*pr(r),0);
     printDoc(`<div class="doc"><h3>${crew?"СМЕТА РОБІТ ДЛЯ ВИКОНАВЦІВ":"СМЕТА"} (погоджена № ${esc(ap.no)})</h3><p><b>Об'єкт:</b> ${esc(s.name)}</p>
       <table class="items"><tr><th>№</th><th>Найменування</th><th>Од.</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr>${l.map((r,i)=>`<tr><td class="r">${i+1}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="r">${+r.qty}</td><td class="r">${pr(r).toFixed(2)}</td><td class="r">${(r.qty*pr(r)).toFixed(2)}</td></tr>`).join("")}
-      <tr class="tot"><td colspan="5" class="r b">Разом:</td><td class="r b box">${tot.toFixed(2)}</td></tr></table></div>`,(crew?"Для людей ":"Смета ")+s.name) });
+      <tr class="tot"><td colspan="5" class="r b">Разом:</td><td class="r b box">${tot.toFixed(2)}</td></tr></table></div>`,(crew?"Для людей ":"Кошторис ")+s.name) });
 }
 // 📎 готовий документ з файлу (погоджений PDF/Excel/фото), за бажанням — розібрати позиції ШІ
 async function docParts(f){
@@ -4963,7 +5045,7 @@ async function handleShare(){ if(!/[?&]share=1/.test(location.search)) return; t
   shareSheet(file,text) }
 function shareSheet(file,text){ if(file&&/\.json$/i.test(file.name)){ importPack(file); return }
   const img=file&&/^image\//.test(file.type);
-  const T=[["kp","📄","Нова смета / КП","без об'єкта: тендер, пропозиція — ШІ розбере роботи"],
+  const T=[["kp","📄","Новий кошторис","КП для клієнта: роботи з прайсу, супутні роботи, PDF"],
     ["doc:Договір","🤝","Договір","в об'єкт: сума договору, таблиця робіт якщо є"],["doc:Смета","📋","Погоджена смета","в об'єкт: позиції → кошторис"],["doc:КП","📄","КП в об'єкт",""],
     ["doc:Акт","✅","Акт виконаних робіт",""],["doc:Рахунок","🧾","Рахунок",""],
     ...(img?[["rc","🧾","Чек витрати","сума зчитається сама"]]:[]),["rep","👷","Звіт робіт від хлопців","обсяги → нарахування"],["doc:Інше","📎","Інший документ","просто зберегти в об'єкті"],["tz","🏛️","Документація тендеру","додати до тендера в роботі для аналізу"]];
@@ -5009,14 +5091,14 @@ function fileOfferView(o){
 function openOffer(o){ if(!o) return; if(o.kind==="smeta") smetaSavedView(o); else if(o.kind==="file") fileOfferView(o); else kpFlow(o) }
 function smetaSavedView(o){ const s=site(o.site)||{name:o.object,customer:o.client};
   const st={no:o.no,from:o.from,to:o.to,withMat:!!o.withMat,rows:(o.rows||[]).map(r=>({...r,on:true})),mrows:(o.mrows||[]).map(r=>({...r,on:true}))};
-  openSheet(`<h2>📋 Смета № ${esc(o.no)}</h2><div class="m" style="color:var(--muted);margin-bottom:8px">${esc(s.name||"")} · ${fmtDay(o.from)} – ${fmtDay(o.to)} · ${o.withMat?"роботи + матеріали":"тільки роботи"}</div>
+  openSheet(`<h2>📋 Акт № ${esc(o.no)}</h2><div class="m" style="color:var(--muted);margin-bottom:8px">${esc(s.name||"")} · ${fmtDay(o.from)} – ${fmtDay(o.to)} · ${o.withMat?"роботи + матеріали":"тільки роботи"}</div>
     <div class="card" style="display:block;cursor:default">${[...st.rows,...st.mrows].map(r=>`<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--line,#2a2f38);font-size:14px"><span style="flex:1">${esc(r.name)}</span><span>${+r.qty} ${esc(r.unit)}</span><b style="min-width:80px;text-align:right">${money(Math.round(r.qty*r.price))}</b></div>`).join("")}
       <div style="text-align:right;margin-top:6px">Разом: <b>${money(o.total)}</b></div></div>
     <div class="actions"><button class="btn ghost" id="svPrint">🖨️ PDF</button>${S.canWrite?`<button class="btn" id="svAp">✅ Погоджено замовником</button><button class="btn danger" id="svDel">Видалити</button>`:""}</div>
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
-  $("#svPrint").onclick=()=>printDoc(smetaHTML(s,st),"Смета "+o.no);
+  $("#svPrint").onclick=()=>printDoc(smetaHTML(s,st),"Акт "+o.no);
   $("#svAp")?.addEventListener("click",()=>approveOffer(o));
-  $("#svDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити смету № "+o.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); sheetBack() } });
+  $("#svDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити акт № "+o.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); sheetBack() } });
 }
 function siteDocsHTML(s){ return `<div id="sDocs"><div class="empty">Завантажую документи…</div></div>` }
 function loadSiteDocs(s){
@@ -5024,11 +5106,11 @@ function loadSiteDocs(s){
   S.db.collection(R("offers")).get().then(sn=>{ const off=sn.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.site===s.id).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
     const docs=isDuo()?[]:[...S.docs.values()].filter(d=>d.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
     const row=(ic,t,sub,amt,attr,del)=>`<div class="card" ${attr} style="cursor:pointer"><div class="main"><div class="t">${ic} ${t}</div><div class="m">${sub}</div></div><span class="amt">${amt}</span>${S.canWrite?`<button class="btn ghost sm" ${del} title="Видалити" style="margin-left:6px">✕</button>`:""}</div>`;
-    box.innerHTML=`${S.canWrite?`<div class="actions" style="margin:0 0 8px;flex-wrap:wrap">${!isDuo()?`<button class="btn ghost sm" id="sdKp">💼 Нова КП</button>`:""}<button class="btn ghost sm" id="sdSm">📋 Смета</button>${!isDuo()?`<button class="btn ghost sm" id="sdDoc">🧾 Рахунок / акт</button>`:""}<button class="btn ghost sm" id="sdUp">📎 Додати готовий</button></div>`:""}
-      ${off.length||docs.length?`<div class="list">${off.map(o=>row(o.kind==="smeta"?"📋":o.kind==="file"?"📎":"💼",(o.kind==="smeta"?"Смета":o.kind==="file"?esc(o.sub||"Документ"):"КП")+(o.no?" № "+esc(o.no):"")+(s.approved?.id===o.id?" ✅":""),fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":""),money(o.total||0),`data-off="${o.id}"`,`data-xoff="${o.id}"`)).join("")}
+    box.innerHTML=`${S.canWrite?`<div class="actions" style="margin:0 0 8px;flex-wrap:wrap">${!isDuo()?`<button class="btn ghost sm" id="sdKp">📄 Кошторис</button>`:""}<button class="btn ghost sm" id="sdSm">📋 Акт</button>${!isDuo()?`<button class="btn ghost sm" id="sdDoc">🧾 Рахунок / акт</button>`:""}<button class="btn ghost sm" id="sdUp">📎 Додати готовий</button></div>`:""}
+      ${off.length||docs.length?`<div class="list">${off.map(o=>row(o.kind==="smeta"?"📋":o.kind==="file"?"📎":"📄",(o.kind==="smeta"?"Акт":o.kind==="file"?esc(o.sub||"Документ"):"Кошторис")+(o.no?" № "+esc(o.no):"")+(s.approved?.id===o.id?" ✅":""),fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":""),money(o.total||0),`data-off="${o.id}"`,`data-xoff="${o.id}"`)).join("")}
         ${docs.map(d=>row("🧾","Рах. № "+esc(d.invNo||"")+(d.actNo?" · Акт № "+esc(d.actNo):""),fmtDay(d.date)+" · "+esc(cliOf(d).name||""),money(docTotal(d)),`data-sdoc="${d.id}"`,`data-xdoc="${d.id}"`)).join("")}</div>`
-        :`<div class="empty">Документів ще немає. Збережені смети, КП, рахунки й акти цього об'єкта з'являться тут.</div>`}`;
-    box.querySelectorAll("[data-xoff]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const o=off.find(x=>x.id===b.dataset.xoff); if(!confirm(`Видалити ${o.kind==="smeta"?"смету":"КП"} № ${o.no}?`)) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); loadSiteDocs(s) } });
+        :`<div class="empty">Документів ще немає. Кошториси, акти, рахунки й договори цього об'єкта з'являться тут.</div>`}`;
+    box.querySelectorAll("[data-xoff]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const o=off.find(x=>x.id===b.dataset.xoff); if(!confirm(`Видалити ${o.kind==="smeta"?"акт":"кошторис"} № ${o.no}?`)) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); loadSiteDocs(s) } });
     box.querySelectorAll("[data-xdoc]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const d=S.docs.get(b.dataset.xdoc); if(!confirm(`Видалити рахунок № ${d?.invNo||""}${d?.actNo?" і акт № "+d.actNo:""}?`)) return; if(await write(db=>db.doc("docs/"+b.dataset.xdoc).delete())){ toast("Видалено"); setTimeout(()=>loadSiteDocs(s),300) } });
     box.querySelectorAll("[data-off]").forEach(c=>c.onclick=()=>openOffer(off.find(o=>o.id===c.dataset.off)));
     box.querySelectorAll("[data-sdoc]").forEach(c=>c.onclick=()=>docView(c.dataset.sdoc));
@@ -5044,7 +5126,7 @@ function fabMenu(){
   openSheet(`<h2>Що додати?</h2>
     <div class="section-t">💰 Гроші</div>
     ${it("out","💸","Витрата")}${it("rc","🧾","Витрата з чеком","сфотографуйте — сума зчитається сама")}${it("in","💰","Прихід від замовника")}
-    ${it("acc","👷","Нарахування / виплата виконавцю")}${it("rep","📋","Звіт робіт від хлопців","перевірити, нарахувати, у смету")}
+    ${it("acc","👷","Нарахування / виплата виконавцю")}${it("rep","📋","Звіт робіт від хлопців","перевірити, нарахувати, в акт")}
     ${!duo?`<div class="section-t">🧰 Інструмент і матеріали</div>
     ${it("tlist","📝","Список інструменту (з Viber/Telegram)","перемістити, зареєструвати, «куплено»")}${it("tphoto","📷","Інструмент з фото","інвентаризація або переміщення")}${it("tnew","🔧","Новий інструмент вручну")}${it("need","📝","Потрібно на об'єкт: інструмент і матеріали","одним списком — застосунок сам розкладе")}`:""}
     <div class="section-t">📁 Інше</div>
