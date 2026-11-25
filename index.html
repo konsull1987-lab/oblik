@@ -624,10 +624,13 @@ const tSpecN=x=>(String(x||"").replace(/(\d),(\d)/g,"$1.$2").match(/\d+(?:\.\d+)
 const tSpecOk=(r,t)=>{ const a=tSpecN(r.name); if(!a.length) return true; const b=tSpecN(t.name+" "+(t.brand||"")+" "+(t.model||"")); return !b.length||a.some(v=>b.includes(v)) };
 function tkRecs(t){ const l=(site(t.site)?.needs||[]).filter(n=>n.tid===t.id&&n.kind!=="material"); return l.length?l.map(n=>({...n,need:1})):tkToolLines(t.tools) }
 // кожен рядок справи → конкретні позиції бази: спершу з моєї машини, потім склади, інші машини, закриті об'єкти, люди, робочі об'єкти
-function tkMatch(t,opt){ opt=opt||{}; const me=opt.car||meId(), used=new Map(), pick={}, miss=[];
-  const rank=x=>{ const k=placeKey(x); return k==="car:"+me?0:k.startsWith("w:")?1:k.startsWith("car:")?2:k.startsWith("s:")&&site(x.site)?.active===false?3:k.startsWith("p:")?4:5 };
+function sitePeople(sid){ const P=new Set(); for(const t of S.tools.values()) if(t.site===sid&&person(t.holder)?.role==="worker") P.add(t.holder);
+  for(const f of S.fin.values()) if(f.site===sid&&f.type==="accrual"&&person(f.worker)?.role==="worker") P.add(f.worker);
+  for(const c of S.people.values()) if(c.crew&&((c.members||[]).some(m=>P.has(m))||P.has(c.id))){ P.add(c.id); (c.members||[]).forEach(m=>P.add(m)) } return P }
+function tkMatch(t,opt){ opt=opt||{}; const me=opt.car||meId(), used=new Map(), pick={}, miss=[], pref=opt.pref||new Set();
+  const rank=x=>{ const k=placeKey(x); return pref.has(x.holder)&&(!x.site||site(x.site)?.active===false)?-1:k==="car:"+me?0:k.startsWith("w:")?1:k.startsWith("car:")?2:k.startsWith("s:")&&site(x.site)?.active===false?3:k.startsWith("p:")?4:5 };
   const pool=[...S.tools.values()].filter(x=>(x.status||"ok")==="ok"&&x.site!==t.site&&(!opt.only||placeKey(x)===opt.only));
-  for(const r of tkRecs(t)){ let need=+r.qty||1;
+  for(const r of opt.recs||tkRecs(t)){ let need=+r.qty||1;
     const c=pool.map(x=>[r.need?(needHit(r,x)?3:0):toolScore(r,x),x]).filter(([s,x])=>s>=2&&tSpecOk(r,x)&&(used.get(x.id)||0)<qtyOf(x)).sort((a,b)=>rank(a[1])-rank(b[1])||b[0]-a[0]);
     for(const [,x] of c){ if(need<=0) break; const q=Math.min(qtyOf(x)-(used.get(x.id)||0),need); used.set(x.id,(used.get(x.id)||0)+q); pick[x.id]=(pick[x.id]||0)+q; need-=q }
     if(need>0) miss.push(r.name+(need>1?" ×"+need:"")) }
@@ -647,7 +650,7 @@ async function tkAfter(t,dest){ if(!t||isDuo()) return; const now=Date.now();
   else if(dest.startsWith("car:")){ const pid=dest.slice(4); t.picked=true; t.pickedBy=pid; await write(db=>db.collection("tasks").doc(t.id).update({picked:true,pickedBy:pid,pickedAt:now,...(t.who?{}:{who:pid})})) } }
 
 // 🔧 v229–v231: перенос «людині/бригаді» знімав інструмент з об'єкта → «Потрібно на об'єкти» знову показувало вже привезене. Повертаємо місце.
-function toolSiteFix(){ if(S._tsf||S.canWrite===false||isDuo()||S.fromCache||!S.loaded?.moves||!S.loaded?.tools||!S.moves?.length||!S.tools.size) return; S._tsf=1;
+function toolSiteFix(){ if(S._tsf||S.canWrite===false||isDuo()||!S.loaded?.moves||!S.loaded?.tools||!S.moves?.length||!S.tools.size) return; S._tsf=1;
   const from=Date.UTC(2026,10,24,18,0), seen=new Set(), fix=new Map();
   for(const mv of S.moves){ if(!mv.tool||seen.has(mv.tool)) continue; seen.add(mv.tool); // лише останній переїзд кожної позиції
     if(!(+mv.at>=from)||!mv.fromSite||mv.toSite||!mv.toHolder||person(mv.toHolder)?.role!=="worker") continue;
@@ -4709,7 +4712,9 @@ function renderToday(){
     (st.needs||[]).forEach((n,i)=>{ if(n.done||n.tid||haveOnSite(n,st.id)>=(+n.qty||1)) return; idx.push(i); const rest=Math.round(((+n.qty||1)-haveOnSite(n,st.id))*100)/100; (n.kind==="material"?M:T).push(n.name+" "+rest+(n.kind==="material"&&n.unit&&n.unit!=="шт"?" "+n.unit:"")) });
     taskForm({title:"Привезти на «"+st.name+"»",site:st.id,tools:T.join("\n"),mats:M.join("\n"),who:"",_needIdx:idx}) });
   $("#view").querySelectorAll("[data-nmove]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const st=S.sites.get(b.dataset.nmove);
-    const lines=(st.needs||[]).filter(n=>!n.done&&n.kind!=="material"&&haveOnSite(n,st.id)<(+n.qty||1)).map(n=>n.name+" "+Math.max(1,(+n.qty||1)-haveOnSite(n,st.id))+" шт").join("\n");
+    const recs=(st.needs||[]).filter(n=>!n.done&&n.kind!=="material").map(n=>({...n,need:1,qty:(+n.qty||1)-haveOnSite(n,st.id)})).filter(r=>r.qty>0);
+    if(!isDuo()){ const {pick,miss}=tkMatch({site:st.id},{recs,pref:sitePeople(st.id)}); if(Object.keys(pick).length){ moveTo(Object.keys(pick),{qty:pick,dest:"s:"+st.id,info:`📝 Потрібно на «${esc(st.name)}»${miss.length?`<div style="color:#ef4444;margin-top:4px">❓ Немає в базі: ${esc(miss.join(", "))} — треба купити</div>`:""}`}); return } }
+    const lines=recs.map(r=>r.name+" "+Math.max(1,r.qty)+" шт").join("\n");
     photoFlow({mode:"move",text:true,auto:true,noTask:true,to:st.id,listText:lines}) });
   $("#tBuy2")?.addEventListener("click",e=>{ e.stopPropagation(); $("#tBuy")?.click() });
   tasksBind();
