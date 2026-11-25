@@ -349,7 +349,7 @@ async function init(){
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
   try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); tasksFromInbox(); skillsFromInbox(); toolsFromInbox(); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
   try{ db.collection("tasks").orderBy("date","desc").limit(300).onSnapshot(snap=>{ S.tasksT=snap.docs.map(d=>({id:d.id,...d.data()})); tasksNotify(); setTimeout(taskNeedsFix,1500); render() },()=>{}) }catch(_){}
-  sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),"")});
+  sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),""); setTimeout(toolSiteFix,1500)});
 }
 async function write(fn){
   if(!S.db&&!S.offline){ toast("⏳ Підключаюсь до бази…"); for(let i=0;i<40&&!S.db&&!S.offline;i++) await new Promise(r=>setTimeout(r,250)) }
@@ -578,7 +578,7 @@ function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.g
     ${rec.length?`<div class="dst">${rec.map(btn).join("")}</div><div class="m" style="margin:8px 0 4px">🚐 Машини</div>`:`<div class="m" style="margin:0 0 4px">🚐 Машини</div>`}<div class="dst">${cars.map(btn).join("")}</div>
     ${wh.length?`<div class="m" style="margin:8px 0 4px">🏬 Склади</div><div class="dst">${wh.map(btn).join("")}</div>`:""}
     ${objs.length?`<div class="m" style="margin:8px 0 4px">🏗️ Об'єкти</div>${objs.length>6?`<input type="search" id="mvQ" placeholder="🔍 Пошук об'єкта" style="margin-bottom:6px">`:""}<div class="dst" id="mvO">${objs.map(btn).join("")}</div>${objs.length>6?`<a href="#" id="mvMore" class="m" style="display:block;margin:6px 0;color:var(--accent)">Показати всі об'єкти (${objs.length})</a>`:""}`:""}
-    <div class="m" style="margin:8px 0 4px">👷 Людині або бригаді (не на об'єкт)</div><select id="mvP">${personOptions("","— виберіть людину")}</select>
+    <div class="m" style="margin:8px 0 4px">👷 Інша людина чи бригада відповідає (місце те саме)</div><select id="mvP">${personOptions("","— виберіть людину")}</select>
     <div id="mvC" style="margin-top:12px"></div>
     <div class="actions"><button class="btn ghost" id="mvX">Скасувати</button></div>`);
   const M=$("#modal");
@@ -589,6 +589,7 @@ function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.g
   const panel=()=>{ const c=$("#mvC"); if(!dest){ c.innerHTML=""; return } const m=placeMeta(dest), pick=m.ty==="w"||m.ty==="s";
     c.innerHTML=`<div class="card" style="display:block;cursor:default;border:2px solid var(--accent)"><div class="t" style="margin-bottom:6px">→ ${m.ic} ${esc(m.nm)}${m.ty==="car"?" · машина":""}</div>
       ${pick?`<div class="field" style="margin-bottom:6px"><label>Відповідальний ${m.ty==="w"?"за склад":"на об'єкті"}</label><select id="mvH">${personOptions(m.resp,"— виберіть")}</select></div>`:`<div class="m" style="margin-bottom:6px">Відповідає: <b>${esc(person(m.resp)?.name||"—")}</b></div>`}
+      ${m.ty==="p"?`<div class="m" style="margin-bottom:6px">Інструмент лишається там, де лежить, — міняється лише відповідальний.</div><label class="m" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="checkbox" id="mvOff" style="width:22px;height:22px"> 🚶 Забрав з об'єкта — буде при собі</label>`:""}
       ${opt.arch?`<label class="m" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="checkbox" id="mvA" style="width:22px;height:22px"> Після цього перенести об'єкт «${esc(site(opt.arch)?.name||"")}» в архів</label>`:""}
       <input id="mvN" placeholder="Коментар (необов'язково)" style="margin-bottom:8px">
       <button class="btn" id="mvGo" style="width:100%;padding:14px">✅ Перенести ${Q.size} поз.${total()>Q.size?` (${total()} шт)`:""}</button></div>`;
@@ -602,17 +603,19 @@ function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.g
     if(e.target.closest("[data-mx]")){ Q.delete(i); r.remove(); if(opt.cart){ S.cart.delete(i); cartSave(); renderBulk() } if(!Q.size){ if(opt.back) opt.back(); else closeSheet() } else panel() } });
   if(dest) panel();
   async function go(){ const m=placeMeta(dest), holder=(m.ty==="w"||m.ty==="s")?($("#mvH")?.value||""):m.resp; if(!holder){ toast("Виберіть, хто відповідає"); return }
+    const keep=m.ty==="p"&&!$("#mvOff")?.checked; // нова людина/бригада: місце лишається, міняється лише відповідальний
     const b=$("#mvGo"); b.disabled=true; b.textContent="⏳ Переношу…"; const note=($("#mvN")?.value||"").trim()||opt.note||"", arch=!!$("#mvA")?.checked;
     let byName=""; try{ byName=(await S.user?.me?.())?.name||"" }catch(_){}
     const fromK=new Set([...Q.keys()].map(i=>S.tools.get(i)&&placeKey(S.tools.get(i))).filter(Boolean));
     let n=0, same=0, fail=false; for(const [i,q] of [...Q]){ const cur=S.tools.get(i); if(!cur){ S.cart.delete(i); continue }
-      if(cur.holder===holder&&(cur.site||"")===(m.site||"")){ same++; S.cart.delete(i); continue }
-      const ok=await write(db=>moveTool(db,cur,q,holder,m.site||"",note,byName)); if(!ok){ fail=true; break } n++; S.cart.delete(i) }
+      const sid=keep?(cur.site||""):(m.site||"");
+      if(cur.holder===holder&&(cur.site||"")===sid){ same++; S.cart.delete(i); continue }
+      const ok=await write(db=>moveTool(db,cur,q,holder,sid,note,byName)); if(!ok){ fail=true; break } n++; S.cart.delete(i) }
     cartSave(); try{ localStorage.setItem("oblikPlRecent",JSON.stringify([dest,...plRecent().filter(x=>x!==dest)].slice(0,8))) }catch(_){}
     if(arch&&opt.arch&&!fail) await write(db=>db.doc("sites/"+opt.arch).update({active:false}));
     if(!fail&&(n||same)){ try{ await opt.onDone?.(dest,n) }catch(_){} // вивантажили з машини на об'єкт → справи «привезти», взяті в цю машину, виконано
       if(m.ty==="s") for(const tk of (S.tasksT||[]).filter(x=>!x.done&&x.picked&&x.site===m.id&&fromK.has("car:"+x.pickedBy))) tkAfter(tk,dest) }
-    closeSheet(); render(); toast(fail?`Перенесено ${n} з ${Q.size} — перевірте з'єднання`:`✅ ${n?`Перенесено ${n} поз.`:"Уже там"} → ${m.ic} ${m.nm}${same&&n?` (${same} уже там)`:""}${arch?", об'єкт в архіві":""}`,3500);
+    closeSheet(); render(); toast(fail?`Перенесено ${n} з ${Q.size} — перевірте з'єднання`:`✅ ${n?(keep?`Відповідальний змінено: ${n} поз.`:`Перенесено ${n} поз.`):"Уже там"} → ${m.ic} ${m.nm}${same&&n?` (${same} уже там)`:""}${arch?", об'єкт в архіві":""}`,3500);
     if(opt.back&&n&&!opt.cart) setTimeout(opt.back,150) }
 }
 
@@ -642,6 +645,15 @@ async function tkAfter(t,dest){ if(!t||isDuo()) return; const now=Date.now();
     await write(db=>db.collection("tasks").doc(t.id).update({done:true,doneAt:+t.doneAt||now,doneBy:t.doneBy||S.uid||"",doneByName:t.doneByName||S.meName||"",moved:true,movedAt:now}));
     const st=S.sites.get(t.site); if(st?.needs?.some(n=>n.tid===t.id&&n.kind!=="material"&&!n.done)){ const l=st.needs.map(({_here,...n})=>n.tid===t.id&&n.kind!=="material"?{...n,done:true}:n); if(await write(db=>db.doc("sites/"+st.id).update({needs:l}))) st.needs=l } }
   else if(dest.startsWith("car:")){ const pid=dest.slice(4); t.picked=true; t.pickedBy=pid; await write(db=>db.collection("tasks").doc(t.id).update({picked:true,pickedBy:pid,pickedAt:now,...(t.who?{}:{who:pid})})) } }
+
+// 🔧 v229–v231: перенос «людині/бригаді» знімав інструмент з об'єкта → «Потрібно на об'єкти» знову показувало вже привезене. Повертаємо місце.
+function toolSiteFix(){ if(S._tsf||S.canWrite===false||isDuo()||S.fromCache||!S.loaded?.moves||!S.loaded?.tools||!S.moves?.length||!S.tools.size) return; S._tsf=1;
+  const from=Date.UTC(2026,10,24,18,0), seen=new Set(), fix=new Map();
+  for(const mv of S.moves){ if(!mv.tool||seen.has(mv.tool)) continue; seen.add(mv.tool); // лише останній переїзд кожної позиції
+    if(!(+mv.at>=from)||!mv.fromSite||mv.toSite||!mv.toHolder||person(mv.toHolder)?.role!=="worker") continue;
+    const t=S.tools.get(mv.tool), st=site(mv.fromSite); if(!t||!st||st.active===false||t.status==="lost"||t.site||t.holder!==mv.toHolder) continue; fix.set(t.id,mv.fromSite) }
+  if(!fix.size) return;
+  write(async db=>{ for(const [id,sid] of fix) await db.doc("tools/"+id).update({site:sid}) }).then(ok=>ok&&toast(`🔧 Повернув на об'єкт ${fix.size} поз.: заміна відповідального більше не знімає інструмент з об'єкта`,6000)) }
 
 // ---------- 🏷 QR-наліпки і сканер ----------
 const QR_URL=id=>location.origin+location.pathname.replace(/[^/]*$/,"")+"#t="+id;
