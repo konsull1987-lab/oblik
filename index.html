@@ -229,7 +229,7 @@ const S = {
   select:false, selected:new Set(), loaded:{tools:false,people:false,sites:false,moves:false,fin:false,fops:false,clients:false,docs:false,contracts:false},
   canWrite:true, db:null, user:null, uid:null, offline:false,
   base:(()=>{try{return localStorage.getItem("oblikBase")==="duo"?"duo":"trio"}catch(_){return "trio"}})(),
-  B:{trio:{fin:new Map(),sites:new Map()},duo:{fin:new Map(),sites:new Map()}}, duoOk:false, duoLoaded:false
+  B:{trio:{fin:new Map(),sites:new Map()},duo:{fin:new Map(),sites:new Map()}}, pend:{trio:new Set(),duo:new Set()}, duoOk:false, duoLoaded:false
 };
 // ---- Дві бази: «на трьох» (fin, sites) і «общак на двох» (duo_fin, duo_sites) ----
 const DUO_OWNERS=["andriy","serhiy"];
@@ -252,7 +252,11 @@ const routed=db=>({
   collection:p=>{ const c=db.collection(R(p)); if(!LOGGED.includes(p)) return c;
     return {...c,add:async d=>{ const r=await c.add(d); await logChange(db,p,r.id,"add",null,JSON.parse(JSON.stringify(d))); return r },
       doc:id=>{ const d=c.doc(id); return wrapLogged(db,p,d) }} },
-  doc:path=>{const i=path.indexOf("/"), c=path.slice(0,i), id=path.slice(i+1); const d=db.doc(R(c)+path.slice(i)); return LOGGED.includes(c)?wrapLogged(db,c,d,id):d}});
+  doc:path=>{const i=path.indexOf("/"), c=path.slice(0,i), id=path.slice(i+1); const d=db.doc(R(c)+path.slice(i)); return LOGGED.includes(c)?wrapLogged(db,c,d,id):d},
+  newId:()=>db.newId(),
+  // кілька документів — одним пакетом: або всі, або жоден (взаємозалік не може записатися наполовину)
+  batchSet:async ops=>{ const m=ops.map(([p,d])=>{ const raw=p[0]==="!"; if(raw) p=p.slice(1); const i=p.indexOf("/"), c=p.slice(0,i); return {c:raw?"":c,id:p.slice(i+1),p:raw?p:R(c)+p.slice(i),d} }), bef=m.map(x=>LOGGED.includes(x.c)?localOf(x.c,x.id):null);
+    await db.batchSet(m.map(x=>[x.p,x.d])); for(let k=0;k<m.length;k++) if(LOGGED.includes(m[k].c)) try{ await logChange(db,m[k].c,m[k].id,bef[k]?"edit":"add",bef[k],JSON.parse(JSON.stringify(m[k].d))) }catch(_){} }});
 const wrapLogged=(db,c,d,id0)=>{ const id=()=>id0||d.id; return {...d,
   set:async v=>{ const b=localOf(c,id()); await d.set(v); await logChange(db,c,id(),b?"edit":"add",b,JSON.parse(JSON.stringify(v))) },
   update:async v=>{ const b=localOf(c,id()); await d.update(v); await logChange(db,c,id(),"edit",b,{...(b||{}),...JSON.parse(JSON.stringify(v))}) },
@@ -323,10 +327,10 @@ async function init(){
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(/^#t=/.test(location.hash)) setTimeout(hashTool,300)});
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>{ const x={id:d.id,...d.data()}; if(x.helper===undefined&&/^\s*(підсоб|подсоб|помічник|разнораб|різнороб)/i.test(x.name||"")) x.helper=true; return [d.id,x] }))});
   sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,siteN({id:d.id,...d.data()})]));applyBase()});
-  sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,finN({id:d.id,...d.data()})]));applyBase(); notifyNew("fin",S.B.trio.finRaw,"trio")});
+  sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,finN({id:d.id,...d.data()})])); S.pend.trio=new Set(snap.docs.filter(d=>d.metadata?.hasPendingWrites).map(d=>d.id)); applyBase(); notifyNew("fin",S.B.trio.finRaw,"trio"); if(!snap.metadata.fromCache) setTimeout(()=>xferRepair("trio"),2000)});
   // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
   db.doc("duo_meta/info").get().then(()=>{ S.duoOk=true; S.duoChecked=true;
-    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,c==="sites"?siteN({id:d.id,...d.data()}):c==="fin"?finN({id:d.id,...d.data()}):{id:d.id,...d.data()}])); if(c==="fin"){ S.B.duo.finRaw=S.B.duo.fin; notifyNew("fin",S.B.duo.finRaw,"duo") } applyBase();render()};
+    const mk=c=>snap=>{S.B.duo[c]=new Map(snap.docs.map(d=>[d.id,c==="sites"?siteN({id:d.id,...d.data()}):c==="fin"?finN({id:d.id,...d.data()}):{id:d.id,...d.data()}])); if(c==="fin"){ S.B.duo.finRaw=S.B.duo.fin; S.pend.duo=new Set(snap.docs.filter(d=>d.metadata?.hasPendingWrites).map(d=>d.id)); notifyNew("fin",S.B.duo.finRaw,"duo"); if(!snap.metadata?.fromCache) setTimeout(()=>xferRepair("duo"),2000) } applyBase();render()};
     let n=0; const done=()=>{if(++n===2){S.duoLoaded=true;render()}};
     let f1=0,f2=0;
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
@@ -2819,13 +2823,13 @@ function renderMoney(){
   let tin=0,tout=0; for(const f of list) if(f.kind!=="Взаємозалік"&&f.type!=="accrual"){ if(f.type==="in")tin+=+f.amount||0; else tout+=+f.amount||0 }
   let h=`<div class="sum">Прихід <b class="in">${money(tin)}</b> · Витрати <b class="out">${money(tout)}</b> · Різниця <b>${money(tin-tout)}</b> <span class="count">${list.length} зап.</span></div>`;
   if(list.some(f=>f.kind==="Взаємозалік")) h+=`<div class="sum" style="margin-top:-4px;color:var(--muted)">взаємозаліки в суму не входять</div>`;
-  let day=null;
+  let day=null; const pc=new Map(); for(const x of S.fin.values()) if(x.pair) pc.set(x.pair,(pc.get(x.pair)||0)+1); const pend=S.pend?.[isDuo()?"duo":"trio"];
   for(const f of list.slice(0,400)){
     if(f.date!==day){ if(day!==null)h+=`</div>`; day=f.date; h+=`<div class="daysep">${fmtDay(day)}</div><div class="list">`; }
     const o=person(f.owner), w=person(f.worker);
     h+=`<div class="card" data-fin="${f.id}"><div class="main">
       <div class="t">${f.site?esc(site(f.site)?.name||"—"):(f.kind==="Взаємозалік"?"Взаємозалік":"Без об'єкта")}</div>
-      <div class="m">${f.type==="accrual"?`<span class="tag acc">нараховано</span>`:esc(o?.name||"—")}${f.kind&&f.kind!=="Взаємозалік"?" · "+esc(f.kind):""}${w?" · 🔧 "+esc(w.name):""}${f.note?" · "+esc(f.note):""}</div></div>
+      <div class="m">${f.type==="accrual"?`<span class="tag acc">нараховано</span>`:esc(o?.name||"—")}${f.kind&&f.kind!=="Взаємозалік"?" · "+esc(f.kind):""}${w?" · 🔧 "+esc(w.name):""}${f.note?" · "+esc(f.note):""}${pend?.has(f.id)?` <span class="tag" style="background:#f59e0b2e;color:#b45309" title="Запис є лише на цьому телефоні — відправиться, щойно буде інтернет">⏳ ще не на сервері</span>`:""}${f.kind==="Взаємозалік"&&f.pair&&pc.get(f.pair)===1?` <span class="tag" style="background:#ef44442e;color:#b91c1c" title="Відкрийте запис і збережіть — друга половина допишеться">⚠️ без другої половини</span>`:""}</div></div>
       <span class="amt ${f.type==="in"?"in":f.type==="accrual"?"acc":"out"}">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
   }
   if(day!==null)h+=`</div>`;
@@ -3018,6 +3022,20 @@ function workerSheet(id){
   document.querySelectorAll(".sheet [data-fin]").forEach(el=>el.addEventListener("click",()=>{ if(!S.canWrite) return; const id=el.dataset.fin, f=wFins().find(x=>x.id===id); if(!f) return;
     const b=finBase(f); if((isDuo()?"duo":"trio")!==b){ setBase(b); toast(b==="duo"?"🤝 Запис з «Общаку на двох»":"👥 Запис «На трьох»") } finForm(S.fin.get(id)||f) }));
 }
+// ⇄ Взаємозалік без другої половини (старі версії писали половини по черзі — якщо телефон втратив зв'язок чи застосунок закрили, друга не записувалась).
+// Дописуємо її самі, коли другий власник однозначний (у «на двох» — завжди). Id детермінований — два телефони не створять дубль.
+async function xferRepair(k){ try{
+  if(!S.canWrite||!S.db||!S.loaded?.people) return; const fin=S.B[k]?.fin; if(!fin) return;
+  const g=new Map(); for(const x of fin.values()) if(x.kind==="Взаємозалік"&&x.pair){ const a=g.get(x.pair)||[]; a.push(x); g.set(x.pair,a) }
+  const own=[...S.people.values()].filter(p=>p.role==="owner"&&(k!=="duo"||DUO_OWNERS.includes(p.id))).map(p=>p.id), done=S._xfix||(S._xfix=new Set());
+  for(const [pid,a] of g){ if(a.length!==1) continue; const f=a[0]; if(done.has(f.id)||Date.now()-(+f.createdAt||0)<120000) continue;
+    const other=(f.type==="out"?f.xto:f.xfrom)||(own.length===2&&own.includes(f.owner)?own.find(x=>x!==f.owner):""); if(!other||other===f.owner) continue;
+    done.add(f.id); const now=Date.now();
+    const d={date:f.date,amount:+f.amount||0,note:f.note||"",updatedAt:now,by:f.by||"",byName:f.byName||"",type:f.type==="out"?"in":"out",owner:other,site:"",kind:"Взаємозалік",worker:"",pair:pid,
+      xfrom:f.type==="out"?f.owner:other,xto:f.type==="out"?other:f.owner,createdAt:+f.createdAt||now,fixed:true};
+    const ok=await write(db=>db.batchSet([["!"+(k==="duo"?"duo_fin":"fin")+"/"+f.id+"p",d]]));
+    if(ok) toast(`🔧 Взаємозалік ${money(f.amount)}: дописав другу половину — ${f.type==="out"?"отримав":"віддав"} ${person(other)?.name||""}`,5000) }
+}catch(e){ console.warn("xferRepair",e) } }
 function finForm(f,preset){
   const isNew=!f; f=f||Object.assign({type:"out",date:todayISO(),owner:myOwner()||owners()[0]?.id,kind:"Матеріали"},preset||{});
   const pair=f.pair?[...S.fin.values()].find(x=>x.pair===f.pair&&x.id!==f.id):null;
@@ -3150,11 +3168,9 @@ function finForm(f,preset){
       if(v.from===v.to){toast("Виберіть різних людей");btn.disabled=false;return}
       const pid=f.pair||("x"+now);
       ok=await write(async db=>{
-        const outRef=from?db.doc("fin/"+from.id):db.collection("fin").doc(), inRef=to?db.doc("fin/"+to.id):db.collection("fin").doc();
-        // if editing a non-transfer entry into a transfer, reuse its doc for the outgoing side
-        const outR=(!from&&!isNew)?db.doc("fin/"+f.id):outRef;
-        await outR.set({...base,type:"out",owner:v.from,site:"",kind:"Взаємозалік",worker:"",pair:pid,createdAt:f.createdAt||now});
-        await inRef.set({...base,type:"in",owner:v.to,site:"",kind:"Взаємозалік",worker:"",pair:pid,createdAt:f.createdAt||now});
+        // запис, який був не заліком, стає «віддав»; уцілілу половину заліку зберігаємо на її місці
+        const outId=from?from.id:(!isNew&&f.kind!=="Взаємозалік"?f.id:db.newId()), inId=to?to.id:db.newId(), x={...base,site:"",kind:"Взаємозалік",worker:"",pair:pid,xfrom:v.from,xto:v.to,createdAt:f.createdAt||now};
+        await db.batchSet([["fin/"+outId,{...x,type:"out",owner:v.from}],["fin/"+inId,{...x,type:"in",owner:v.to}]]);
       });
     } else if(mode==="accrual"){
       if(!v.worker){toast("Виберіть виконавця");btn.disabled=false;return}
@@ -4839,7 +4855,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v242"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v243"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -5449,7 +5465,8 @@ const wrapD=r=>({id:r.id,path:r.path,get:async()=>{ let x=await getDoc(r);
     if(DEMO&&!x.exists()&&r.parent.path==="demo_files") x=await getDoc(doc(fs,"files",r.id)); // оригінали файлів читаємо з реальної бази
     return{exists:x.exists(),data:()=>x.data()}},set:d=>setDoc(r,d),update:d=>updateDoc(r,d),delete:()=>deleteDoc(r)});
 const wrapC=c=>({...wrapQ(c),path:c.path,add:async d=>wrapD(await addDoc(c,d)),doc:id=>wrapD(id?doc(c,id):doc(c))});
-const db={collection:p=>wrapC(collection(fs,px(p))),doc:p=>wrapD(doc(fs,pxPath(p)))};
+const db={collection:p=>wrapC(collection(fs,px(p))),doc:p=>wrapD(doc(fs,pxPath(p))),newId:()=>doc(collection(fs,"x")).id,
+  batchSet:async ops=>{ const b=writeBatch(fs); for(const [p,d] of ops) b.set(doc(fs,pxPath(p)),d); await b.commit() }};
 const DEMO_COLS=["tools","people","sites","fin","fops","clients","docs","contracts","moves"];
 const batchOps=async(ops)=>{ for(let i=0;i<ops.length;i+=400){ const b=writeBatch(fs); ops.slice(i,i+400).forEach(f=>f(b)); await b.commit(); } };
 const DEMO_DUO=["duo_fin","duo_sites"]; // копіюються лише тим, кому правила дозволяють читати общак на двох
