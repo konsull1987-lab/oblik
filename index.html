@@ -345,6 +345,7 @@ async function init(){
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
     db.collection("duo_fin").onSnapshot(s=>{mk("fin")(s);if(!s.metadata.fromCache&&!f2++)done()},()=>{});
     try{ db.collection("duo_tasks").orderBy("date","desc").limit(300).onSnapshot(s=>{ S.tasksD=s.docs.map(d=>({id:d.id,...d.data()})); render() },()=>{}) }catch(_){}
+    phSub(db,"duo_photos","duo");
     for(const c of ["docs","contracts"]) db.collection("duo_"+c).onSnapshot(s=>{ S.B.duo[c]=new Map(s.docs.map(d=>[d.id,{id:d.id,...d.data()}])); applyBase(); render() },()=>{});
     applyBase(); render();
   }).catch(()=>{ S.duoOk=false; S.duoChecked=true; applyBase(); render(); });
@@ -359,13 +360,17 @@ async function init(){
     $("#naNo").onclick=()=>{ const n=notifCfg(); n.off=true; try{ localStorage.setItem("oblikNotif",JSON.stringify(n)) }catch(_){} closeSheet(); toast("Можна увімкнути пізніше: ⋯ Меню → 🔔 Сповіщення") };
     $("#naYes").onclick=async()=>{ try{ await Notification.requestPermission() }catch(_){} closeSheet(); toast(Notification.permission==="granted"?"🔔 Сповіщення увімкнено":"Дозвіл не надано") };
     $("#naSet").onclick=async()=>{ try{ await Notification.requestPermission() }catch(_){} notifSheet() } }catch(_){} },5000);
-  setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) } },1500);
-  try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job) }) }catch(_){}
+  setTimeout(()=>{ jobsResume(); const jq=new URLSearchParams(location.search).get("job"); if(jq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} setTimeout(()=>jobOpen(jq),800) }
+    const sq=new URLSearchParams(location.search).get("site"); if(sq){ try{ history.replaceState(null,"",location.pathname) }catch(_){} sitePhotosSoon(sq) } },1500);
+  try{ navigator.serviceWorker?.addEventListener("message",e=>{ if(e.data?.job) jobOpen(e.data.job); if(e.data?.site) sitePhotosSoon(e.data.site) }) }catch(_){}
   setTimeout(()=>{ loadSugg().then(render); if(navigator.onLine!==false) setTimeout(()=>tzScan(),8000) },6000);
+  phSub(db,"photos","trio");
   try{ db.collection("inbox").orderBy("at","desc").limit(150).onSnapshot(snap=>{ S.inbox=snap.docs.map(d=>({id:d.id,...d.data()})); tasksFromInbox(); skillsFromInbox(); toolsFromInbox(); notifyNew("inbox",new Map(S.inbox.map(m=>[m.id,m])),""); render() },()=>{}) }catch(_){}
   try{ db.collection("tasks").orderBy("date","desc").limit(300).onSnapshot(snap=>{ S.tasksT=snap.docs.map(d=>({id:d.id,...d.data()})); tasksNotify(); setTimeout(taskNeedsFix,1500); render() },()=>{}) }catch(_){}
   sub("moves",db.collection("moves").orderBy("at","desc").limit(500),snap=>{S.moves=snap.docs.map(d=>({id:d.id,...d.data()})); notifyNew("moves",new Map(S.moves.map(m=>[m.id,m])),""); setTimeout(toolSiteFix,1500)});
 }
+function sitePhotosSoon(id,n=0){ if(site(id)||S.duoOk&&S.B.duo.sites?.has(id)){ closeSheet(); openSitePhotos(id) } else if(n<20) setTimeout(()=>sitePhotosSoon(id,n+1),500) }
+function phSub(db,col,base){ try{ db.collection(col).where("at",">",Date.now()-3*864e5).onSnapshot(s=>{ const m=new Map(s.docs.map(d=>[d.id,{id:d.id,...d.data(),base}])); (S.phRecent=S.phRecent||{})[base]=m; notifyNew("photos",m,base); if(S.tab==="today"&&!$("#modal").firstElementChild) render() },()=>{}) }catch(_){} }
 async function write(fn){
   if(!S.db&&!S.offline){ toast("⏳ Підключаюсь до бази…"); for(let i=0;i<40&&!S.db&&!S.offline;i++) await new Promise(r=>setTimeout(r,250)) }
   if(!S.db){toast("Немає з'єднання з базою");return false}
@@ -640,7 +645,7 @@ function placeSheet(k){ const m=placeMeta(k), l=placeTools(k), sum=l.reduce((a,t
 const plRecent=()=>{ try{ return JSON.parse(localStorage.getItem("oblikPlRecent")||"[]") }catch(_){ return [] } };
 function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.get(i)&&S.tools.get(i).status!=="lost"); if(!ids.length){ toast("Немає що переносити"); return }
   const Q=new Map(ids.map(i=>{ const all=qtyOf(S.tools.get(i)); return [i,Math.min(all,Math.max(1,+(opt.qty?.[i]||(opt.cart?S.cart.get(i):0))||all))] }));
-  const from=new Set(ids.map(i=>placeKey(S.tools.get(i)))); let dest=opt.dest&&placeMeta(opt.dest).ty!=="none"?opt.dest:"";
+  const from=new Set(ids.map(i=>placeKey(S.tools.get(i)))); { const hs=!opt.dest&&!opt.cart&&hereIn(); if(hs&&!from.has("s:"+hs)) opt={...opt,dest:"s:"+hs,geo:1} } let dest=opt.dest&&placeMeta(opt.dest).ty!=="none"?opt.dest:"";
   const btn=k=>{ const m=placeMeta(k); return `<button type="button" data-dst="${esc(k)}" data-dq="${esc(m.nm)}" class="${dest===k?"on":""}">${m.ic} ${esc(m.nm)}${from.size===1&&from.has(k)?" <span class='m'>(тут зараз)</span>":""}</button>` };
   const cnt=new Map(); for(const t of S.tools.values()) if(t.site&&t.status!=="lost") cnt.set(t.site,(cnt.get(t.site)||0)+1);
   const rec=plRecent().filter(k=>placeMeta(k).ok).slice(0,4);
@@ -650,7 +655,7 @@ function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.g
   if(opt.dest&&opt.dest.startsWith("s:")&&!objs.includes(opt.dest)) objs.unshift(opt.dest);
   const archO=allSites().filter(s=>s.type!=="warehouse"&&s.active===false&&!isTestSite(s)&&!objs.includes("s:"+s.id)).sort(byName).map(s=>"s:"+s.id); // архів — з'являється при пошуку
   const item=i=>{ const t=S.tools.get(i), all=qtyOf(t), m=placeMeta(placeKey(t)); return `<div class="card" data-mi="${i}" style="align-items:center;cursor:default;padding:8px 10px"><div class="main"><div class="t">${esc(t.name)}${t.inv?` <span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="m">з: ${m.ic} ${esc(m.nm)}</div></div>${all>1?`<span style="display:flex;align-items:center;gap:4px;flex:none"><button type="button" class="btn ghost sm" data-qd="-1">–</button><b data-qv>${Q.get(i)}</b><span class="m">/${all}</span><button type="button" class="btn ghost sm" data-qd="1">＋</button></span>`:""}<button type="button" class="btn ghost sm" data-mx aria-label="Прибрати" style="flex:none">✕</button></div>` };
-  openSheet(`<h2>🚚 Перенести</h2>${opt.info?`<div class="card" style="display:block;cursor:default;margin-bottom:8px;font-size:14px">${opt.info}</div>`:""}
+  openSheet(`<h2>🚚 Перенести</h2>${opt.geo?`<div class="m" style="font-size:12.5px;margin:-4px 0 8px">📍 Ви на об'єкті «${esc(site(opt.dest.slice(2))?.name||"")}» — його підставлено. Можна вибрати інше.</div>`:""}${opt.info?`<div class="card" style="display:block;cursor:default;margin-bottom:8px;font-size:14px">${opt.info}</div>`:""}
     <div class="list" id="mvL" style="max-height:30vh;overflow:auto">${ids.map(item).join("")}</div>
     <div class="section-t">Куди?</div>
     ${rec.length?`<div class="dst">${rec.map(btn).join("")}</div><div class="m" style="margin:8px 0 4px">🚐 Машини</div>`:`<div class="m" style="margin:0 0 4px">🚐 Машини</div>`}<div class="dst">${cars.map(btn).join("")}</div>
@@ -1337,7 +1342,7 @@ function finLine(f){
   const what=f.kind==="Взаємозалік"?(f.type==="in"?"Взаємозалік: отримав":"Взаємозалік: віддав"):f.type==="in"?"Прихід":f.type==="accrual"?"Нарахування":"Витрата"+(f.kind?" · "+f.kind:"");
   return `<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1;min-width:0">
     <div class="when">${f.createdAt>1e12?fmtDate(f.createdAt):fmtDay(f.date)}${f.byName?` · вніс: ${esc(f.byName)}`:""}${f.createdAt>1e12&&f.date&&f.date!==new Date(f.createdAt).toISOString().slice(0,10)?` · дата операції ${fmtDay(f.date)}`:""}</div>
-    <div><b>${what}</b>${o?" · "+esc(o.name):""}${w?" · 🔧 "+esc(w.name):""}${f.receipt?" · 🧾":""}</div>
+    <div><b>${what}</b>${o?" · "+esc(o.name):""}${w?" · 🔧 "+esc(w.name):""}${f.receipt?" · 🧾":""}${f.here?" · 📍":""}</div>
     <div class="m" style="color:var(--muted)">${f.site?esc(site(f.site)?.name||"—"):"без об'єкта"}${f.note?" · "+esc(f.note):""}</div></div>
     <span class="amt ${k}" style="white-space:nowrap">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
 }
@@ -2319,7 +2324,7 @@ function toolCard(id){
   $("#foundT")?.addEventListener("click",async()=>{ if(await write(db=>db.doc("tools/"+id).update({status:"ok",lost:null,updatedAt:Date.now()}))){ closeSheet(); toast("Повернуто в облік — вкажіть, де він зараз"); moveForm([id]) } });
 }
 // 🔔 Сповіщення власникам: нові повідомлення бригад, записи інших власників, нові тендери, готовий розбір ШІ
-const NOTIF_DEF={tasks:true,inbox:true,fin:true,tz:true,ai:true, i_need:true,i_tools:true,i_done:true,i_other:true,i_join:true, f_in:true,f_out:true,f_accrual:true,f_xfer:true,f_min:0,f_from:"", mv:false,mv_lost:true, quiet:false,qFrom:22,qTo:7};
+const NOTIF_DEF={tasks:true,inbox:true,fin:true,tz:true,ai:true,ph:true, i_need:true,i_tools:true,i_done:true,i_other:true,i_join:true, f_in:true,f_out:true,f_accrual:true,f_xfer:true,f_min:0,f_from:"", mv:false,mv_lost:true, quiet:false,qFrom:22,qTo:7};
 const notifCfg=()=>{ try{ return {...NOTIF_DEF,...JSON.parse(localStorage.getItem("oblikNotif")||"{}")} }catch(_){ return {...NOTIF_DEF} } };
 S.seen=S.seen||{};
 const inQuiet=c=>{ if(!c.quiet) return false; const h=new Date().getHours(), a=+c.qFrom, b=+c.qTo; return a<b?h>=a&&h<b:h>=a||h<b };
@@ -2331,10 +2336,14 @@ function notifyNew(kind,map,base){ const key=kind+base, seen=S.seen[key]; S.seen
   if(kind==="moves"){ const l=fresh.filter(m=>m.by&&m.by!==S.uid&&(+m.at||0)>Date.now()-15*60e3); if(!l.length) return; const lost=l.filter(m=>/^❌/.test(m.note||"")), mv=l.filter(m=>!/^❌/.test(m.note||""));
     if(lost.length&&c.mv_lost) notify(`❌ Втрачено інструмент (${lost.length})`,lost.map(m=>`${m.toolName||"?"}${m.qty>1?" ×"+m.qty:""} — ${m.note.replace(/^❌\s*/,"")}`).join("\n"),"lost");
     if(mv.length&&c.mv) notify(`🚚 ${uaName(mv[0].byName||"")||"Хтось"} перемістив інструмент (${mv.length})`,mv.slice(0,4).map(m=>`${m.toolName||"?"}${m.qty>1?" ×"+m.qty:""} → ${site(m.toSite)?.name||person(m.toHolder)?.name||"?"}`).join("\n"),"mv"); return }
+  if(kind==="photos"){ if(!c.ph) return; const l=fresh.filter(p=>p.by&&p.by!==S.uid&&(+p.at||0)>Date.now()-15*60e3); if(!l.length) return;
+    S._phQ=(S._phQ||[]).concat(l.map(p=>({...p,base}))); clearTimeout(S._phT); S._phT=setTimeout(phNotifyFlush,20000); return } // фото йдуть по одному — чекаємо, поки людина дознімає, і шлемо одне сповіщення
   if(kind==="inbox"&&c.inbox){ const l=fresh.filter(m=>m.status==="new"&&c["i_"+(m.kind||"other")]!==false); if(l.length) notify(`📨 ${l.length>1?l.length+" нові повідомлення":"Нове повідомлення"} від працівників`,l.map(m=>`${m.from||"?"}: ${INBOX_KIND[m.kind]||""}${m.text?" — "+String(m.text).slice(0,60):""}${m.photos?.length?" · 📷"+m.photos.length:""}`).join("\n"),"inbox") }
   if(kind==="fin"&&c.fin){ const l=fresh.filter(f=>f.by&&f.by!==S.uid&&!String(f.id).endsWith("_tax")&&(+f.createdAt||0)>Date.now()-15*60e3&&c["f_"+f.type]!==false&&(+f.amount||0)>=(+c.f_min||0)&&(!c.f_from||f.by===c.f_from||normName(uaName(f.byName||"")).startsWith(normName(c.f_from)))); if(!l.length) return;
     const who=f=>uaName(f.byName||"")||"Хтось", T={in:"➕ прихід",out:"➖ витрата",accrual:"🔧 нарахування",xfer:"⇄ залік"};
     notify(`💰 ${base==="duo"?"🤝 ":""}${l.length>1?l.length+" нові записи":"Новий запис"} від ${who(l[0])}`,l.slice(0,4).map(f=>`${T[f.type]||f.type} ${money(f.amount)}${site(f.site)?" · "+site(f.site).name:""}${f.worker&&person(f.worker)?" · "+person(f.worker).name:""}`).join("\n"),"fin"+base) } }
+function phNotifyFlush(){ const q=S._phQ||[]; S._phQ=[]; const g=new Map(); for(const p of q){ const k=(p.by||"")+"|"+p.site; if(!g.has(k)) g.set(k,{...p,n:0}); g.get(k).n++ }
+  for(const x of g.values()){ const sn=site(x.site)?.name||"об'єкт"; notify(`📷 ${uaName(x.byName||"")||"Хтось"} додав ${x.n} фото`,`${x.base==="duo"?"🤝 ":""}«${sn}»${x.note?" — "+String(x.note).slice(0,80):""}`,"ph"+x.site,{site:x.site}) } }
 function tasksNotify(){ const l=S.tasksT||[], key="tasks", seen=S.seen[key]; S.seen[key]=new Set(l.map(t=>t.id+":"+(t.who||""))); if(!seen) return; const c=notifCfg(); if(c.off||!c.tasks) return; const me=meId(); if(!me) return;
   const fr=l.filter(t=>!t.done&&t.who===me&&!seen.has(t.id+":"+me)&&t.by!==S.uid&&(+t.updatedAt||+t.createdAt||0)>Date.now()-15*60e3);
   if(fr.length) notify(`✅ ${fr.length>1?fr.length+" нові справи":"Нова справа"} для вас`,fr.slice(0,4).map(t=>t.title+(taskTime(t)?" · "+taskTime(t):"")+(t.date!==dISO()?" · "+fmtDay(t.date):"")).join("\n"),"tasks") }
@@ -2347,6 +2356,7 @@ function notifSheet(){ const c=notifCfg(), perm=window.Notification?Notification
     <div class="section-t">✅ Справи</div>${sw("tasks","Мені доручили справу","коли інший власник призначає вас виконавцем")}
     <div class="section-t">📨 Від працівників</div>${sw("inbox","Повідомлення бригад","")}
       <div data-dep="inbox">${sw("i_need","🧱 Що привезти","",1)}${sw("i_tools","🧰 Інструмент на об'єкті","",1)}${sw("i_done","📋 Що зроблено","",1)}${sw("i_other","💬 Інше","",1)}${sw("i_join","🆕 Анкети нових людей","",1)}</div>
+    <div class="section-t">📷 Фото з об'єктів</div>${sw("ph","Інший власник додав фото","з «＋ → 📷 Фото з об'єкта»; дотик — відкрити фото об'єкта")}
     <div class="section-t">💰 Записи інших власників</div>${sw("fin","Гроші","")}
       <div data-dep="fin">${sw("f_in","➕ Прихід","",1)}${sw("f_out","➖ Витрати","",1)}${sw("f_accrual","🔧 Нарахування","",1)}${sw("f_xfer","⇄ Заліки","",1)}
       <div class="row" style="margin-left:22px"><div class="field"><label>Лише від суми, ₴</label><input data-nv="f_min" inputmode="numeric" value="${+c.f_min||""}" placeholder="будь-яка"></div>
@@ -2365,10 +2375,78 @@ function notifSheet(){ const c=notifCfg(), perm=window.Notification?Notification
   $("#ntAsk")?.addEventListener("click",async()=>{ try{ await Notification.requestPermission() }catch(_){} notifSheet() });
   $("#ntTest").onclick=async()=>{ try{ (await navigator.serviceWorker?.ready)?.showNotification("🔔 Облік",{body:"Сповіщення працюють",icon:"icon-192.png",tag:"test"}); toast("Надіслано тестове сповіщення") }catch(e){ toast("Не вдалося: "+e.message) } } }
 
+// 📍 Геолокація: де зараз власник → на якому він об'єкті. Координати людини нікуди не записуються — лише позначка «📍 на об'єкті».
+const geoOn=()=>{ try{ return localStorage.getItem("geoOff")!=="1" }catch(_){ return true } };
+const geoDist=(a,b)=>{ const R=6371e3, t=x=>x*Math.PI/180, dLa=t(b.lat-a.lat), dLo=t(b.lon-a.lon), q=Math.sin(dLa/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(q)) };
+function geoGet(maxAge=180e3,ask=false){ if(!navigator.geolocation||!geoOn()) return Promise.resolve(null);
+  if(S.geo&&Date.now()-S.geo.at<maxAge) return Promise.resolve(S.geo);
+  if(S._geoP) return S._geoP;
+  const go=()=>new Promise(ok=>{ let done=false; const fin=v=>{ if(!done){ done=true; S._geoP=null; ok(v) } }; setTimeout(()=>fin(null),13000);
+    try{ navigator.geolocation.getCurrentPosition(p=>{ S.geo={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy||999,at:Date.now()}; geoHereCalc(); fin(S.geo) },()=>fin(null),{enableHighAccuracy:true,timeout:12000,maximumAge:Math.min(maxAge,120e3)}) }catch(_){ fin(null) } });
+  // без дозволу питаємо лише тоді, коли людина сама щось робить (фото, «я тут»)
+  S._geoP=ask?go():Promise.resolve(navigator.permissions?.query?.({name:"geolocation"})).then(r=>r?.state==="granted"?go():(S._geoP=null,null),()=>(S._geoP=null,null));
+  return S._geoP }
+function siteHereOf(g){ if(!g||g.acc>800) return null; let best=null; const r=Math.min(500,Math.max(200,150+g.acc));
+  for(const s of allSites()){ if(!s.geo||isTestSite(s)||s.active===false&&s.type!=="warehouse") continue; const d=geoDist(g,s.geo); if(d<=r&&(!best||d<best.d)) best={id:s.id,d:Math.round(d)} } return best }
+function geoHereCalc(){ const prev=S.here?.id||""; S.here=siteHereOf(S.geo); if((S.here?.id||"")!==prev&&S.tab==="today"&&!$("#modal").firstElementChild) render() }
+const hereId=()=>S.geo&&Date.now()-S.geo.at<10*60e3&&S.here?S.here.id:"";
+const hereIn=()=>{ const id=hereId(); return id&&S.sites.has(id)?id:"" }; // лише об'єкти поточної бази (на двох / на трьох)
+// підставити об'єкт, де зараз людина, у порожнє поле «Об'єкт» (лише нові записи; якщо змінили вручну — не чіпаємо)
+function geoFill(sel,o){ if(!sel||!geoOn()) return; o=o||{};
+  const mark=id=>{ if(!id||!sel.isConnected||(sel.value&&!/^__/.test(sel.value))||sel.dataset.touched||![...sel.options].some(x=>x.value===id)) return;
+    sel._geoSet=1; sel.value=id; sel.dataset.geo="1"; sel.dispatchEvent(new Event("change",{bubbles:true})); sel._geoSet=0; sel.dataset.geo="1";
+    let hn=sel.parentNode.querySelector(".geoHint"); if(!hn){ hn=document.createElement("div"); hn.className="m geoHint"; hn.style.cssText="font-size:12px;margin-top:3px"; sel.after(hn) } hn.textContent="📍 Ви на цьому об'єкті — підставлено автоматично" };
+  sel.addEventListener("change",()=>{ if(sel._geoSet) return; if(!/^__/.test(sel.value)){ sel.dataset.touched=1; delete sel.dataset.geo; sel.parentNode?.querySelector(".geoHint")?.remove() } });
+  const id=hereIn(); if(id) mark(id); else geoGet(180e3,!!o.ask).then(()=>mark(hereIn())) }
+function openSitePhotos(id){ if(S.duoOk&&id&&isDuoSite(id)!==isDuo()) setBase(isDuoSite(id)?"duo":"trio"); const s=site(id); if(!s) return false; S.siteTab="photos"; siteForm(s); return true }
+const toBaseOf=id=>{ if(S.duoOk&&id&&isDuoSite(id)!==isDuo()) setBase(isDuoSite(id)?"duo":"trio") };
+// 📷 Фото з об'єкта серією: кожне фото одразу зберігається (не пропаде, навіть якщо телефон перезапустить застосунок після камери)
+function photoShoot(pre){ pre=pre||{}; const items=[], set="ps"+Date.now(); let busy=false, learned=false, loadedFor="";
+  openSheet(`<h2>📷 Фото з об'єкта</h2>
+    <div class="field"><label>Об'єкт</label><select id="psS">${siteOptions(pre.site||"","— виберіть об'єкт")}</select><div id="psH" class="m" style="font-size:12.5px;margin-top:3px"></div></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px"><label class="btn" id="psCamL" style="flex:1;text-align:center;margin:0">📷 Зробити фото<input type="file" id="psCam" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" id="psGalL" style="flex:1;text-align:center;margin:0">🖼️ З галереї<input type="file" id="psGal" accept="image/*" multiple style="display:none"></label></div>
+    <div class="field"><label>Коментар (необов'язково)</label><input id="psN" placeholder="напр.: стяжка готова, тріщина на фасаді" autocomplete="off"></div>
+    <div id="psL"></div>
+    <div class="actions"><button type="button" class="btn ghost" id="psAll">📂 Усі фото об'єкта</button><button type="button" class="btn" id="psDone">✅ Готово</button></div>`);
+  const sel=$("#psS"), sid=()=>sel.value&&!/^__/.test(sel.value)?sel.value:"";
+  const hint=()=>{ const hb=$("#psH"); if(!hb) return; const s=site(sid()), g=S.geo&&Date.now()-S.geo.at<5*60e3?S.geo:null;
+    if(!s){ hb.innerHTML=g&&!hereIn()?"📍 Поруч немає збереженого об'єкта — виберіть, і його місце запам'ятається":""; return }
+    if(sel.dataset.geo==="1"){ hb.innerHTML=""; return } // підказку вже показує geoFill
+    if(!s.geo&&g&&g.acc<=150&&S.canWrite&&!learned){ hb.innerHTML=`<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="psLearn" checked style="width:20px;height:20px;flex:none"> 📍 Запам'ятати, що «${esc(s.name)}» — тут (±${Math.round(g.acc)} м)</label>`; return }
+    hb.innerHTML="" };
+  const draw=()=>{ const L=$("#psL"); if(!L) return; const ok=items.filter(x=>x.st==="ok"&&!x.old).length, up=items.filter(x=>x.st==="q"||x.st==="up").length, old=items.filter(x=>x.old).length;
+    L.innerHTML=items.length?`<div class="m" style="margin-bottom:6px">${ok?`✅ Збережено ${ok}`:""}${up?`${ok?" · ":""}⏳ зберігаю ${up}…`:""}${items.some(x=>x.st==="err")?" · ❌ є незбережені — натисніть ↻":""}${old?`${ok||up?" · ":""}сьогодні раніше: ${old}`:""}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px">${items.map((x,i)=>`<div style="position:relative"><img src="${x.th||"data:image/gif;base64,R0lGODlhAQABAAAAACw="}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:var(--card);${x.st==="up"||x.st==="q"?"opacity:.45":""}">
+        <span style="position:absolute;left:3px;bottom:3px;font-size:11px;background:rgba(0,0,0,.6);color:#fff;padding:0 4px;border-radius:5px">${x.st==="ok"?"✅":x.st==="err"?"❌":"⏳"}</span>
+        ${x.st==="ok"||x.st==="err"?`<button type="button" data-psx="${i}" aria-label="Видалити" style="position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:24px;height:24px;background:#e11d48;color:#fff;padding:0">×</button>`:""}
+        ${x.st==="err"?`<button type="button" data-psr="${i}" class="btn sm" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:2px 10px">↻</button>`:""}</div>`).join("")}</div>`
+      :`<div class="empty" style="padding:12px">Натискайте «📷 Зробити фото» стільки разів, скільки треба — кожне фото одразу зберігається на об'єкт.</div>` };
+  const learn=sidv=>{ const s=site(sidv), g=S.geo; if(learned||!s||s.geo||!$("#psLearn")?.checked||!g||Date.now()-g.at>5*60e3||g.acc>150) return; learned=true;
+    const v={lat:+g.lat.toFixed(6),lon:+g.lon.toFixed(6),acc:Math.round(g.acc),at:Date.now()};
+    write(db=>db.doc("sites/"+s.id).update({geo:v})).then(ok=>{ if(ok){ s.geo=v; toast(`📍 Запам'ятав місце «${s.name}»`); geoHereCalc(); hint() } }) };
+  const pump=async()=>{ if(busy) return; busy=true; try{ for(;;){ const x=items.find(i=>i.st==="q"); if(!x) break; x.st="up"; draw();
+      const m={note:($("#psN")?.value||"").trim(),set,here:hereId()===x.site}; try{ x.id=await photoAdd(x.site,x.f,m); x.fileId=m.fileId; x.note=m.note; x.st=x.id?"ok":"err"; if(x.id) learn(x.site) }catch(e){ x.st="err"; toast(String(e?.message)==="big"?"Фото більше 8 МБ":"Не збереглося — перевірте інтернет і натисніть ↻") } draw() } }finally{ busy=false } };
+  const add=async fl=>{ const s=sid(); if(!s){ toast("Спершу виберіть об'єкт"); return } for(const f of fl){ let th=""; try{ th=await thumbOf(f,240) }catch(_){} items.push({f,th,site:s,st:"q"}); draw() } pump() };
+  const loadToday=async s=>{ if(!s||loadedFor===s||!S.db) return; loadedFor=s; for(let i=items.length-1;i>=0;i--) if(items[i].old) items.splice(i,1);
+    try{ const q=await S.db.collection(R("photos")).where("site","==",s).get(); const td=todayISO();
+      const l=q.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.by===S.uid&&p.date===td&&p.set!==set&&!items.some(x=>x.id===p.id)).sort((a,b)=>(a.at||0)-(b.at||0));
+      if(sid()===s){ items.unshift(...l.map(p=>({id:p.id,fileId:p.fileId,th:p.thumb,site:s,st:"ok",old:true,note:p.note||""}))); draw() } }catch(_){} };
+  const onSite=()=>{ hint(); loadToday(sid()) };
+  sel.addEventListener("change",onSite);
+  [["#psCamL","#psCam"],["#psGalL","#psGal"]].forEach(([l,i])=>{ $(l).addEventListener("click",e=>{ if(!sid()){ e.preventDefault(); toast("Спершу виберіть об'єкт") } }); $(i).onchange=e=>{ const fl=[...e.target.files]; e.target.value=""; add(fl) } });
+  $("#psL").onclick=async e=>{ const r=e.target.closest("[data-psr]"); if(r){ const x=items[+r.dataset.psr]; if(x){ x.st="q"; draw(); pump() } return }
+    const b=e.target.closest("[data-psx]"); if(!b) return; const x=items[+b.dataset.psx]; if(!x||!confirm("Видалити це фото?")) return;
+    if(x.id&&!(await write(db=>db.doc(R("photos")+"/"+x.id).delete()))) return; if(x.fileId) deleteFile(x.fileId).catch(()=>{}); items.splice(items.indexOf(x),1); draw() };
+  $("#psAll").onclick=()=>{ if(!sid()){ toast("Спершу виберіть об'єкт"); return } openSitePhotos(sid()) };
+  $("#psDone").onclick=async()=>{ if(items.some(x=>x.st==="q"||x.st==="up")){ toast("⏳ Ще зберігаю — секунду"); return }
+    const nt=($("#psN")?.value||"").trim(), fix=items.filter(x=>x.st==="ok"&&!x.old&&x.id&&x.note!==nt);
+    if(fix.length) await write(async db=>{ for(const x of fix) await db.doc(R("photos")+"/"+x.id).update({note:nt}) });
+    const n=items.filter(x=>x.st==="ok"&&!x.old).length; closeSheet(); if(n) toast(`📷 Збережено ${n} фото · ${site(items.find(x=>!x.old)?.site)?.name||""}`) };
+  draw(); if(pre.site) onSite(); else geoFill(sel,{ask:true}); geoGet(180e3,true).then(()=>{ if(sel.isConnected) hint() }) }
 // 📷 Фото об'єкта: власні (додані тут) + що надіслала бригада через форму
 const thumbOf=(file,max=320)=>new Promise((ok,bad)=>{ const u=URL.createObjectURL(file), i=new Image(); i.onload=()=>{ const k=Math.min(1,max/Math.max(i.width,i.height)), c=document.createElement("canvas"); c.width=Math.round(i.width*k); c.height=Math.round(i.height*k); c.getContext("2d").drawImage(i,0,0,c.width,c.height); URL.revokeObjectURL(u); ok(c.toDataURL("image/jpeg",.6)) }; i.onerror=bad; i.src=u });
 async function photoAdd(siteId,file,meta){ const th=await thumbOf(file); const big=file.size>1.5e6?await (async()=>{ const d=await thumbOf(file,1600); return new File([await (await fetch(d)).blob()],file.name||"фото.jpg",{type:"image/jpeg"}) })():file;
-  const r=await saveFile(big); let id=""; await write(async db=>{ const x=await db.collection(R("photos")).add({site:siteId,fileId:r.id,thumb:th,at:Date.now(),date:todayISO(),by:S.uid||"",byName:S.meName||"",from:meta?.from||"",note:meta?.note||"",msg:meta?.msg||""}); id=x.id }); return id }
+  const r=await saveFile(big); let id=""; await write(async db=>{ const x=await db.collection(R("photos")).add({site:siteId,fileId:r.id,thumb:th,at:Date.now(),date:todayISO(),by:S.uid||"",byName:S.meName||"",from:meta?.from||"",note:meta?.note||"",msg:meta?.msg||"",...(meta?.here?{here:true}:{}),...(meta?.set?{set:meta.set}:{})}); id=x.id }); if(meta) meta.fileId=r.id; return id }
 async function sitePhotos(s){ const box=$("#phBox"); if(!box) return;
   let own=[], err=""; try{ const q=await S.db.collection(R("photos")).where("site","==",s.id).get(); own=q.docs.map(d=>({id:d.id,...d.data()})) }catch(e){ err=e?.code||e?.message||"помилка" }
   // також фото-документи об'єкта (📁 Документи) і фото чеків витрат
@@ -2377,7 +2455,7 @@ async function sitePhotos(s){ const box=$("#phBox"); if(!box) return;
   const saved=new Set(own.map(p=>p.msg).filter(Boolean)), inb=(S.inbox||[]).filter(m=>m.site===s.id&&m.photos?.length&&!m.savedTo&&!saved.has(m.id)).flatMap(m=>m.photos.map((d,i)=>({src:d,at:m.at,from:m.from,note:INBOX_KIND[m.kind]||"",msg:m.id,i})));
   const all=[...own.map(p=>({...p,src:p.thumb})),...inb,...docs,...rcs].sort((a,b)=>(b.at||0)-(a.at||0)), byDay=new Map(); for(const p of all){ const k=new Date(p.at).toLocaleDateString("uk-UA"); if(!byDay.has(k)) byDay.set(k,[]); byDay.get(k).push(p) }
   box.innerHTML=`${S.canWrite?`<div class="row" style="margin-bottom:8px"><label class="btn ghost" style="flex:1;text-align:center">📷 Камера<input type="file" id="phCam" accept="image/*" capture="environment" style="display:none"></label><label class="btn ghost" style="flex:1;text-align:center">🖼️ Галерея<input type="file" id="phGal" accept="image/*" multiple style="display:none"></label></div>`:""}
-    ${all.length?[...byDay.entries()].map(([d,l])=>`<div class="section-t">${d}<span class="count">${l.length}</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">${l.map((p,k)=>`<div style="position:relative"><img src="${p.src||"data:image/gif;base64,R0lGODlhAQABAAAAACw="}" ${p.lazy?`data-lazy="${p.fileId}"`:""} data-phv="${all.indexOf(p)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer;background:var(--card)">${p.from||p.lazy?`<span style="position:absolute;left:4px;bottom:4px;font-size:10.5px;background:rgba(0,0,0,.6);color:#fff;padding:1px 5px;border-radius:6px">${esc(p.from||p.note)}</span>`:""}</div>`).join("")}</div>`).join("")
+    ${all.length?[...byDay.entries()].map(([d,l])=>`<div class="section-t">${d}<span class="count">${l.length}</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">${l.map((p,k)=>`<div style="position:relative"><img src="${p.src||"data:image/gif;base64,R0lGODlhAQABAAAAACw="}" ${p.lazy?`data-lazy="${p.fileId}"`:""} data-phv="${all.indexOf(p)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer;background:var(--card)">${(lb=>lb?`<span style="position:absolute;left:4px;bottom:4px;font-size:10.5px;background:rgba(0,0,0,.6);color:#fff;padding:1px 5px;border-radius:6px">${esc(lb)}</span>`:"")(p.from||(p.lazy?p.note:"")||[p.here?"📍":"",p.by&&p.by!==S.uid&&p.byName?uaName(p.byName):""].filter(Boolean).join(" "))}</div>`).join("")}</div>`).join("")
       :err?`<div class="banner">Не вдалося завантажити фото (${esc(err)}).${/permission/.test(err)?" У правилах Firestore немає дозволу на колекцію «photos» — надішліть мені скрін правил.":""}</div>`:`<div class="empty">Фото ще немає.<br><span class="m">Додайте тут або бригада надішле через «📨 посилання для бригад» — фото з'являться тут самі.</span></div>`}`;
   const add=async fl=>{ const n=fl.length; if(!n) return; toast(`⏳ Зберігаю ${n} фото…`); let ok=0; for(const f of fl){ try{ await photoAdd(s.id,f); ok++ }catch(e){ toast(String(e?.message)==="big"?"Фото більше 8 МБ":"Не збереглося") } } if(ok) toast(`📷 Збережено ${ok}`); sitePhotos(s) };
   $("#phCam")?.addEventListener("change",e=>{ add([...e.target.files]); e.target.value="" }); $("#phGal")?.addEventListener("change",e=>{ add([...e.target.files]); e.target.value="" });
@@ -2561,6 +2639,7 @@ function siteForm(s,pre){
     for(const t of tabs){ if(t[0]==="tools"&&toolsHere.length) t[1]+=" "+toolsHere.length; if(t[0]==="needs"&&nl) t[1]+=" "+nl; if(t[0]==="works"&&ap) t[1]+=` ${apd}/${ap}` } }
   openSheet(`<h2>${isNew?(par?"Нова ділянка об'єкта":"Новий склад / об'єкт"):(isSite?"🏗️ ":"🏬 ")+esc(s.name)}</h2>
     ${!isNew&&(s.custPhone||(s.contacts||[]).length)?`<div class="m" style="margin:-4px 0 8px;line-height:1.7">${s.custPhone?`👤 ${esc(s.customer||"Замовник")} · <a href="${telHref(s.custPhone)}" style="color:var(--accent)">📞 ${esc(s.custPhone)}</a>`:""}${(s.contacts||[]).map(c=>`<br>${esc(c.name||"контакт")} · <a href="${telHref(c.tel)}" style="color:var(--accent)">📞 ${esc(c.tel)}</a>`).join("")}</div>`:""}
+    ${!isNew&&s.geo?`<div class="m" style="margin:-4px 0 8px">📍 <a href="https://www.google.com/maps/search/?api=1&query=${s.geo.lat},${s.geo.lon}" target="_blank" rel="noopener" style="color:var(--accent)">На карті</a> · <a href="https://www.google.com/maps/dir/?api=1&destination=${s.geo.lat},${s.geo.lon}" target="_blank" rel="noopener" style="color:var(--accent)">🧭 Маршрут</a>${hereId()===s.id?" · <b>ви зараз тут</b>":""}</div>`:""}
     ${parTrio?`<div class="m" id="sParT" style="margin:-4px 0 8px;cursor:pointer">↳ ділянка об'єкта <b style="color:var(--accent)">📂 ${esc(parTrio.name)}</b> (на трьох; Дмитро цю ділянку не бачить) →</div>`:""}
     ${par?`<div class="m" id="sPar" style="margin:-4px 0 8px;cursor:pointer">↳ частина об'єкта <b style="color:var(--accent)">📂 ${esc(par.name)}</b>${!s.customer&&par.customer?` · 👤 ${esc(par.customer)}`:""} →</div>`:""}
     ${tabs.length?`<div class="seg" id="segS" style="margin-bottom:10px;overflow-x:auto;flex-wrap:nowrap">${tabs.map(([k,l])=>`<button type="button" data-v="${k}" class="${tab===k?"on":""}" style="white-space:nowrap">${l}</button>`).join("")}</div>`:""}
@@ -2587,6 +2666,7 @@ function siteForm(s,pre){
       <div class="field"><div class="seg" id="segT"><button type="button" data-v="warehouse" class="${s.type==="warehouse"?"on":""}">🏬 Склад</button><button type="button" data-v="site" class="${s.type==="site"?"on":""}">🏗️ Об'єкт</button></div></div>
       <div class="field"><label>Назва *</label><input name="name" required value="${esc(s.name)}" placeholder="напр. Склад на Зіньківській / ЖК Сонячний"></div>
       <div class="field"><label>Адреса, примітка</label><input name="note" value="${esc(s.note)}"></div>
+      <div class="field"><label>📍 Місце на карті</label><div id="sGeoB"></div></div>
       ${s.type==="warehouse"&&!isNew?`<div class="field"><label>👤 Відповідальний за склад</label><select name="resp">${[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).sort(byName).map(p=>`<option value="${p.id}" ${whResp(s)===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>`:""}
       ${s.type!=="warehouse"?`<div class="field"><label>📞 Телефон замовника</label><div style="display:flex;gap:6px"><input name="custPhone" type="tel" value="${esc(s.custPhone||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost" id="sPickC" style="white-space:nowrap">📇 З контактів</button>`:""}${s.custPhone?`<a class="btn ghost" href="${telHref(s.custPhone)}" style="text-decoration:none">📞</a>`:""}</div></div>
         <div class="field"><label>📞 Інші контакти <span class="m">(технагляд, менеджер…)</span></label><div id="scList">${(s.contacts||[]).map(c=>scRow(c)).join("")}</div><button type="button" class="btn ghost sm" id="scAdd" style="width:100%">＋ Ще номер</button></div>
@@ -2626,8 +2706,22 @@ function siteForm(s,pre){
   $("#segS")?.addEventListener("click",e=>{ const b=e.target.closest("[data-v]"); if(b?.dataset.v==="photos") setTimeout(()=>sitePhotos(s),30) });
   $("#toolListS")?.addEventListener("click",()=>photoFlow({mode:"move",text:true,to:s.id}));
   $("#showSite")?.addEventListener("click",()=>placeSheet(siteKey(s)));
+  let geoNew=null; const gmap=g=>`https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lon}`;
+  const geoBox=()=>{ const b=$("#sGeoB"); if(!b) return; const g=isNew?geoNew:s.geo;
+    b.innerHTML=(g?`<div class="m" style="margin-bottom:4px">✅ Збережено${g.acc?` (±${g.acc} м)`:""} · <a href="${gmap(g)}" target="_blank" rel="noopener" style="color:var(--accent)">🗺 на карті</a>${S.canWrite?` · <a href="#" id="sGeoX" style="color:var(--accent)">✕ прибрати</a>`:""}</div>`
+      :`<div class="m" style="margin-bottom:4px">Не вказано. Коли вказане — застосунок сам підставляє цей об'єкт у фото, витрати, нарахування, справи й переміщення, поки ви тут.</div>`)
+      +(S.canWrite?`<button type="button" class="btn ghost sm" id="sGeoH" style="width:100%">📍 Я зараз на об'єкті — ${g?"оновити місце":"запам'ятати місце"}</button>`:"");
+    $("#sGeoH")?.addEventListener("click",async e=>{ const bt=e.currentTarget; bt.disabled=true; bt.textContent="⏳ Визначаю місце…"; const p=await geoGet(0,true); bt.disabled=false;
+      if(!p){ geoBox(); toast("Не вдалося визначити місце. Увімкніть геолокацію (GPS) і дозвольте її для застосунку.",6000); return }
+      if(p.acc>200&&!confirm(`Точність лише ±${Math.round(p.acc)} м (увімкніть GPS або вийдіть надвір). Все одно запам'ятати?`)){ geoBox(); return }
+      const v={lat:+p.lat.toFixed(6),lon:+p.lon.toFixed(6),acc:Math.round(p.acc),at:Date.now()};
+      if(isNew){ geoNew=v; geoBox(); return }
+      if(await write(db=>db.doc("sites/"+s.id).update({geo:v}))){ s.geo=v; geoBox(); geoHereCalc(); toast(`📍 Місце «${s.name}» збережено`) } else geoBox() });
+    $("#sGeoX")?.addEventListener("click",async e=>{ e.preventDefault(); if(!confirm("Прибрати місце об'єкта?")) return; if(isNew){ geoNew=null; geoBox(); return }
+      if(await write(db=>db.doc("sites/"+s.id).update({geo:null}))){ s.geo=null; geoBox(); geoHereCalc() } }) };
+  geoBox();
   $("#siteForm").addEventListener("submit",async e=>{
-    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),type,...(type==="warehouse"&&f.resp?{resp:f.resp}:{}),active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),custPhone:(f.custPhone||"").trim(),contacts:[...document.querySelectorAll("#scList .scR")].map(r=>({name:r.querySelector(".scN").value.trim(),tel:r.querySelector(".scT").value.trim()})).filter(c=>c.tel).slice(0,20),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
+    e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const perm=type!=="warehouse"&&!!f.perm; const data={perm,test:!!f.test,...(myKids.length||type==="warehouse"?{}:{parent:f.parent||""}),name:f.name.trim(),note:f.note.trim(),...(isNew&&geoNew?{geo:geoNew}:{}),type,...(type==="warehouse"&&f.resp?{resp:f.resp}:{}),active:perm?true:!!f.active,split:perm?true:!!f.split,customer:(f.customer||"").trim(),custPhone:(f.custPhone||"").trim(),contacts:[...document.querySelectorAll("#scList .scR")].map(r=>({name:r.querySelector(".scN").value.trim(),tel:r.querySelector(".scT").value.trim()})).filter(c=>c.tel).slice(0,20),contract:parseFloat(String(f.contract||"0").replace(/\s/g,"").replace(",","."))||0}; if(isNew) data.order=Math.max(0,...[...S.sites.values()].map(x=>x.order||0))+1;
     if(!data.name)return;
     if(await write(db=>isNew?db.collection("sites").add(data):db.doc("sites/"+s.id).update(data))){closeSheet();toast("Збережено"); if(!isNew&&s.active!==false&&data.active===false) setTimeout(()=>toolsLeftPrompt(s.id),400)}
   });
@@ -3206,6 +3300,7 @@ function finForm(f,preset){
         ${d.debt>0?`<br>⚠️ Якщо ви <b>віддаєте гроші за вже нараховане</b> — це не нарахування. <a href="#" id="toPay" onclick="return false"><b>💵 Записати як виплату боргу →</b></a>`:""}</div>` }
     else box.innerHTML=`<div class="banner" style="margin-bottom:8px">${line}${a>0?`<br>Після оплати ${money(a)}: ${d.debt-a>0?`борг <b>${money(d.debt-a)}</b>`:d.debt-a<0?`<b>переплата ${money(a-d.debt)}</b> (аванс наперед)`:"розраховані повністю ✅"}`:""}</div>`;
     $("#toPay")?.addEventListener("click",()=>{ setMode("out"); const k=$("#finForm [name=kind]"); if(k) k.value="Зарплата"; debtInfo() }) };
+  if(isNew) setTimeout(()=>geoFill($("#finForm [name=site]")),0);
   // 🔀 одна сума людині чи бригаді без об'єкта → розкладаємо по об'єктах пропорційно боргу на кожному (решта — аванс без об'єкта)
   let spl=null, splMan={}, splKey="";
   const splBase=sid=>isDuoSite(sid)?"duo":"trio";
@@ -3214,10 +3309,11 @@ function finForm(f,preset){
     return Object.entries(by).map(([sid,d])=>({sid,d:Math.round(d*100)/100,b:splBase(sid),s:site(sid)})).filter(x=>x.d>=1&&x.s&&!isTestSite(x.s)
       &&(isNew?(x.b==="trio"||(S.duoOk&&DUO_OWNERS.includes(own))):x.b===my)).sort((a,b)=>b.d-a.d) };
   const splCalc=()=>{ const box=$("#wSplit"); if(!box) return; const F=n=>$("#finForm [name="+n+"]")?.value||"", wid=F("worker"), p=person(wid), A=Math.round((sumExpr(F("amount"))||0)*100)/100;
-    const can=mode==="out"&&wid&&p&&!p.helper&&F("kind")==="Зарплата"&&!F("site")&&!(!isNew&&f.kind==="Взаємозалік");
+    const sSel=$("#finForm [name=site]"), geoS=!!(F("site")&&sSel?.dataset.geo==="1");
+    const can=mode==="out"&&wid&&p&&!p.helper&&F("kind")==="Зарплата"&&(!F("site")||geoS)&&!(!isNew&&f.kind==="Взаємозалік");
     const L=can?splDebts(wid):[]; if(!can||!L.length||!(A>0)){ box.innerHTML=""; spl=null; return }
     const key=wid+"|"+A+"|"+F("owner"); if(key!==splKey){ splKey=key; splMan={} }
-    const on=spl?spl.on:isNew;
+    const on=spl?spl.on&&!geoS:isNew&&!geoS;
     // пропорційно боргу; якщо сума більша за весь борг — кожному об'єкту його борг, решта аванс. Поправлені вручну суми лишаються, решта ділиться між іншими
     const parts=L.map(x=>({...x,v:splMan[x.sid]??0,man:splMan[x.sid]!=null})), free=parts.filter(x=>!x.man), D=free.reduce((a,x)=>a+x.d,0), A2=Math.max(0,Math.round((A-parts.filter(x=>x.man).reduce((a,x)=>a+x.v,0))*100)/100);
     for(const x of free) x.v=A2>=D?x.d:Math.floor(A2*x.d/D);
@@ -3226,11 +3322,11 @@ function finForm(f,preset){
     spl={on,parts,rest};
     box.innerHTML=`<div class="card" style="display:block;cursor:default;margin-bottom:8px;font-size:14px">
       <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="splOn" ${on?"checked":""} style="width:22px;height:22px;flex:none"> 🔀 Розподілити по об'єктах (пропорційно боргу)</label>
-      ${on?`<div style="margin-top:6px">${parts.map(x=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px"><span style="flex:1;min-width:0">${S.duoOk&&x.b!==(isDuo()?"duo":"trio")?(x.b==="duo"?"🤝 ":"👥 "):""}${esc(x.s.name)}${x.s.active===false?" 🗄":""}<span class="m" style="display:block;font-size:12px">винні ${money(x.d)}</span></span><input data-spv="${x.sid}" inputmode="decimal" value="${x.v}" style="flex:0 0 96px;text-align:right;padding:6px 8px;${x.man?"border-color:var(--accent)":""}"></div>`).join("")}
+      ${geoS&&!on?`<div class="m" style="margin-top:4px">📍 Зараз уся сума — на «${esc(site(F("site"))?.name||"")}» (ви там). Поставте галочку, щоб розподілити по всіх об'єктах.</div>`:on?`<div style="margin-top:6px">${parts.map(x=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px"><span style="flex:1;min-width:0">${S.duoOk&&x.b!==(isDuo()?"duo":"trio")?(x.b==="duo"?"🤝 ":"👥 "):""}${esc(x.s.name)}${x.s.active===false?" 🗄":""}<span class="m" style="display:block;font-size:12px">винні ${money(x.d)}</span></span><input data-spv="${x.sid}" inputmode="decimal" value="${x.v}" style="flex:0 0 96px;text-align:right;padding:6px 8px;${x.man?"border-color:var(--accent)":""}"></div>`).join("")}
         ${rest>0?`<div class="m">+ ${money(rest)} — аванс без об'єкта (більше, ніж винні по об'єктах)</div>`:rest<0?`<div class="m" style="color:var(--red,#e5534b)">⚠️ Розкладено на ${money(-rest)} більше, ніж сума</div>`:""}
         ${Object.keys(splMan).length?`<a href="#" id="splRe" class="m" style="display:block;font-size:12.5px;color:var(--accent);margin-top:2px">↺ Знову пропорційно</a>`:""}
         ${!isNew?`<div class="m" style="font-size:12px;margin-top:2px">Цей запис стане ${parts.filter(x=>x.v>0).length+(rest>0?1:0)} записами — по одному на об'єкт.</div>`:""}</div>`:`<div class="m" style="margin-top:4px">Уся сума запишеться без об'єкта.</div>`}</div>`;
-    $("#splOn").onchange=e=>{ spl.on=e.target.checked; splCalc() }; $("#splRe")?.addEventListener("click",e=>{ e.preventDefault(); splMan={}; splCalc() });
+    $("#splOn").onchange=e=>{ spl.on=e.target.checked; if(spl.on&&geoS){ sSel.dataset.touched=1; delete sSel.dataset.geo; sSel.parentNode.querySelector(".geoHint")?.remove(); sSel.value=""; sSel._geoSet=1; sSel.dispatchEvent(new Event("change",{bubbles:true})); sSel._geoSet=0 } splCalc() }; $("#splRe")?.addEventListener("click",e=>{ e.preventDefault(); splMan={}; splCalc() });
     box.querySelectorAll("[data-spv]").forEach(i=>i.onchange=()=>{ splMan[i.dataset.spv]=Math.max(0,Math.round((parseFloat(String(i.value).replace(",","."))||0)*100)/100); splCalc() }) };
   ["worker","site","kind","owner"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",splCalc)); $("#finForm [name=amount]").addEventListener("input",splCalc);
   $("#segM").addEventListener("click",()=>setTimeout(splCalc)); setTimeout(splCalc);
@@ -3320,7 +3416,7 @@ function finForm(f,preset){
       });
     } else if(mode==="accrual"){
       if(!v.worker){toast("Виберіть виконавця");btn.disabled=false;return}
-      const data={...base,type:"accrual",owner:"",site:v.site||"",kind:"",worker:v.worker,createdAt:f.createdAt||now};
+      const data={...base,type:"accrual",owner:"",site:v.site||"",kind:"",worker:v.worker,...(isNew&&v.site&&hereId()===v.site?{here:1}:{}),createdAt:f.createdAt||now};
       if(f.report) data.report={...f.report,items:repItems?repItems.filter(it=>it.name):f.report.items}; if(f.receipt) data.receipt=f.receipt;
       if(isNew&&!neg){ const d=wDebt(v.worker,v.site||""), pay=$("#accPay")?.checked; if(d.debt>0&&!confirm(pay?`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота на ${money(amount)}, яку ви одразу оплачуєте? Старий борг ${money(d.debt)} при цьому НЕ зменшиться.\n\n«Скасувати» — якщо ви віддаєте гроші за вже нараховане (натисніть «💵 Записати як виплату боргу»).`:`${person(v.worker)?.name||""} уже винні ${money(d.debt)}.\nЦе НОВА робота і борг має зрости до ${money(d.debt+amount)}?\n\n«Скасувати» — якщо ви хотіли просто заплатити (натисніть «💵 Записати як виплату боргу»).`)){ btn.disabled=false; return } }
       const payNow=isNew&&$("#accPay")?.checked&&!person(v.worker)?.helper, payOwn=$("#accOwn")?.value||myOwner()||owners()[0]?.id;
@@ -3330,7 +3426,7 @@ function finForm(f,preset){
         else { await db.doc("fin/"+f.id).set(data); if(pair) await db.doc("fin/"+pair.id).delete(); }
       }); if(ok&&payNow) toast(`Нараховано і виплачено ${money(amount)}`);
     } else {
-      const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"&&v.kind!=="Матеріали"?(v.worker||""):"",createdAt:f.createdAt||now};
+      const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"&&v.kind!=="Матеріали"?(v.worker||""):"",...(isNew&&v.site&&hereId()===v.site?{here:1}:{}),createdAt:f.createdAt||now};
       if(mode==="out"||mode==="accrual"){ if(f.receipt&&!rcDrop&&!rcImg) data.receipt=f.receipt; if(f.report) data.report=f.report;
         if(rcImg){ try{ const bin=atob(rcImg.b64), arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
           const sv=await saveFile(new File([arr],`чек ${v.date||todayISO()} ${money(amount).replace(/\s/g,"")}.jpg`,{type:"image/jpeg"})); data.receipt=sv.id;
@@ -5010,13 +5106,13 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v251"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v252"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Ви увійшли як ${esc(window.__fbEmail||"")} · версія <b>${APP_V}</b></div>
     ${S.installEv?`<button class="btn" id="mInst" style="width:100%;margin-bottom:6px">📲 Встановити застосунок (щоб ділитися файлами в Облік)</button>`:matchMedia("(display-mode: standalone)").matches?"":`<div class="banner" style="margin-bottom:8px;font-size:13px">📲 Щоб у меню «Поділитися» з'явився «Облік»: Chrome → ⋮ → <b>«Встановити застосунок»</b> (або «Додати на головний екран» → «Встановити»).</div>`}
-    <button class="btn ghost" id="mNotif" style="width:100%;margin-bottom:6px">🔔 Сповіщення</button>
+    <button class="btn ghost" id="mNotif" style="width:100%;margin-bottom:6px">🔔 Сповіщення</button><button class="btn ghost" id="mGeo" style="width:100%;margin-bottom:6px">📍 Визначати об'єкт за геолокацією: ${geoOn()?"так":"ні"}</button>
     <div class="section-t">Google-таблиця ${isDuo()?"«общак»":"«ОБЩАК НА 3»"}</div>
     <button class="btn" id="mGs" style="width:100%;margin-bottom:6px">🔄 Оновити з таблиці</button>
     <button class="btn ghost" id="mDrive" style="width:100%;margin-bottom:4px">☁️ Зберегти на Google Диск${S.backupAt?` <span style="font-weight:400;color:var(--muted)">· остання ${fmtDay(new Date(S.backupAt).toISOString().slice(0,10))}</span>`:""}</button>
@@ -5053,6 +5149,11 @@ function openMenu(){
 $("#menuBtn").addEventListener("click",openMenu);
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); S.installEv=e });
 document.addEventListener("click",e=>{ if(e.target.id==="mNotif") notifSheet() });
+document.addEventListener("click",async e=>{ if(e.target.id!=="mGeo") return; const on=!geoOn(); try{ on?localStorage.removeItem("geoOff"):localStorage.setItem("geoOff","1") }catch(_){}
+  if(!on){ S.here=null; S.geo=null; e.target.textContent="📍 Визначати об'єкт за геолокацією: ні"; toast("Геолокацію вимкнено"); return }
+  e.target.textContent="📍 Визначати об'єкт за геолокацією: так"; const p=await geoGet(0,true); toast(p?(hereId()?`📍 Ви на об'єкті «${site(hereId())?.name}»`:"📍 Геолокацію увімкнено"):"Дозвольте геолокацію для застосунку в налаштуваннях телефона",5000) });
+// місце оновлюємо, коли застосунок відкрили чи повернулись до нього (лише якщо дозвіл уже є)
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) geoGet() }); setTimeout(()=>geoGet(),4000);
 document.addEventListener("click",async e=>{ if(e.target.id!=="mInst"||!S.installEv) return; S.installEv.prompt(); try{ await S.installEv.userChoice }catch(_){} S.installEv=null; closeSheet() });
 $("#banner").addEventListener("click",e=>{ if(e.target.id==="bkNow"){e.preventDefault();e.target.textContent="Зачекайте…";driveBackup().then(()=>{const a=$("#bkNow");if(a)a.textContent="Зберегти зараз"})} });
 
@@ -5141,6 +5242,7 @@ ${`    <div class="field"><label>🧰 Привезти інструмент (н�
   $("#tkM").onchange=sync; sync();
   $("#modal").querySelectorAll("[data-tkd]").forEach(b=>b.onclick=()=>{ $("#tkD").value=b.dataset.tkd; $("#modal").querySelectorAll("[data-tkd]").forEach(x=>{ const on=x===b; x.style.borderColor=on?"var(--accent)":""; x.style.color=on?"var(--accent)":"" }) });
   $("#tkMe")?.addEventListener("click",()=>{ $("#tkW").value=me; toast("✋ Виконавець — ви") });
+  if(isNew&&!t.site) setTimeout(()=>geoFill($("#tkS")),0);
   $("#tkDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити справу?")) return; if(await write(db=>db.collection(R("tasks")).doc(t.id).delete())){ tkDraftClear(); closeSheet(); toast("Видалено"); if(t.tools||t.mats) taskNeedsSync(t.id,null,t.site) } });
   $("#tkOk")?.addEventListener("click",async()=>{ let title=$("#tkT").value.trim(); const _tl=($("#tkTl")?.value||"").trim(), _mt=($("#tkMt")?.value||"").trim();
     if(!title&&(_tl||_mt)){ const sn=site($("#tkS").value)?.name; title="Привезти"+(sn?" на «"+sn+"»":"")+": "+[_tl,_mt].filter(Boolean).join(", ").replace(/\n+/g,", ").slice(0,150) } // назва сама з інструменту/матеріалів
@@ -5189,6 +5291,22 @@ function wpubSync(){ if(S._wpT) return; S._wpT=setTimeout(async()=>{ S._wpT=0; /
 function tasksFromInbox(){ if(S.canWrite===false) return; for(const m of S.inbox||[]){ if(!m.tid) continue; const t=[...(S.tasksT||[]),...(S.tasksD||[])].find(x=>x.id===m.tid); if(!t||t.done||S._tdIb?.[m.id]) continue;
   (S._tdIb=S._tdIb||{})[m.id]=1; const col=(S.tasksD||[]).includes(t)?"duo_tasks":"tasks"; if(col==="duo_tasks"&&!S.duoOk) continue;
   S.db?.collection(col).doc(t.id).update({done:true,doneAt:+m.at||Date.now(),doneBy:"",doneByName:(m.from||"працівник")+" (з телефону)"}).catch(()=>{}) } }
+function hereHTML(){ const id=hereId(), s=id&&site(id); if(!s) return "";
+  return `<div class="card" style="display:block;cursor:default;margin-bottom:8px;border-color:var(--accent)"><div><b>📍 Ви на об'єкті «${esc(s.name)}»</b>${isDuoSite(id)&&!isDuo()?" <span class='m'>🤝 на двох</span>":""}</div>
+    <div class="actions" style="margin:8px 0 0;flex-wrap:wrap;justify-content:flex-start">${S.canWrite?`<button class="btn sm" data-hr="ph">📷 Фото</button><button class="btn ghost sm" data-hr="out">💸 Витрата</button><button class="btn ghost sm" data-hr="acc">👷 Нарахувати</button>`:""}<button class="btn ghost sm" data-hr="open">📂 Відкрити</button></div></div>` }
+const phSeen=()=>{ try{ return JSON.parse(localStorage.getItem("phSeen")||"{}") }catch(_){ return {} } };
+function phNewGroups(){ const seen=phSeen(), g=new Map(); for(const m of Object.values(S.phRecent||{})) for(const p of m.values()){ if(!p.by||p.by===S.uid||(+p.at||0)<Date.now()-2*864e5||!site(p.site)) continue; const k=p.set||(p.by+"|"+p.site+"|"+p.date); if(seen[k]) continue; if(!g.has(k)) g.set(k,{k,site:p.site,by:p.byName,at:0,l:[],note:"",base:p.base}); const x=g.get(k); x.l.push(p); x.at=Math.max(x.at,+p.at||0); if(p.note) x.note=p.note }
+  return [...g.values()].sort((a,b)=>b.at-a.at) }
+function phNewHTML(){ const l=phNewGroups(); if(!l.length) return "";
+  return `<div class="section-t" style="display:flex">📷 Нові фото з об'єктів<span class="count">${l.reduce((a,x)=>a+x.l.length,0)}</span></div>${l.slice(0,5).map(x=>`<div class="card" data-phg="${esc(x.k)}" style="display:block;cursor:pointer;margin-bottom:6px">
+    <div style="display:flex;gap:8px;align-items:center"><b style="flex:1;min-width:0">${x.base==="duo"?"🤝 ":""}«${esc(site(x.site)?.name||"")}»</b><span class="m" style="font-size:12px">${esc(uaName(x.by||""))} · ${fmtDate(x.at)}</span><button type="button" class="btn ghost sm" data-phx="${esc(x.k)}" style="padding:2px 8px">✕</button></div>
+    ${x.note?`<div class="m" style="font-size:13px">${esc(x.note)}</div>`:""}<div style="display:flex;gap:4px;margin-top:6px">${x.l.slice(0,5).map(p=>`<img src="${p.thumb}" style="width:56px;height:56px;object-fit:cover;border-radius:6px">`).join("")}${x.l.length>5?`<span class="m" style="align-self:center">+${x.l.length-5}</span>`:""}</div></div>`).join("")}` }
+function bindTodayExtra(){ const V=$("#view");
+  V.querySelectorAll("[data-hr]").forEach(b=>b.onclick=()=>{ const id=hereId(); if(!id) return; toBaseOf(id); const a=b.dataset.hr;
+    if(a==="ph") photoShoot({site:id}); else if(a==="out") finForm(null,{type:"out",site:id}); else if(a==="acc") finForm(null,{type:"accrual",site:id}); else { S.siteTab="money"; siteForm(site(id)) } });
+  const mark=k=>{ const s=phSeen(); s[k]=Date.now(); for(const [kk,v] of Object.entries(s)) if(Date.now()-v>5*864e5) delete s[kk]; try{ localStorage.setItem("phSeen",JSON.stringify(s)) }catch(_){} };
+  V.querySelectorAll("[data-phx]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); mark(b.dataset.phx); render() });
+  V.querySelectorAll("[data-phg]").forEach(c=>c.onclick=()=>{ const x=phNewGroups().find(g=>g.k===c.dataset.phg); mark(c.dataset.phg); if(x) openSitePhotos(x.site) }) }
 function renderToday(){
   $("#headTools").innerHTML=""; const n2=v=>Math.round(v);
   // борги виконавцям (по обох базах, якщо людина має доступ до общаку на двох)
@@ -5206,7 +5324,7 @@ function renderToday(){
   const ibn=inboxNew().length;
   const tzn=suggNew().length, jh=jobsHTML();
   const pick=[...S.sites.values()].filter(x=>x.active===false&&x.type!=="warehouse").map(x=>({x,n:[...S.tools.values()].filter(t=>t.site===x.id&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0)})).filter(o=>o.n);
-  let h=tasksHTML()+jh+(pick.length?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+([...S.tools.values()].some(t=>t.checkMiss&&t.status!=="lost")?`<div class="banner" id="missB" style="margin-bottom:8px;cursor:pointer">❓ Перекличка: не знайшли <b>${[...S.tools.values()].filter(t=>t.checkMiss&&t.status!=="lost").length}</b> поз. — розібратися →</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:S.canWrite?`<div class="card" id="ibB" style="margin-bottom:8px;cursor:pointer;padding:10px 12px"><div class="main"><div class="t" style="font-size:15px">📨 Від працівників</div><div class="m">нових немає · архів повідомлень →</div></div></div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
+  let h=hereHTML()+phNewHTML()+tasksHTML()+jh+(pick.length?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+([...S.tools.values()].some(t=>t.checkMiss&&t.status!=="lost")?`<div class="banner" id="missB" style="margin-bottom:8px;cursor:pointer">❓ Перекличка: не знайшли <b>${[...S.tools.values()].filter(t=>t.checkMiss&&t.status!=="lost").length}</b> поз. — розібратися →</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:S.canWrite?`<div class="card" id="ibB" style="margin-bottom:8px;cursor:pointer;padding:10px 12px"><div class="main"><div class="t" style="font-size:15px">📨 Від працівників</div><div class="m">нових немає · архів повідомлень →</div></div></div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
     ${dl.length?`<div class="list">${dl.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div></div><span class="amt out">${money(n2(v))}</span></div>`).join("")}</div>`:`<div class="empty" style="padding:10px">Боргів немає ✅</div>`}
     ${ml.length?`<div class="section-t" style="display:flex;margin-top:12px">💵 Винні нам (аванси, переплата)<span class="count">${money(n2(msum))}</span></div><div class="list">${ml.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div><div class="m">відпрацювати або повернути</div></div><span class="amt in">−${money(n2(-v))}</span></div>`).join("")}</div>`:""}
     <div class="section-t" style="display:flex;margin-top:12px">📝 Потрібно на об'єкти<span class="count">${deliver.reduce((a,d)=>a+d.l.length,0)?deliver.reduce((a,d)=>a+d.l.length,0)+" поз.":""}</span></div>
@@ -5228,7 +5346,7 @@ function renderToday(){
   $("#view").querySelectorAll("[data-tfd]").forEach(c=>c.onclick=e=>{ e.stopPropagation(); S.tab="sites"; S.sitesMode="tz"; S.tzMode="docs"; $("#headTools").dataset.b=""; render() });
   $("#tBuy")?.addEventListener("click",()=>buyList()); $("#iamB")?.addEventListener("click",()=>whoAmISheet()); $("#ibB")?.addEventListener("click",()=>inboxSheet()); $("#view").querySelectorAll("[data-jobx]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const j=S.jobs.find(x=>x.id===b.dataset.jobx); if(j){ jobDrop(j); render() } });
   $("#view").querySelectorAll("[data-job]").forEach(c=>c.onclick=()=>jobOpen(c.dataset.job));
-  $("#view").querySelectorAll("[data-pick]").forEach(c=>c.onclick=()=>moveTo([...S.tools.values()].filter(t=>t.site===c.dataset.pick&&t.status!=="lost").map(t=>t.id))); $("#missB")?.addEventListener("click",missSheet); $("#tzsB")?.addEventListener("click",()=>{ S.tab="sites"; S.sitesMode="tz"; S.tzMode="sugg"; render() });
+  bindTodayExtra(); $("#view").querySelectorAll("[data-pick]").forEach(c=>c.onclick=()=>moveTo([...S.tools.values()].filter(t=>t.site===c.dataset.pick&&t.status!=="lost").map(t=>t.id))); $("#missB")?.addEventListener("click",missSheet); $("#tzsB")?.addEventListener("click",()=>{ S.tab="sites"; S.sitesMode="tz"; S.tzMode="sugg"; render() });
   $("#view").querySelectorAll("[data-tneeds]").forEach(c=>c.onclick=e=>{ if(e.target.closest("[data-ntask],[data-nmove],#tBuy2")) return; e.stopPropagation(); S.siteTab="needs"; siteForm(S.sites.get(c.dataset.tneeds)) });
   // 📝 потреби об'єкта → справа на сьогодні (з обов'язковим виконавцем); 🚚 → вікно переміщення; 🛒 → список закупівлі
   $("#view").querySelectorAll("[data-ntask]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const st=S.sites.get(b.dataset.ntask); const idx=[]; const T=[],M=[];
@@ -5661,7 +5779,9 @@ function loadSiteDocs(s){
 // «+» — одна кнопка для всіх дій
 function fabMenu(){
   const duo=isDuo(), it=(id,ic,t,sub)=>`<button type="button" class="card" data-fa="${id}" style="display:flex;gap:10px;align-items:center;text-align:left;width:100%;margin-bottom:6px;cursor:pointer;color:var(--text);background:var(--card);border:1px solid var(--line);font:inherit;padding:12px 14px"><span style="font-size:24px;width:32px;text-align:center">${ic}</span><span style="flex:1"><b>${t}</b>${sub?`<div class="m" style="font-size:12px;color:var(--muted)">${sub}</div>`:""}</span></button>`;
-  openSheet(`<h2>Що додати?</h2>
+  geoGet();
+  openSheet(`<h2>Що додати?</h2>${hereIn()?`<div class="m" style="margin:-4px 0 8px">📍 Ви на об'єкті <b>«${esc(site(hereIn()).name)}»</b> — його буде підставлено</div>`:""}
+    ${it("ph","📷","Фото з об'єкта","кілька фото підряд — одразу зберігаються на об'єкт")}
     <div class="section-t">💰 Гроші</div>
     ${it("out","💸","Витрата")}${it("rc","🧾","Витрата з чеком","сфотографуйте — сума зчитається сама")}${it("in","💰","Прихід від замовника")}
     ${it("acc","👷","Нарахування / виплата виконавцю")}${it("rep","📋","Звіт робіт від хлопців","перевірити, нарахувати, в акт")}
@@ -5676,7 +5796,8 @@ function fabMenu(){
     else if(a==="in") finForm(null,{type:"in"});
     else if(a==="kpl") kpList();
     else if(a==="acc") finForm(null,{type:"accrual"});
-    else if(a==="rep") workReport();
+    else if(a==="rep") workReport(null,hereIn()?{site:hereIn()}:undefined);
+    else if(a==="ph") photoShoot();
     else if(a==="tlist") photoFlow({mode:"move",text:true});
     else if(a==="tphoto") photoFlow();
     else if(a==="tnew") toolForm();

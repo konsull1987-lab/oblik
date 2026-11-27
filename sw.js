@@ -1,4 +1,4 @@
-const C="oblik-v251";const SHELL=["./","index.html","w.html","w-manifest.json","firebase-config.js","manifest.json","icon-192.png","qrcode.js"];
+const C="oblik-v252";const SHELL=["./","index.html","w.html","w-manifest.json","firebase-config.js","manifest.json","icon-192.png","qrcode.js"];
 // бібліотеки з CDN (Firebase, SheetJS, reCAPTCHA) — версійні, кешуємо надовго, щоб застосунок стартував без інтернету
 const LIB="oblik-lib";const LIBRE=/^https:\/\/(www\.gstatic\.com\/firebasejs\/|cdnjs\.cloudflare\.com\/ajax\/libs\/)/;
 self.addEventListener("install",e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(SHELL)));self.skipWaiting()});
@@ -19,5 +19,5 @@ self.addEventListener("fetch",e=>{const u=new URL(e.request.url);
    const net=fetch(e.request,{cache:"no-cache"}).then(r=>{ if(r.ok) c.put(e.request,r.clone()); return r }).catch(()=>null);
    if(hit){ e.waitUntil(net); return hit }
    return (await net)||(await c.match(home))||new Response("Немає інтернету",{status:503}) }))});
-self.addEventListener("notificationclick",e=>{e.notification.close(); const job=e.notification.data&&e.notification.data.job;
- e.waitUntil(clients.matchAll({type:"window",includeUncontrolled:true}).then(l=>{ if(l.length){ if(job) l[0].postMessage({job}); return l[0].focus() } return clients.openWindow(job?"./?job="+job:"./") }))});
+self.addEventListener("notificationclick",e=>{e.notification.close(); const d=e.notification.data||{}, job=d.job, site=d.site;
+ e.waitUntil(clients.matchAll({type:"window",includeUncontrolled:true}).then(l=>{ if(l.length){ if(job) l[0].postMessage({job}); if(site) l[0].postMessage({site}); return l[0].focus() } return clients.openWindow(job?"./?job="+job:site?"./?site="+encodeURIComponent(site):"./") }))});
