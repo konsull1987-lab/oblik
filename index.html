@@ -457,11 +457,57 @@ function taAutosave(node){ node.querySelectorAll("textarea[id]").forEach(ta=>{ i
   ta.addEventListener("input",()=>{ try{ ta.value.trim()?localStorage.setItem(k,JSON.stringify({at:Date.now(),t:ta.value})):localStorage.removeItem(k) }catch(_){} }) }) }
 document.addEventListener("click",e=>{ const b=e.target.closest("#modal .btn:not(.ghost)"); if(b&&/Зберег|Записати|Нарахувати|Надіслати|Додати в|Перемістити|💾/.test(b.textContent)) taCommitAt=Date.now() },true);
 function taClear(node){ if(!node||Date.now()-taCommitAt>4000) return; node.querySelectorAll("textarea[id]").forEach(ta=>{ try{ localStorage.removeItem(taKey(node,ta)) }catch(_){} }) }
-// 🔍 пошук над кожним списком об'єктів у формах (і по архіву)
-function siteSelSearch(root){ root.querySelectorAll("select").forEach(sel=>{ if(sel.dataset.ss||![...sel.querySelectorAll("optgroup")].some(g=>/Об'єкти|Склади|Архів/.test(g.label))||sel.options.length<7) return; sel.dataset.ss=1;
-  const orig=sel.innerHTML, inp=document.createElement("input"); inp.type="search"; inp.placeholder="🔍 Пошук об'єкта (і в архіві)…"; inp.style.cssText="margin-bottom:4px;padding:8px 10px;font-size:14px"; sel.parentNode.insertBefore(inp,sel);
-  inp.addEventListener("input",()=>{ const q=inp.value.trim(), cur=sel.value; sel.innerHTML=orig; if(q){ sel.querySelectorAll("option").forEach(o=>{ if(o.value&&!wordHit(o.textContent+" "+(S.sites.get(o.value)?.customer||""),q)&&o.value!==cur) o.remove() }); sel.querySelectorAll("optgroup").forEach(g=>{ if(!g.children.length) g.remove() }) }
-    const opts=[...sel.options].filter(o=>o.value); if(q&&opts.length===1&&sel.value!==opts[0].value){ sel.value=opts[0].value; sel.dispatchEvent(new Event("change",{bubbles:true})) } else sel.value=cur&&[...sel.options].some(o=>o.value===cur)?cur:sel.value }) }) }
+// 🔍 Вибір об'єкта будь-де: у кожному списку об'єктів — «🔍 Знайти об'єкт…» (пошук і по архіву), архів згорнуто («показати»),
+// а в довгих списках у вікнах — ще й поле пошуку над списком. Працює і для списків, що з'являються пізніше (рядки звіту, фільтри).
+const SS_RX=/Об'єкти|Склади|Архів/;
+const ssIsSites=sel=>sel.tagName==="SELECT"&&(sel.dataset.sites==="1"||[...sel.querySelectorAll("optgroup")].some(g=>SS_RX.test(g.label)));
+const ssClean=html=>html.replace(/<option value="__(find|arch)"[^>]*>[\s\S]*?<\/option>/g,"");
+function ssBuild(sel){ sel._busy=1; const cur=sel.value&&!/^__/.test(sel.value)?sel.value:(sel._prev||""), tmp=document.createElement("select"); tmp.innerHTML=sel._full;
+  const ag=[...tmp.querySelectorAll("optgroup")].find(g=>/Архів/.test(g.label)); let n=0;
+  if(ag&&!sel._showArch&&![...ag.querySelectorAll("option")].some(o=>o.value&&o.value===cur)){ n=ag.querySelectorAll("option").length; ag.remove() }
+  const extra=sel.dataset.sites==="1"?ssExtraArch(sel,tmp):[]; // власні списки без архіву: архівні об'єкти поточної бази
+  const f=document.createElement("option"); f.value="__find"; f.textContent="🔍 Знайти об'єкт (і в архіві)…"; const o0=tmp.options[0]; if(o0&&!o0.value&&o0.parentNode===tmp) o0.after(f); else tmp.prepend(f);
+  if(n||extra.length){ const a=document.createElement("option"); a.value="__arch"; a.textContent=`🗄 Архів (${n||extra.length}) — показати`; tmp.appendChild(a) }
+  sel.innerHTML=tmp.innerHTML; sel.value=[...sel.options].some(o=>o.value===cur)?cur:(sel.options[0]?.value===""?"":cur); sel._prev=sel.value; queueMicrotask(()=>sel._busy=0) }
+function ssExtraArch(sel,tmp){ const have=new Set([...(tmp||sel).querySelectorAll("option")].map(o=>o.value)); return [...S.sites.values()].filter(s=>s.active===false&&!have.has(s.id)&&!isTestSite(s)&&s.id!==sel.dataset.ex&&!(sel.dataset.nowh&&(s.type==="warehouse"||s.parent))).sort(byName) }
+function ssShowArch(sel){ sel._showArch=1; if(sel.dataset.sites==="1"){ const ex=ssExtraArch(sel); if(ex.length&&!/Архів/.test(sel._full)) sel._full+=`<optgroup label="🗄 Архів">${ex.map(s=>`<option value="${s.id}">${esc(siteFull(s))}</option>`).join("")}</optgroup>` } ssBuild(sel) }
+function ssEnhance(sel){ if(!ssIsSites(sel)) return; if(sel._ss){ if(!sel._busy&&!sel._filt&&![...sel.options].some(o=>o.value==="__find")){ sel._full=ssClean(sel.innerHTML); ssBuild(sel) } return }
+  sel._ss=1; sel._full=ssClean(sel.innerHTML); ssBuild(sel);
+  sel.addEventListener("input",e=>{ if(/^__/.test(sel.value)){ e.stopImmediatePropagation(); e.stopPropagation() } },true);
+  sel.addEventListener("focus",()=>{ if(!/^__/.test(sel.value)) sel._prev=sel.value },true);
+  sel.addEventListener("change",e=>{ const v=sel.value; if(v!=="__find"&&v!=="__arch"){ sel._prev=v; return }
+    e.stopImmediatePropagation(); e.stopPropagation(); const prev=sel._prev||"";
+    if(v==="__arch"){ ssShowArch(sel); sel.value=prev; try{ sel.showPicker?.() }catch(_){} return }
+    sel.value=prev; sitePickOverlay(sel,prev,id=>{ if(![...sel.options].some(o=>o.value===id)) ssShowArch(sel); sel.value=id; sel._prev=id; sel.dispatchEvent(new Event("change",{bubbles:true})) }) },true);
+  // поле пошуку над довгим списком у вікні (не в рядках звіту і не у вузьких рядках фільтрів)
+  if(!sel.closest(".sheet")||sel.dataset.k||sel.dataset.i!=null||sel.options.length<8) return;
+  const inp=document.createElement("input"); inp.type="search"; inp.placeholder="🔍 Пошук об'єкта (і в архіві)…"; inp.style.cssText="margin-bottom:4px;padding:8px 10px;font-size:14px"; sel.parentNode.insertBefore(inp,sel);
+  inp.addEventListener("input",()=>{ const q=inp.value.trim(), cur=sel._prev||""; sel._filt=!!q; if(!q){ ssBuild(sel); return }
+    if(sel.dataset.sites==="1") ssShowArch(sel); sel._busy=1; const tmp=document.createElement("select"); tmp.innerHTML=sel._full;
+    tmp.querySelectorAll("option").forEach(o=>{ if(o.value&&!wordHit(o.textContent+" "+(site(o.value)?.customer||"")+" "+(site(o.value)?.address||""),q)&&o.value!==cur) o.remove() }); tmp.querySelectorAll("optgroup").forEach(g=>{ if(!g.children.length) g.remove() });
+    sel.innerHTML=tmp.innerHTML; queueMicrotask(()=>sel._busy=0);
+    const opts=[...sel.options].filter(o=>o.value); if(opts.length===1&&cur!==opts[0].value){ sel.value=opts[0].value; sel._prev=sel.value; sel.dispatchEvent(new Event("change",{bubbles:true})) } else sel.value=[...sel.options].some(o=>o.value===cur)?cur:sel.value }) }
+function siteSelSearch(root){ root.querySelectorAll?.("select").forEach(ssEnhance) }
+// вікно пошуку об'єкта: спершу активні, далі архів (розгортається сам, щойно вписали назву)
+function sitePickOverlay(sel,cur,cb){ const tmp=document.createElement("select"); tmp.innerHTML=sel._full; const items=[];
+  for(const el of tmp.children){ if(el.tagName==="OPTGROUP"){ for(const o of el.children) if(o.value) items.push({v:o.value,t:o.textContent.trim(),g:el.label}) } else if(el.value) items.push({v:el.value,t:el.textContent.trim(),g:""}) }
+  if(sel.dataset.sites==="1") for(const s of ssExtraArch(sel,tmp)) items.push({v:s.id,t:siteFull(s),g:"🗄 Архів"});
+  const isA=x=>/Архів/.test(x.g), nA=items.filter(isA).length;
+  const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1200";
+  ov.innerHTML=`<div class="sheet" style="max-height:88vh;display:flex;flex-direction:column"><h2 style="margin-bottom:8px">Виберіть об'єкт</h2>
+    <input id="spQ" type="search" placeholder="Назва, замовник, адреса…" autocomplete="off" style="margin-bottom:8px"><div id="spL" style="overflow:auto;flex:1;min-height:180px"></div>
+    <div class="actions"><button type="button" class="btn ghost" id="spX">Скасувати</button></div></div>`;
+  document.body.appendChild(ov); const close=()=>ov.remove();
+  const row=x=>`<button type="button" class="card" data-sp="${esc(x.v)}" style="display:block;width:100%;text-align:left;margin-bottom:4px;cursor:pointer;color:var(--text);background:var(--card);${x.v===cur?"border-color:var(--accent)":""}"><div class="t">${esc(x.t)}</div>${x.g&&!isA(x)?`<div class="m" style="font-size:12px">${esc(x.g)}</div>`:""}</button>`;
+  const draw=()=>{ const q=ov.querySelector("#spQ").value.trim(), hit=x=>!q||wordHit(x.t+" "+(site(x.v)?.customer||"")+" "+(site(x.v)?.address||""),q), act=items.filter(x=>!isA(x)&&hit(x)), arch=items.filter(x=>isA(x)&&hit(x)), showA=!!q||ov._a;
+    ov.querySelector("#spL").innerHTML=(act.length?act.map(row).join(""):`<div class="m" style="padding:8px">${q?"Серед активних не знайдено"+(arch.length?" — є в архіві 👇":""):"Активних об'єктів немає"}</div>`)
+      +(nA?(showA?(arch.length?`<div class="section-t">🗄 Архів</div>${arch.map(row).join("")}`:""):`<button type="button" class="btn ghost" id="spA" style="width:100%;margin-top:6px">🗄 Показати архів (${nA})</button>`):"");
+    ov.querySelector("#spA")?.addEventListener("click",()=>{ ov._a=1; draw() }) };
+  ov.querySelector("#spQ").oninput=draw; ov.querySelector("#spX").onclick=close;
+  ov.onclick=e=>{ if(e.target===ov){ close(); return } const b=e.target.closest("[data-sp]"); if(b){ close(); cb(b.dataset.sp) } };
+  draw(); setTimeout(()=>ov.querySelector("#spQ")?.focus(),60) }
+// нові списки об'єктів, що з'являються будь-де (рядки звіту, фільтри, перемальовані вікна)
+new MutationObserver(ms=>{ for(const m of ms){ if(m.target.tagName==="SELECT"){ if(!m.target._busy) ssEnhance(m.target); continue } for(const n of m.addedNodes) if(n.nodeType===1){ if(n.tagName==="SELECT") ssEnhance(n); else siteSelSearch(n) } } }).observe(document.documentElement,{childList:true,subtree:true});
 function personOptions(sel,emptyLabel){
   const all=[...S.people.values()].sort(byName);
   let h=`<option value="">${emptyLabel}</option>`;
@@ -584,18 +630,21 @@ function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.g
   const cars=[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).sort(byName).map(p=>"car:"+p.id);
   const objs=allSites().filter(s=>s.type!=="warehouse"&&s.active!==false).sort((a,b)=>(cnt.get(b.id)||0)-(cnt.get(a.id)||0)||byName(a,b)).map(s=>"s:"+s.id);
   if(opt.dest&&opt.dest.startsWith("s:")&&!objs.includes(opt.dest)) objs.unshift(opt.dest);
+  const archO=allSites().filter(s=>s.type!=="warehouse"&&s.active===false&&!isTestSite(s)&&!objs.includes("s:"+s.id)).sort(byName).map(s=>"s:"+s.id); // архів — з'являється при пошуку
   const item=i=>{ const t=S.tools.get(i), all=qtyOf(t), m=placeMeta(placeKey(t)); return `<div class="card" data-mi="${i}" style="align-items:center;cursor:default;padding:8px 10px"><div class="main"><div class="t">${esc(t.name)}${t.inv?` <span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="m">з: ${m.ic} ${esc(m.nm)}</div></div>${all>1?`<span style="display:flex;align-items:center;gap:4px;flex:none"><button type="button" class="btn ghost sm" data-qd="-1">–</button><b data-qv>${Q.get(i)}</b><span class="m">/${all}</span><button type="button" class="btn ghost sm" data-qd="1">＋</button></span>`:""}<button type="button" class="btn ghost sm" data-mx aria-label="Прибрати" style="flex:none">✕</button></div>` };
   openSheet(`<h2>🚚 Перенести</h2>${opt.info?`<div class="card" style="display:block;cursor:default;margin-bottom:8px;font-size:14px">${opt.info}</div>`:""}
     <div class="list" id="mvL" style="max-height:30vh;overflow:auto">${ids.map(item).join("")}</div>
     <div class="section-t">Куди?</div>
     ${rec.length?`<div class="dst">${rec.map(btn).join("")}</div><div class="m" style="margin:8px 0 4px">🚐 Машини</div>`:`<div class="m" style="margin:0 0 4px">🚐 Машини</div>`}<div class="dst">${cars.map(btn).join("")}</div>
     ${wh.length?`<div class="m" style="margin:8px 0 4px">🏬 Склади</div><div class="dst">${wh.map(btn).join("")}</div>`:""}
-    ${objs.length?`<div class="m" style="margin:8px 0 4px">🏗️ Об'єкти</div>${objs.length>6?`<input type="search" id="mvQ" placeholder="🔍 Пошук об'єкта" style="margin-bottom:6px">`:""}<div class="dst" id="mvO">${objs.map(btn).join("")}</div>${objs.length>6?`<a href="#" id="mvMore" class="m" style="display:block;margin:6px 0;color:var(--accent)">Показати всі об'єкти (${objs.length})</a>`:""}`:""}
+    ${objs.length||archO.length?`<div class="m" style="margin:8px 0 4px">🏗️ Об'єкти</div><input type="search" id="mvQ" placeholder="🔍 Пошук об'єкта (і в архіві)" style="margin-bottom:6px"><div class="dst" id="mvO">${objs.map(btn).join("")}${archO.map(k=>btn(k).replace("<button ","<button data-arch=\"1\" ").replace("🏗️ ","🗄 ")).join("")}</div><div class="m" id="mvAN" style="display:none;margin:4px 0"></div>${objs.length>6?`<a href="#" id="mvMore" class="m" style="display:block;margin:6px 0;color:var(--accent)">Показати всі об'єкти (${objs.length})</a>`:""}`:""}
     <div class="m" style="margin:8px 0 4px">👷 Інша людина чи бригада відповідає (місце те саме)</div><select id="mvP">${personOptions("","— виберіть людину")}</select>
     <div id="mvC" style="margin-top:12px"></div>
     <div class="actions"><button class="btn ghost" id="mvX">Скасувати</button></div>`);
   const M=$("#modal");
-  const objLim=()=>{ const q=($("#mvQ")?.value||"").trim(), all=S.mvAllObj; let n=0; M.querySelectorAll("#mvO [data-dst]").forEach(b=>{ const ok=q?wordHit(b.dataset.dq+" "+(site(b.dataset.dst.slice(2))?.customer||""),q):(all||n<6||b.dataset.dst===dest); b.style.display=ok?"":"none"; if(ok) n++ }); const mo=$("#mvMore"); if(mo) mo.style.display=q||all?"none":"" };
+  const objLim=()=>{ const q=($("#mvQ")?.value||"").trim(), all=S.mvAllObj; let n=0, na=0, nact=0; M.querySelectorAll("#mvO [data-dst]").forEach(b=>{ const s=site(b.dataset.dst.slice(2)), ar=!!b.dataset.arch, hit=q&&wordHit(b.dataset.dq+" "+(s?.customer||"")+" "+(s?.address||""),q);
+      const ok=ar?(hit||b.dataset.dst===dest):q?hit:(all||n<6||b.dataset.dst===dest); b.style.display=ok?"":"none"; if(ok&&!ar){ n++; if(q) nact++ } if(ok&&ar) na++ });
+    const mo=$("#mvMore"); if(mo) mo.style.display=q||all?"none":""; const an=$("#mvAN"); if(an){ an.style.display=q?"":"none"; an.textContent=q?(nact?(na?`🗄 Ще ${na} в архіві`:""):(na?"Серед активних не знайдено — є в архіві 🗄":"Не знайдено ні серед активних, ні в архіві")):"" } };
   S.mvAllObj=false; objLim();
   $("#mvQ")?.addEventListener("input",objLim); $("#mvMore")?.addEventListener("click",e=>{ e.preventDefault(); S.mvAllObj=true; objLim() });
   const total=()=>[...Q.values()].reduce((a,b)=>a+b,0);
@@ -2114,7 +2163,7 @@ function photoFlow(opts){
         <div class="m" style="margin-top:4px">${confTag(r.conf)} ${esc(r.note)}</div>
         ${mode==="move"?(()=>{const wl=whereIs(r,toSite);return `<details style="margin-top:4px"><summary class="m" style="font-size:12.5px;cursor:pointer">📍 Де є: ${wl.length?wl.map(o=>o.lbl.replace(/^\S+ /,"")+" "+o.qty).slice(0,3).join(", ")+(wl.length>3?"…":""):"ніде"}</summary>${whereHTML(wl)}</details>`})():""}</div>`).join("")}
       ${mode==="add"?`<div class="row"><div class="field"><label>У кого</label><select id="pfHolder">${personOptions(meId()||owners()[0]?.id||"","— не вказано")}</select></div><div class="field"><label>Де</label><select id="pfSite">${siteOptions("","— не вказано")}</select></div></div>`
-        :`${rows.some(r=>r.on&&r.buy)?`<div class="field"><label>🛒 Куплене спершу оприбуткувати на склад</label><select id="pfBuyWh">${[...S.sites.values()].filter(x=>x.type==="warehouse").map(w=>`<option value="${w.id}" ${pfBuyWh()===w.id?"selected":""}>🏬 ${esc(w.name)}</option>`).join("")||`<option value="">— складів немає</option>`}</select></div>`:""}
+        :`${rows.some(r=>r.on&&r.buy)?`<div class="field"><label>🛒 Куплене спершу оприбуткувати на склад</label><select id="pfBuyWh">${allSites().filter(x=>x.type==="warehouse").map(w=>`<option value="${w.id}" ${pfBuyWh()===w.id?"selected":""}>🏬 ${esc(w.name)}</option>`).join("")||`<option value="">— складів немає</option>`}</select></div>`:""}
           <div class="row"><div class="field"><label>Кому</label><select id="pfHolder">${personOptions(S.pfHolder||"","— не вказано")}</select></div><div class="field"><label>Куди *</label><select id="pfSite">${siteOptions(toSite,"— не вказано")}</select></div></div>
           ${rows.some(r=>r.on&&!r.buy&&r.match==="__task")?`<div class="field"><label>📝 Хто везе (для справи)</label><select id="pfWho"><option value="">— не призначено (хтось візьме)</option>${[...owners(),...[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false&&!p.crew).sort(byName)].map(p=>`<option value="${p.id}" ${S.pfWho===p.id?"selected":""}>${p.id===meId()?"✋ Я — ":""}${esc(p.name)}</option>`).join("")}</select></div>`:""}`}
       <button class="btn" id="pfSave" style="width:100%">${mode==="add"?"💾 Додати в облік":"🔄 Перемістити"}</button>`;
@@ -2519,7 +2568,7 @@ function siteForm(s,pre){
         <div class="field"><label>📞 Інші контакти <span class="m">(технагляд, менеджер…)</span></label><div id="scList">${(s.contacts||[]).map(c=>scRow(c)).join("")}</div><button type="button" class="btn ghost sm" id="scAdd" style="width:100%">＋ Ще номер</button></div>
         <div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я / назва"></div>
         <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${ctrBase(s)||""}" placeholder="0">${+s.adj?`<div class="m" style="font-size:12px">⚖️ коригування ${+s.adj>0?"+":""}${money(+s.adj)} → разом ${money(s.contract)}</div>`:""}</div></div>
-        ${myKids.length?`<div class="field"><label>📂 Ділянки цього об'єкта</label><div class="m">${myKids.map(k=>esc(k.name)).join(", ")}</div></div>`:`<div class="field"><label>📂 Входить у великий об'єкт (ділянка)</label><select name="parent"><option value="">— ні, самостійний</option>${parTrio?`<option value="${parTrio.id}" selected>📂 ${esc(parTrio.name)} (на трьох)</option>`:""}${[...S.sites.values()].filter(x=>x.type!=="warehouse"&&!x.parent&&x.id!==s.id&&(x.active!==false||x.id===s.parent)).sort(byName).map(x=>`<option value="${x.id}" ${s.parent===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select><div class="m" style="font-size:12px;margin-top:3px">Гроші ділянки рахуються окремо і разом з головним об'єктом. Замовника можна не вписувати — візьметься з головного.</div></div>`}
+        ${myKids.length?`<div class="field"><label>📂 Ділянки цього об'єкта</label><div class="m">${myKids.map(k=>esc(k.name)).join(", ")}</div></div>`:`<div class="field"><label>📂 Входить у великий об'єкт (ділянка)</label><select name="parent" data-sites="1" data-nowh="1" data-ex="${s.id||""}"><option value="">— ні, самостійний</option>${parTrio?`<option value="${parTrio.id}" selected>📂 ${esc(parTrio.name)} (на трьох)</option>`:""}${[...S.sites.values()].filter(x=>x.type!=="warehouse"&&!x.parent&&x.id!==s.id&&(x.active!==false||x.id===s.parent)).sort(byName).map(x=>`<option value="${x.id}" ${s.parent===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select><div class="m" style="font-size:12px;margin-top:3px">Гроші ділянки рахуються окремо і разом з головним об'єктом. Замовника можна не вписувати — візьметься з головного.</div></div>`}
         ${!isNew&&!s.parent&&S.canWrite?`<div class="actions" style="margin:0 0 8px"><button type="button" class="btn ghost" id="sKid" style="flex:1">＋ Нова ділянка</button><button type="button" class="btn ghost" id="sAttach" style="flex:1">📂 Приєднати наявні</button></div>`:""}`:""}
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="active" style="width:22px;height:22px" ${s.active!==false?"checked":""}> Активний (знятий — йде в архів)</label></div>
       <div class="field"><label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:15px"><input type="checkbox" name="test" style="width:22px;height:22px" ${isTestSite(s)?"checked":""}> 🧪 Тестовий (пісочниця) — гроші не рахуються ніде</label></div>
@@ -2808,7 +2857,7 @@ function renderMoney(){
   const {b,shared}=ownerBalances();
   const months=[...new Set([...S.fin.values()].map(f=>(f.date||"").slice(0,7)).filter(Boolean))].sort().reverse();
   const finSites=new Set([...S.fin.values()].map(f=>f.site).filter(Boolean));
-  const siteOpts=[...S.sites.values()].filter(x=>finSites.has(x.id)||x.active!==false).sort(byName);
+  const siteOpts=[...S.sites.values()].filter(x=>finSites.has(x.id)||x.active!==false||x.id===S.mSite).sort(byName);
   const both=bothBalances();
   $("#headTools").innerHTML=`${baseSwitch()}
     <div class="bal">${owners().map(o=>`<div class="stat own" data-own="${o.id}" title="Скільки загальних грошей на руках"><b class="${b[o.id]<0?"out":""}">${money(b[o.id])}</b><span>у ${esc(o.name)}</span></div>`).join("")}</div>
@@ -2816,7 +2865,7 @@ function renderMoney(){
     <div class="tabs2">${[["journal","Журнал"],["workers","Виконавці"],["stats","📈 Аналітика"],["docs","Рахунки"],["price","💲 Прайс"]].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
     ${S.mtab==="journal"?`<div class="filters">
       <select id="mMonth"><option value="">Весь час</option>${months.map(m=>`<option value="${m}" ${S.mMonth===m?"selected":""}>${MONTHS[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join("")}</select>
-      <select id="mSite"><option value="">Усі об'єкти</option>${siteOpts.map(x=>`<option value="${x.id}" ${S.mSite===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+      <select id="mSite" data-sites="1" data-nowh="1"><option value="">Усі об'єкти</option>${siteOpts.map(x=>`<option value="${x.id}" ${S.mSite===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
     </div><div class="filters">
       <select id="mOwner"><option value="">Усі власники</option>${owners().map(o=>`<option value="${o.id}" ${S.mOwner===o.id?"selected":""}>${esc(o.name)}</option>`).join("")}</select>
       <select id="mType"><option value="">Прихід і витрати</option><option value="in" ${S.mType==="in"?"selected":""}>Тільки прихід</option><option value="out" ${S.mType==="out"?"selected":""}>Тільки витрати</option><option value="accrual" ${S.mType==="accrual"?"selected":""}>Нарахування</option></select>
@@ -4900,7 +4949,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v246"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v247"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -5012,7 +5061,7 @@ function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Da
   const own=owners(), wk=[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false).sort(byName);
   const who=isNew?(t.who??me):(t.who||"");
   const opt=p=>`<option value="${p.id}" ${who===p.id?"selected":""}>${p.id===me?"✋ Я — ":""}${esc(p.name)}</option>`;
-  const sites=[...S.sites.values()].filter(x=>x.active!==false).sort(byName);
+  const sites=[...S.sites.values()].filter(x=>x.active!==false||x.id===t.site).sort(byName);
   const chip=(d,l)=>`<button type="button" class="btn ghost" data-tkd="${d}" style="padding:5px 10px;${date===d?"border-color:var(--accent);color:var(--accent)":""}">${l}</button>`;
   openSheet(`<h2>${isNew?"＋ Нова справа":"✏️ Справа"}</h2>
     <div class="field"><label>Що зробити <span class="m">(можна не писати, якщо нижче вказано, що привезти)</span></label><textarea id="tkT" rows="2" placeholder="Напр.: забрати плитку з Епіцентру">${esc(t.title||"")}</textarea></div>
@@ -5022,7 +5071,7 @@ function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Da
     <div class="field"><label>Хто виконує</label><div style="display:flex;gap:6px">${me?`<button type="button" class="btn ghost" id="tkMe" style="white-space:nowrap">✋ Я</button>`:""}<select id="tkW" style="flex:1"><option value="">— не призначено</option><optgroup label="👤 Власники">${own.map(opt).join("")}</optgroup>${wk.length?`<optgroup label="🔧 Виконавці">${wk.map(opt).join("")}</optgroup>`:""}</select></div></div>
 ${`    <div class="field"><label>🧰 Привезти інструмент (необов'язково)</label><textarea id="tkTl" rows="2" placeholder="напр.: бадья&#10;міксер 2">${esc(t.tools||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Коли справу позначите виконаною — інструмент переїде на вибраний об'єкт.</div></div>
     <div class="field"><label>🧱 Привезти матеріали (необов'язково)</label><textarea id="tkMt" rows="2" placeholder="напр.: стяжка 30 мішків&#10;маяки 8 шт">${esc(t.mats||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Кожен матеріал — з нового рядка. Потрапить у «📝 Потрібно» об'єкта; галочка «виконано» = привезено.</div></div>`}
-    <div class="field"><label>Об'єкт <span id="tkSreq">(необов'язково)</span></label><select id="tkS"><option value="">—</option>${sites.map(x=>`<option value="${x.id}" ${t.site===x.id?"selected":""}>${x.type==="warehouse"?"🏬":"🏗️"} ${esc(x.name)}</option>`).join("")}</select></div>
+    <div class="field"><label>Об'єкт <span id="tkSreq">(необов'язково)</span></label><select id="tkS" data-sites="1"><option value="">—</option>${sites.map(x=>`<option value="${x.id}" ${t.site===x.id?"selected":""}>${x.type==="warehouse"?"🏬":"🏗️"} ${esc(x.name)}</option>`).join("")}</select></div>
     ${!isNew&&t.byName?`<div class="m" style="color:var(--muted);margin:4px 0">Записав: ${esc(uaName(t.byName))}${t.done&&t.doneAt?` · виконано ${fmtDate(t.doneAt)}`:""}</div>`:""}
     <div class="actions">${!isNew&&S.canWrite?`<button class="btn ghost" id="tkDel" style="color:#ef4444">🗑</button>`:""}<button class="btn ghost" data-close>Скасувати</button>${S.canWrite?`<button class="btn" id="tkOk">${isNew?"Додати":"Зберегти"}</button>`:""}</div>`);
   const sync=()=>{ const m=$("#tkM").value; $("#tkTimes").style.display=m==="none"?"none":""; $("#tkFw").style.display=m==="range"||m==="from"?"":"none"; $("#tkTw").style.display=m==="range"||m==="till"?"":"none" };
@@ -5141,7 +5190,7 @@ function globalSearch(){
     const num=parseFloat(q.replace(/\s/g,"").replace(",",".")), isNum=/^[\d\s.,]+$/.test(q)&&num>0, hit=t=>wordHit(t,q), out=[];
     const P=[...S.people.values()].filter(p=>hit([p.name,p.phone,...(p.phones||[]).map(x=>x.tel+" "+x.label)].join(" "))||(isNum&&String(p.phone||"").replace(/\D/g,"").includes(q.replace(/\D/g,""))));
     if(P.length) out.push(`<div class="section-t">Люди</div>`+P.slice(0,8).map(p=>row("p",p.id,p.crew?"👥":p.role==="owner"?"👤":"🔧",esc(p.name),esc(p.phone||""))).join(""));
-    const St=[...S.sites.values()].filter(x=>hit([x.name,x.customer,x.note].join(" ")));
+    const St=[...S.sites.values()].filter(x=>hit([x.name,x.customer,x.note,x.address].join(" ")));
     if(St.length) out.push(`<div class="section-t">Об'єкти і склади</div>`+St.slice(0,8).map(x=>row("s",x.id,x.type==="warehouse"?"🏬":"🏗️",esc(x.name),esc([x.customer,x.active===false?"архів":""].filter(Boolean).join(" · ")))).join(""));
     { const Tl=[...S.tools.values()].filter(t=>hit([t.name,t.brand,t.model,t.inv?"#"+t.inv:"",t.serial,t.cat].join(" ")));
       if(Tl.length) out.push(`<div class="section-t">Інструмент</div>`+Tl.slice(0,12).map(t=>row("t",t.id,"🧰",esc(t.name)+(t.brand?" · "+esc(t.brand):"")+(t.inv?` <span class="m">#${esc(t.inv)}</span>`:""),esc([site(t.site)?.name,person(t.holder)?.name].filter(Boolean).join(" · ")),qtyOf(t)+" шт")).join("")) }
