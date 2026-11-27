@@ -249,10 +249,10 @@ const allSites=()=>{ const m=new Map(S.B.trio.sites||[]); if(S.duoOk) for(const 
 const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
 const MOVE_KEYS=new Set(["holder","site","qty","updatedAt","price","priceSrc","movedAt","ackAt","ackBy","checkAt","checkBy","checkMiss"]);
 const localOf=(c,id)=>{ const m=S[c]; const v=m&&m.get?m.get(id):null; if(!v) return null; const {id:_,...r}=v; return JSON.parse(JSON.stringify(r)) };
-async function logChange(db,c,id,op,before,after){
+async function logChange(db,c,id,op,before,after,base){
   if(c==="tools"&&op==="edit"&&after&&before&&Object.keys(after).every(k=>MOVE_KEYS.has(k)||JSON.stringify(after[k])===JSON.stringify(before[k]))) return; // переміщення — у своїй історії
   let byName=""; try{byName=(await S.user?.me?.())?.name||""}catch(_){}
-  const b=RD(c,id), lc=b.startsWith("duo_")?"duo_log":(b===c&&["fin","sites","docs","contracts","tasks"].includes(c)?"log":R("log")); // зміна запису «на двох» — лише в журнал «на двох»
+  const b=base?(base==="duo"?"duo_"+c:c):RD(c,id), lc=b.startsWith("duo_")?"duo_log":(b===c&&["fin","sites","docs","contracts","tasks"].includes(c)?"log":R("log")); // зміна запису «на двох» — лише в журнал «на двох»
   try{ await db.collection(lc).add({at:Date.now(),by:S.uid||"",byName,op,col:c,id,before:before||null,after:after||null}) }catch(e){ console.warn("log",e) }
 }
 const routed=db=>({
@@ -262,8 +262,9 @@ const routed=db=>({
   doc:path=>{const i=path.indexOf("/"), c=path.slice(0,i), id=path.slice(i+1); const d=db.doc(RD(c,id.split("/")[0])+path.slice(i)); return LOGGED.includes(c)?wrapLogged(db,c,d,id):d},
   newId:()=>db.newId(),
   // кілька документів — одним пакетом: або всі, або жоден (взаємозалік не може записатися наполовину)
-  batchSet:async ops=>{ const m=ops.map(([p,d])=>{ const raw=p[0]==="!"; if(raw) p=p.slice(1); const i=p.indexOf("/"), c=p.slice(0,i); return {c:raw?"":c,id:p.slice(i+1),p:raw?p:RD(c,p.slice(i+1))+p.slice(i),d} }), bef=m.map(x=>LOGGED.includes(x.c)?localOf(x.c,x.id):null);
-    await db.batchSet(m.map(x=>[x.p,x.d])); for(let k=0;k<m.length;k++) if(LOGGED.includes(m[k].c)) try{ await logChange(db,m[k].c,m[k].id,bef[k]?"edit":"add",bef[k],JSON.parse(JSON.stringify(m[k].d))) }catch(_){} }});
+  batchSet:async ops=>{ const m=ops.map(([p,d])=>{ const raw=p[0]==="!"; if(raw) p=p.slice(1); const i=p.indexOf("/"); let c=p.slice(0,i), bs=""; const at=c.indexOf("@"); if(at>0){ bs=c.slice(at+1)==="duo"&&S.duoOk?"duo":"trio"; c=c.slice(0,at) }
+      return {c:raw?"":c,id:p.slice(i+1),bs,p:raw?p:bs?(bs==="duo"?"duo_":"")+c+p.slice(i):RD(c,p.slice(i+1))+p.slice(i),d} }), bef=m.map(x=>LOGGED.includes(x.c)?localOf(x.c,x.id):null);
+    await db.batchSet(m.map(x=>[x.p,x.d])); for(let k=0;k<m.length;k++) if(LOGGED.includes(m[k].c)) try{ await logChange(db,m[k].c,m[k].id,bef[k]?"edit":"add",bef[k],JSON.parse(JSON.stringify(m[k].d)),m[k].bs) }catch(_){} }});
 const wrapLogged=(db,c,d,id0)=>{ const id=()=>id0||d.id; return {...d,
   set:async v=>{ const b=localOf(c,id()); await d.set(v); await logChange(db,c,id(),b?"edit":"add",b,JSON.parse(JSON.stringify(v))) },
   update:async v=>{ const b=localOf(c,id()); await d.update(v); await logChange(db,c,id(),"edit",b,{...(b||{}),...JSON.parse(JSON.stringify(v))}) },
@@ -3155,7 +3156,7 @@ function finForm(f,preset){
       <div data-m="in out accrual"><div class="field"><label>Об'єкт</label><select name="site">${siteOptions(f.site||"","— без об'єкта")}</select></div></div>
       <div data-m="out accrual"><div class="row"><div class="field" data-m="out"><label>Вид</label><select name="kind">${KINDS.map(k=>`<option ${f.kind===k?"selected":""}>${k}</option>`).join("")}</select></div>
         <div class="field" id="wFld"><label id="wLbl">Виконавець</label><select name="worker"><option value="">—</option>${workers.map(p=>`<option value="${p.id}" ${f.worker===p.id?"selected":""}>${p.crew?"👥 ":""}${esc(p.name)}</option>`).join("")}</select></div></div></div>
-      <div id="wDebt"></div>
+      <div id="wDebt"></div><div id="wSplit"></div>
       ${isNew?`<div data-m="accrual"><label class="m" style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;font-size:14px"><input type="checkbox" id="accPay" checked style="width:20px;height:20px"> 💵 Одразу виплатити (зніміть, якщо платите пізніше)</label>
         <div class="field" id="accPayOwn"><label>Хто платить</label><select id="accOwn">${ownOpts(myOwner()||owners()[0]?.id)}</select></div></div>`:""}
       <div data-m="xfer"><div class="row"><div class="field"><label>Від кого</label><select name="from">${ownOpts(from?.owner||myOwner()||owners()[0]?.id)}</select></div>
@@ -3182,6 +3183,34 @@ function finForm(f,preset){
         ${d.debt>0?`<br>⚠️ Якщо ви <b>віддаєте гроші за вже нараховане</b> — це не нарахування. <a href="#" id="toPay" onclick="return false"><b>💵 Записати як виплату боргу →</b></a>`:""}</div>` }
     else box.innerHTML=`<div class="banner" style="margin-bottom:8px">${line}${a>0?`<br>Після оплати ${money(a)}: ${d.debt-a>0?`борг <b>${money(d.debt-a)}</b>`:d.debt-a<0?`<b>переплата ${money(a-d.debt)}</b> (аванс наперед)`:"розраховані повністю ✅"}`:""}</div>`;
     $("#toPay")?.addEventListener("click",()=>{ setMode("out"); const k=$("#finForm [name=kind]"); if(k) k.value="Зарплата"; debtInfo() }) };
+  // 🔀 одна сума людині чи бригаді без об'єкта → розкладаємо по об'єктах пропорційно боргу на кожному (решта — аванс без об'єкта)
+  let spl=null, splMan={}, splKey="";
+  const splBase=sid=>isDuoSite(sid)?"duo":"trio";
+  const splDebts=wid=>{ const own=$("#finForm [name=owner]")?.value||"", my=finBase(f), by={};
+    for(const x of wFins()){ if(x.worker!==wid||x.id===f.id||!x.site||isHelperPay(x)) continue; const a=+x.amount||0; if(x.type==="accrual") by[x.site]=(by[x.site]||0)+a; else if(x.type==="out") by[x.site]=(by[x.site]||0)-a }
+    return Object.entries(by).map(([sid,d])=>({sid,d:Math.round(d*100)/100,b:splBase(sid),s:site(sid)})).filter(x=>x.d>=1&&x.s&&!isTestSite(x.s)
+      &&(isNew?(x.b==="trio"||(S.duoOk&&DUO_OWNERS.includes(own))):x.b===my)).sort((a,b)=>b.d-a.d) };
+  const splCalc=()=>{ const box=$("#wSplit"); if(!box) return; const F=n=>$("#finForm [name="+n+"]")?.value||"", wid=F("worker"), p=person(wid), A=Math.round((sumExpr(F("amount"))||0)*100)/100;
+    const can=mode==="out"&&wid&&p&&!p.helper&&F("kind")==="Зарплата"&&!F("site")&&!(!isNew&&f.kind==="Взаємозалік");
+    const L=can?splDebts(wid):[]; if(!can||!L.length||!(A>0)){ box.innerHTML=""; spl=null; return }
+    const key=wid+"|"+A+"|"+F("owner"); if(key!==splKey){ splKey=key; splMan={} }
+    const on=spl?spl.on:isNew;
+    // пропорційно боргу; якщо сума більша за весь борг — кожному об'єкту його борг, решта аванс. Поправлені вручну суми лишаються, решта ділиться між іншими
+    const parts=L.map(x=>({...x,v:splMan[x.sid]??0,man:splMan[x.sid]!=null})), free=parts.filter(x=>!x.man), D=free.reduce((a,x)=>a+x.d,0), A2=Math.max(0,Math.round((A-parts.filter(x=>x.man).reduce((a,x)=>a+x.v,0))*100)/100);
+    for(const x of free) x.v=A2>=D?x.d:Math.floor(A2*x.d/D);
+    if(A2<D&&free.length){ let r=Math.round((A2-free.reduce((a,x)=>a+x.v,0))*100)/100; for(const x of free){ if(r<=0) break; const add=Math.min(r,1); x.v=Math.round((x.v+add)*100)/100; r=Math.round((r-add)*100)/100 } if(r>0) free[0].v=Math.round((free[0].v+r)*100)/100 }
+    const used=Math.round(parts.reduce((a,x)=>a+(+x.v||0),0)*100)/100, rest=Math.round((A-used)*100)/100;
+    spl={on,parts,rest};
+    box.innerHTML=`<div class="card" style="display:block;cursor:default;margin-bottom:8px;font-size:14px">
+      <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="splOn" ${on?"checked":""} style="width:22px;height:22px;flex:none"> 🔀 Розподілити по об'єктах (пропорційно боргу)</label>
+      ${on?`<div style="margin-top:6px">${parts.map(x=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px"><span style="flex:1;min-width:0">${S.duoOk&&x.b!==(isDuo()?"duo":"trio")?(x.b==="duo"?"🤝 ":"👥 "):""}${esc(x.s.name)}${x.s.active===false?" 🗄":""}<span class="m" style="display:block;font-size:12px">винні ${money(x.d)}</span></span><input data-spv="${x.sid}" inputmode="decimal" value="${x.v}" style="flex:0 0 96px;text-align:right;padding:6px 8px;${x.man?"border-color:var(--accent)":""}"></div>`).join("")}
+        ${rest>0?`<div class="m">+ ${money(rest)} — аванс без об'єкта (більше, ніж винні по об'єктах)</div>`:rest<0?`<div class="m" style="color:var(--red,#e5534b)">⚠️ Розкладено на ${money(-rest)} більше, ніж сума</div>`:""}
+        ${Object.keys(splMan).length?`<a href="#" id="splRe" class="m" style="display:block;font-size:12.5px;color:var(--accent);margin-top:2px">↺ Знову пропорційно</a>`:""}
+        ${!isNew?`<div class="m" style="font-size:12px;margin-top:2px">Цей запис стане ${parts.filter(x=>x.v>0).length+(rest>0?1:0)} записами — по одному на об'єкт.</div>`:""}</div>`:`<div class="m" style="margin-top:4px">Уся сума запишеться без об'єкта.</div>`}</div>`;
+    $("#splOn").onchange=e=>{ spl.on=e.target.checked; splCalc() }; $("#splRe")?.addEventListener("click",e=>{ e.preventDefault(); splMan={}; splCalc() });
+    box.querySelectorAll("[data-spv]").forEach(i=>i.onchange=()=>{ splMan[i.dataset.spv]=Math.max(0,Math.round((parseFloat(String(i.value).replace(",","."))||0)*100)/100); splCalc() }) };
+  ["worker","site","kind","owner"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",splCalc)); $("#finForm [name=amount]").addEventListener("input",splCalc);
+  $("#segM").addEventListener("click",()=>setTimeout(splCalc)); setTimeout(splCalc);
   $("#finForm [name=worker]")?.addEventListener("change",e=>{ const k=$("#finForm [name=kind]"); if(mode==="out"&&e.target.value&&k){ if(person(e.target.value)?.helper) k.value="Підсоба"; else if(k.value==="Матеріали") k.value="Зарплата" } });
   ["worker","site","kind"].forEach(n=>$("#finForm [name="+n+"]")?.addEventListener("change",debtInfo));
   const wHide=()=>{ const k=$("#finForm [name=kind]")?.value, hide=mode==="out"&&k==="Матеріали", fl=$("#wFld"); if(fl) fl.style.display=hide?"none":""; if(hide){ const w=$("#finForm [name=worker]"); if(w&&w.value){ w.value=""; debtInfo() } } };
@@ -3285,6 +3314,15 @@ function finForm(f,preset){
           if(f.receipt) deleteFile(f.receipt).catch(()=>{}) }catch(e){ toast("Чек не збережено: "+String(e?.message||e).slice(0,60)) } }
         else if(rcDrop&&f.receipt){ deleteFile(f.receipt).catch(()=>{}) } }
       const taxOn=mode==="in"&&$("#taxOn").checked, rate=parseFloat(String($("#taxRate").value).replace(",","."))||0;
+      splCalc(); const sp=mode==="out"&&!data.site&&spl?.on?spl:null;
+      if(sp&&sp.rest<0){ toast("Розкладено більше, ніж сума — поправте"); btn.disabled=false; return }
+      if(sp&&sp.parts.some(x=>x.v>0)){ const grp="g"+now, my=finBase(f), nt=v.note.trim(), list=sp.parts.filter(x=>x.v>0).map(x=>({sid:x.sid,b:x.b,v:x.v}));
+        if(sp.rest>0) list.push({sid:"",b:isNew?(isDuo()?"duo":"trio"):my,v:sp.rest});
+        const cur=isNew?(isDuo()?"duo":"trio"):my; let rcPut=false; // фото чека — на одному записі тієї бази, де лежить файл
+        ok=await write(async db=>{ const ops=list.map((x,k)=>{ const id=!isNew&&k===0?f.id:db.newId();
+            const d={...data,site:x.sid,amount:x.v,grp,note:(nt?nt+" · ":"")+(x.sid?"розподіл виплати":"аванс (решта виплати)"),createdAt:(f.createdAt||now)+k}; if(d.receipt){ if(x.b!==cur||rcPut) delete d.receipt; else rcPut=true } if(k>0) delete d.report;
+            return ["fin@"+x.b+"/"+id,d] }); await db.batchSet(ops) });
+        if(ok){ closeSheet(); toast(`Виплачено ${money(amount)} · ${list.length} ${list.length<5?"записи":"записів"} по об'єктах`) } else btn.disabled=false; return }
       if(mode==="in"){ try{ localStorage.setItem("oblikTax",JSON.stringify({on:taxOn,rate:rate||7,v7:1})) }catch(_){} }
       ok=await write(async db=>{
         let id=f.id;
@@ -4949,7 +4987,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v247"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v248"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
