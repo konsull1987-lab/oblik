@@ -229,7 +229,7 @@ const S = {
   select:false, selected:new Set(), loaded:{tools:false,people:false,sites:false,moves:false,fin:false,fops:false,clients:false,docs:false,contracts:false},
   canWrite:true, db:null, user:null, uid:null, offline:false,
   base:(()=>{try{return localStorage.getItem("oblikBase")==="duo"?"duo":"trio"}catch(_){return "trio"}})(),
-  B:{trio:{fin:new Map(),sites:new Map()},duo:{fin:new Map(),sites:new Map()}}, pend:{trio:new Set(),duo:new Set()}, duoOk:false, duoLoaded:false
+  B:{trio:{fin:new Map(),sites:new Map(),docs:new Map(),contracts:new Map()},duo:{fin:new Map(),sites:new Map(),docs:new Map(),contracts:new Map()}}, pend:{trio:new Set(),duo:new Set()}, duoOk:false, duoLoaded:false
 };
 // ---- Дві бази: «на трьох» (fin, sites) і «общак на двох» (duo_fin, duo_sites) ----
 const DUO_OWNERS=["andriy","serhiy"];
@@ -237,8 +237,14 @@ const isDuo=()=>S.base==="duo"&&S.duoOk;
 // 🧪 Тестовий об'єкт (пісочниця): його платежі не входять у жодні підсумки, баланси, борги й аналітику
 const isTestSite=x=>!!x&&(x.test===true||(x.test!==false&&/^\s*(тест|test|пісочниця)(\s|$)/i.test(x.name||"")));
 function testFilter(k){ const b=S.B[k]; if(!b.finRaw) b.finRaw=b.fin; const t=new Set([...b.sites.values()].filter(isTestSite).map(x=>x.id)); b.testIds=t; b.fin=t.size?new Map([...b.finRaw].filter(([,f])=>!t.has(f.site))):b.finRaw }
-function applyBase(){ testFilter("trio"); if(S.B.duo.sites) testFilter("duo"); const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.finAll=S.B[k].finRaw||S.B[k].fin; S.sites=S.B[k].sites; }
-const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers"||c==="photos"||c==="tasks")?"duo_"+c:c;
+function applyBase(){ testFilter("trio"); if(S.B.duo.sites) testFilter("duo"); const k=isDuo()?"duo":"trio"; S.fin=S.B[k].fin; S.finAll=S.B[k].finRaw||S.B[k].fin; S.sites=S.B[k].sites; S.docs=S.B[k].docs||new Map(); S.contracts=S.B[k].contracts||new Map(); }
+const R=c=>isDuo()&&(c==="fin"||c==="sites"||c==="del"||c==="log"||c==="files"||c==="offers"||c==="photos"||c==="tasks"||c==="docs"||c==="contracts")?"duo_"+c:c;
+// документ з відомим id пишемо в ту базу, де він лежить, — навіть якщо зараз відкрита інша (напр., інструмент на об'єкт «на двох» з вкладки «на трьох»)
+const RD=(c,id)=>{ if(S.duoOk&&id&&["sites","fin","docs","contracts","tasks"].includes(c)){ const has=k=>c==="tasks"?((k==="duo"?S.tasksD:S.tasksT)||[]).some(t=>t.id===id):!!S.B[k]?.[c]?.has?.(id), d=has("duo"), t=has("trio");
+  if(d&&!t) return "duo_"+c; if(t&&!d) return c } return R(c) };
+const isDuoSite=id=>!!(S.duoOk&&id&&S.B.duo.sites?.has(id)&&!S.B.trio.sites?.has(id));
+// усі об'єкти й склади, які бачить людина: «на трьох» + (для Андрія й Сергія) «на двох» — для інструменту, що один на всіх
+const allSites=()=>{ const m=new Map(S.B.trio.sites||[]); if(S.duoOk) for(const [k,v] of (S.B.duo.sites||[])) if(!m.has(k)) m.set(k,v); return [...m.values()] };
 // ---- Журнал змін: кожне додавання / зміна / видалення зберігається повністю (як було → як стало) ----
 const LOGGED=["fin","tools","sites","people","docs","contracts","fops","clients"];
 const MOVE_KEYS=new Set(["holder","site","qty","updatedAt","price","priceSrc","movedAt","ackAt","ackBy","checkAt","checkBy","checkMiss"]);
@@ -246,23 +252,24 @@ const localOf=(c,id)=>{ const m=S[c]; const v=m&&m.get?m.get(id):null; if(!v) re
 async function logChange(db,c,id,op,before,after){
   if(c==="tools"&&op==="edit"&&after&&before&&Object.keys(after).every(k=>MOVE_KEYS.has(k)||JSON.stringify(after[k])===JSON.stringify(before[k]))) return; // переміщення — у своїй історії
   let byName=""; try{byName=(await S.user?.me?.())?.name||""}catch(_){}
-  try{ await db.collection(R("log")).add({at:Date.now(),by:S.uid||"",byName,op,col:c,id,before:before||null,after:after||null}) }catch(e){ console.warn("log",e) }
+  const b=RD(c,id), lc=b.startsWith("duo_")?"duo_log":(b===c&&["fin","sites","docs","contracts","tasks"].includes(c)?"log":R("log")); // зміна запису «на двох» — лише в журнал «на двох»
+  try{ await db.collection(lc).add({at:Date.now(),by:S.uid||"",byName,op,col:c,id,before:before||null,after:after||null}) }catch(e){ console.warn("log",e) }
 }
 const routed=db=>({
   collection:p=>{ const c=db.collection(R(p)); if(!LOGGED.includes(p)) return c;
     return {...c,add:async d=>{ const r=await c.add(d); await logChange(db,p,r.id,"add",null,JSON.parse(JSON.stringify(d))); return r },
       doc:id=>{ const d=c.doc(id); return wrapLogged(db,p,d) }} },
-  doc:path=>{const i=path.indexOf("/"), c=path.slice(0,i), id=path.slice(i+1); const d=db.doc(R(c)+path.slice(i)); return LOGGED.includes(c)?wrapLogged(db,c,d,id):d},
+  doc:path=>{const i=path.indexOf("/"), c=path.slice(0,i), id=path.slice(i+1); const d=db.doc(RD(c,id.split("/")[0])+path.slice(i)); return LOGGED.includes(c)?wrapLogged(db,c,d,id):d},
   newId:()=>db.newId(),
   // кілька документів — одним пакетом: або всі, або жоден (взаємозалік не може записатися наполовину)
-  batchSet:async ops=>{ const m=ops.map(([p,d])=>{ const raw=p[0]==="!"; if(raw) p=p.slice(1); const i=p.indexOf("/"), c=p.slice(0,i); return {c:raw?"":c,id:p.slice(i+1),p:raw?p:R(c)+p.slice(i),d} }), bef=m.map(x=>LOGGED.includes(x.c)?localOf(x.c,x.id):null);
+  batchSet:async ops=>{ const m=ops.map(([p,d])=>{ const raw=p[0]==="!"; if(raw) p=p.slice(1); const i=p.indexOf("/"), c=p.slice(0,i); return {c:raw?"":c,id:p.slice(i+1),p:raw?p:RD(c,p.slice(i+1))+p.slice(i),d} }), bef=m.map(x=>LOGGED.includes(x.c)?localOf(x.c,x.id):null);
     await db.batchSet(m.map(x=>[x.p,x.d])); for(let k=0;k<m.length;k++) if(LOGGED.includes(m[k].c)) try{ await logChange(db,m[k].c,m[k].id,bef[k]?"edit":"add",bef[k],JSON.parse(JSON.stringify(m[k].d))) }catch(_){} }});
 const wrapLogged=(db,c,d,id0)=>{ const id=()=>id0||d.id; return {...d,
   set:async v=>{ const b=localOf(c,id()); await d.set(v); await logChange(db,c,id(),b?"edit":"add",b,JSON.parse(JSON.stringify(v))) },
   update:async v=>{ const b=localOf(c,id()); await d.update(v); await logChange(db,c,id(),"edit",b,{...(b||{}),...JSON.parse(JSON.stringify(v))}) },
   delete:async()=>{ const b=localOf(c,id()); await d.delete(); await logChange(db,c,id(),"del",b,null) } } };
 function setBase(b){ S.base=b; try{localStorage.setItem("oblikBase",b)}catch(_){}; applyBase(); Object.assign(S,{mSite:"",mOwner:"",mKind:"",mMonth:"",mType:"",sq:""});
-  if(isDuo()&&S.tab==="tools") S.tab="money"; if(isDuo()&&(S.mtab==="docs"||S.mtab==="price")) S.mtab="journal"; render(); }
+  render(); }
 function baseSwitch(){ if(!S.duoOk) return ""; return `<div class="seg" style="margin-bottom:8px">${[["trio","👥 На трьох"],["duo","🤝 Общак на двох"]].map(([k,l])=>`<button type="button" data-base="${k}" class="${(isDuo()?"duo":"trio")===k?"on":""}">${l}</button>`).join("")}</div>`; }
 const $ = s=>document.querySelector(s);
 const esc = s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -270,7 +277,7 @@ const byName = (a,b)=>(a.name||"").localeCompare(b.name||"","uk");
 function toast(t,ms){const d=document.createElement("div");d.className="toast";d.textContent=t;if(ms){d.style.whiteSpace="pre-line";d.style.borderRadius="14px";d.style.maxWidth="92vw";d.style.width="max-content";d.style.cursor="pointer";d.style.pointerEvents="auto";d.onclick=()=>d.remove()}document.body.appendChild(d);setTimeout(()=>d.remove(),ms||2200)}
 function fmtDate(ms){const d=new Date(ms);return d.toLocaleDateString("uk-UA",{day:"2-digit",month:"2-digit",year:"2-digit"})+" "+d.toLocaleTimeString("uk-UA",{hour:"2-digit",minute:"2-digit"})}
 function person(id){return S.people.get(id)}
-function site(id){return S.sites.get(id)}
+function site(id){return S.sites.get(id)||S.B.trio.sites?.get(id)||(S.duoOk?S.B.duo.sites?.get(id):undefined)}
 function holderTag(id){const p=person(id); if(!p) return `<span class="tag site">— не вказано</span>`; return `<span class="tag ${p.role==="owner"?"own":"wrk"}">${p.role==="owner"?"👤":"🔧"} ${esc(p.name)}</span>`}
 function siteTag(id){const s=site(id); if(!s) return ""; return `<span class="tag site">${s.type==="warehouse"?"🏬":"🏗️"} ${esc(s.name)}</span>`}
 function statusTag(st){if(!st||st==="ok")return""; return `<span class="tag ${st==="repair"?"rep":"bad"}">${STATUS[st]}</span>`}
@@ -284,14 +291,15 @@ async function cacheLoad(){ try{ const db=await IDB(); const x=await new Promise
   if(!S.people?.size) S.people=M(x.people); if(!S.tools?.size) S.tools=M(x.tools);
   if(!S.B.trio.sites?.size){ S.B.trio.sites=M(x.tSites); S.B.trio.finRaw=S.B.trio.fin=M(x.tFin) }
   if(x.duo&&!S.B.duo.sites?.size){ S.B.duo.sites=M(x.dSites); S.B.duo.finRaw=S.B.duo.fin=M(x.dFin); S.duoOk=true }
-  for(const c of ["fops","clients","docs","contracts"]) if(!S[c]?.size&&x[c]) S[c]=M(x[c]);
+  for(const c of ["fops","clients"]) if(!S[c]?.size&&x[c]) S[c]=M(x[c]);
+  for(const c of ["docs","contracts"]){ if(!S.B.trio[c]?.size&&x[c]) S.B.trio[c]=M(x[c]); if(x.duo&&!S.B.duo[c]?.size&&x["d_"+c]) S.B.duo[c]=M(x["d_"+c]) }
   if(!S.tasksT&&x.tasksT) S.tasksT=x.tasksT; if(!S.tasksD&&x.tasksD) S.tasksD=x.tasksD; if(!S.inbox&&x.inbox) S.inbox=x.inbox;
   if(x.meName&&!S.meName) S.meName=x.meName; S.cacheAt=x.at; S.fromCache=true; applyBase(); document.body.classList.remove("snap"); render(); return true }catch(_){ return false } }
 function cacheSave(){ clearTimeout(S._csT); S._csT=setTimeout(async()=>{ if(!S.db||!S.loaded||!Object.values(S.loaded).every(Boolean)||window.__demo) return;
   try{ const A=m=>[...(m?.values?.()||[])]; const x={at:Date.now(),people:A(S.people),tools:A(S.tools),tSites:A(S.B.trio.sites),tFin:A(S.B.trio.finRaw||S.B.trio.fin),
       duo:!!(S.duoOk&&S.duoLoaded),dSites:S.duoOk?A(S.B.duo.sites):[],dFin:S.duoOk?A(S.B.duo.finRaw||S.B.duo.fin):[],tasksT:S.tasksT||[],tasksD:S.duoOk?(S.tasksD||[]):[],
       inbox:(S.inbox||[]).map(({photos,...m})=>({...m,photos:[]})).slice(0,80),meName:S.meName||""};
-    for(const c of ["fops","clients","docs","contracts"]) x[c]=A(S[c]);
+    for(const c of ["fops","clients"]) x[c]=A(S[c]); for(const c of ["docs","contracts"]){ x[c]=A(S.B.trio[c]); if(S.duoOk) x["d_"+c]=A(S.B.duo[c]) }
     const db=await IDB(); db.transaction("kv","readwrite").objectStore("kv").put(x,"snap") }catch(_){} },5000) }
 async function cacheClear(){ try{ const db=await IDB(); db.transaction("kv","readwrite").objectStore("kv").delete("snap") }catch(_){} }
 // 🔄 свій «потягнути вниз»: оновлює дані на місці — відкрита вкладка, вікно і введене не зникають (браузерний перезапуск вимкнено)
@@ -336,9 +344,11 @@ async function init(){
     db.collection("duo_sites").onSnapshot(s=>{mk("sites")(s);if(!s.metadata.fromCache&&!f1++)done()},()=>{});
     db.collection("duo_fin").onSnapshot(s=>{mk("fin")(s);if(!s.metadata.fromCache&&!f2++)done()},()=>{});
     try{ db.collection("duo_tasks").orderBy("date","desc").limit(300).onSnapshot(s=>{ S.tasksD=s.docs.map(d=>({id:d.id,...d.data()})); render() },()=>{}) }catch(_){}
+    for(const c of ["docs","contracts"]) db.collection("duo_"+c).onSnapshot(s=>{ S.B.duo[c]=new Map(s.docs.map(d=>[d.id,{id:d.id,...d.data()}])); applyBase(); render() },()=>{});
     applyBase(); render();
   }).catch(()=>{ S.duoOk=false; S.duoChecked=true; applyBase(); render(); });
-  for(const c of ["fops","clients","docs","contracts"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  for(const c of ["fops","clients"]) sub(c,db.collection(c),snap=>{S[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
+  for(const c of ["docs","contracts"]) sub(c,db.collection(c),snap=>{S.B.trio[c]=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); applyBase()});
   try{ db.doc("meta/backup").get().then(x=>{S.backupAt=x.exists?+x.data().at||0:0;S.backupLoaded=true;render()}).catch(()=>{}) }catch(_){}
   // 🔔 перший запуск: спитати про сповіщення (один раз)
   setTimeout(()=>{ try{ if(!S.canWrite||localStorage.getItem("notifAsked")||!window.Notification||Notification.permission!=="default"||$("#modal").children.length) return;
@@ -378,8 +388,7 @@ function render(){
   // поки людина друкує/диктує в полі пошуку на екрані — фонові оновлення (база, тендери, ШІ) не перемальовують екран, інакше голосовий ввід обривається
   const ae=document.activeElement; if(!S.forceRender&&ae&&ae.matches?.("#view input[type=search],#view input[type=text],#view textarea")&&document.getElementById("view")?.contains(ae)){ if(!S.renderHeld){ S.renderHeld=true; ae.addEventListener("blur",()=>{ S.renderHeld=false; setTimeout(render,50) },{once:true}) } return }
   if(S.meName){ const w=$("#who"), t=uaName(S.meName); if(w&&w.textContent!==t) w.textContent=t }
-  if(isDuo()&&S.tab==="tools") S.tab="money";
-  document.querySelectorAll("nav button").forEach(b=>{b.classList.toggle("on",b.dataset.tab===S.tab); if(b.dataset.tab==="tools") b.style.display=isDuo()?"none":""});
+  document.querySelectorAll("nav button").forEach(b=>{b.classList.toggle("on",b.dataset.tab===S.tab); if(b.dataset.tab==="tools") b.style.display=""});
   document.body.classList.toggle("duo",isDuo());
   { const m=document.querySelector('meta[name="theme-color"]'); if(m) m.content=isDuo()?"#b45309":"#0f766e";
     const w=$("#who"); if(w&&S.duoOk){ let b=$("#baseBadge"); if(!b){b=document.createElement("span");b.id="baseBadge";b.className="basebadge";w.before(b)} b.textContent=isDuo()?"🤝 на двох":"👥 на трьох"; b.style.cursor="pointer"; b.title="Перемкнути базу"; b.onclick=()=>setBase(isDuo()?"trio":"duo") } }
@@ -426,15 +435,15 @@ function catOptions(sel,withAll){
   }
   return h;
 }
-function siteOptions(sel,emptyLabel){
+function siteOptions(sel,emptyLabel,all){ // all — склади й об'єкти обох баз (для інструменту, він один на всіх)
   const withTools=new Set([...S.tools.values()].map(t=>t.site));
-  const all=[...S.sites.values()].filter(s=>s.active!==false||s.id===sel||withTools.has(s.id)).sort(byName);
+  const src=all?allSites():[...S.sites.values()]; all=src.filter(s=>s.active!==false||s.id===sel||withTools.has(s.id)).sort(byName);
   let h=`<option value="">${emptyLabel}</option>`;
   for(const [type,label] of [["warehouse","Склади"],["site","Об'єкти"]]){
     const l=all.filter(s=>s.type===type); if(!l.length)continue;
     h+=`<optgroup label="${label}">`+l.sort((a,b)=>siteFull(a).localeCompare(siteFull(b),"uk")).map(s=>`<option value="${s.id}" ${sel===s.id?"selected":""}>${esc(siteFull(s))}</option>`).join("")+`</optgroup>`;
   }
-  const arch=[...S.sites.values()].filter(s=>s.type!=="warehouse"&&!all.includes(s)).sort(byName);
+  const arch=src.filter(s=>s.type!=="warehouse"&&!all.includes(s)).sort(byName);
   if(arch.length) h+=`<optgroup label="🗄 Архів">`+arch.map(s=>`<option value="${s.id}">${esc(siteFull(s))}</option>`).join("")+`</optgroup>`;
   return h;
 }
@@ -477,7 +486,7 @@ const siteKey=s=>s?(s.type==="warehouse"?"w:":"s:")+s.id:"none";
 function placeKey(t){ const s=t.site&&site(t.site); if(s) return siteKey(s); const p=t.holder&&person(t.holder); return p?(p.role==="owner"?"car:":"p:")+p.id:"none" }
 function placeMeta(k){ const i=k.indexOf(":"), ty=i<0?k:k.slice(0,i), id=i<0?"":k.slice(i+1);
   if(ty==="w"){ const s=site(id); return {k,ty,id,ok:!!s&&s.active!==false,ic:"🏬",nm:s?.name||"Склад",site:id,resp:whResp(s)} }
-  if(ty==="s"){ const s=site(id); return {k,ty,id,ok:!!s&&s.active!==false,ic:"🏗️",nm:s?siteFull(s):"Об'єкт",site:id,resp:siteResp(id),arch:s?.active===false} }
+  if(ty==="s"){ const s=site(id); return {k,ty,id,ok:!!s&&s.active!==false,ic:"🏗️",nm:s?(isDuoSite(id)?"🤝 ":"")+siteFull(s):"Об'єкт",site:id,resp:siteResp(id),arch:s?.active===false} }
   const p=person(id);
   if(ty==="car") return {k,ty,id,ok:!!p&&p.active!==false,ic:"🚐",nm:p?.name||"—",sub:"машина",site:"",resp:id};
   if(ty==="p"||ty==="h") return {k,ty,id,ok:!!p&&p.active!==false,ic:p?.crew?"👥":p?.role==="owner"?"👤":"🔧",nm:p?.name||"—",site:"",resp:id};
@@ -505,7 +514,7 @@ function renderTools(){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px"><span class="chip" id="catBtn">📚 Довідник</span><span class="chip" id="buyBtn">🛒 Закупівля</span>${S.canWrite?`<span class="chip" id="qrAll">🏷 QR-наліпки</span>`:""}${nR?`<span class="chip ${S.holderType==="repair"?"on":""}" data-ht="${S.holderType==="repair"?"all":"repair"}">🔧 Ремонт ${nR}</span>`:""}${nL?`<span class="chip ${S.holderType==="lost"?"on":""}" data-ht="${S.holderType==="lost"?"all":"lost"}">❌ Втрачено ${nL}</span>`:""}${S.canWrite&&live.some(t=>perUnit(t)&&qtyOf(t)>1&&!t.serial)?`<span class="chip" id="batC">✂️ Дорогі партіями (${live.filter(t=>perUnit(t)&&qtyOf(t)>1&&!t.serial).length}) — поштучно</span>`:""}${live.some(t=>t.checkMiss)?`<span class="chip" id="missC" style="border-color:#ef4444;color:#ef4444">❓ Не знайшли ${live.filter(t=>t.checkMiss).length}</span>`:""}</div>`;
   if(S.holderType==="lost"){ $("#view").innerHTML=lostHTML(); bindLost(); return }
   if(!S.tools.size){
-    $("#view").innerHTML=`<div class="empty">Інструменту ще немає.<br><br>${S.people.size<2||!S.sites.size?"Спочатку додайте <b>людей</b> і <b>об'єкти/склади</b> на відповідних вкладках, потім — інструмент кнопкою «+».":"Натисніть «+», щоб додати перший інструмент."}</div>`;
+    $("#view").innerHTML=`<div class="empty">Інструменту ще немає.<br><br>${S.people.size<2||!allSites().length?"Спочатку додайте <b>людей</b> і <b>об'єкти/склади</b> на відповідних вкладках, потім — інструмент кнопкою «+».":"Натисніть «+», щоб додати перший інструмент."}</div>`;
     return;
   }
   const q=(S.q||"").trim().replace(/^#/,"");
@@ -522,7 +531,7 @@ function renderTools(){
   // 📍 Місця: склади, машини, об'єкти, люди — великими картками з кількістю
   const G=new Map(); for(const t of live){ const k=placeKey(t); G.set(k,(G.get(k)||0)+qtyOf(t)) }
   const card=k=>{ const m=placeMeta(k), r=m.ty==="car"?"у машині":m.ty==="p"?(person(m.id)?.crew?"бригада":"при собі"):person(m.resp)?.name||""; return `<div class="pl" data-pl="${esc(k)}"><span class="ic">${m.ic}</span><span class="n">${G.get(k)||0}</span><b>${esc(m.nm)}</b><span class="m">${esc(r)}${m.arch?" · архів":""}</span></div>` };
-  const wh=[...S.sites.values()].filter(s=>s.type==="warehouse"&&(s.active!==false||G.has("w:"+s.id))).sort(byName).map(s=>"w:"+s.id);
+  const wh=allSites().filter(s=>s.type==="warehouse"&&(s.active!==false||G.has("w:"+s.id))).sort(byName).map(s=>"w:"+s.id);
   const cars=[...S.people.values()].filter(p=>p.role==="owner"&&(p.active!==false||G.has("car:"+p.id))).sort(byName).map(p=>"car:"+p.id);
   const objs=[...G.keys()].filter(k=>k.startsWith("s:")).sort((a,b)=>G.get(b)-G.get(a)||placeMeta(a).nm.localeCompare(placeMeta(b).nm,"uk"));
   const ppl=[...G.keys()].filter(k=>k.startsWith("p:")).sort((a,b)=>G.get(b)-G.get(a));
@@ -554,7 +563,7 @@ function placeSheet(k){ const m=placeMeta(k), l=placeTools(k), sum=l.reduce((a,t
   M.querySelectorAll("[data-unl]").forEach(b=>b.onclick=()=>moveTo(placeTools("car:"+b.dataset.unl).map(t=>t.id),{dest:k,back:()=>placeSheet(k)}));
   $("#plRc")?.addEventListener("click",()=>rollCall(k));
   $("#plQr")?.addEventListener("click",()=>{ const c=ids.filter(i=>S.cart.has(i)); qrSheet(c.length?c:ids,m.nm) });
-  $("#plSite")?.addEventListener("click",()=>{ const s=site(m.id); if(s){ S.siteTab=m.ty==="s"?"tools":"data"; siteForm(s) } });
+  $("#plSite")?.addEventListener("click",()=>{ const s=site(m.id); if(s){ if(S.duoOk&&isDuoSite(s.id)!==isDuo()) setBase(isDuoSite(s.id)?"duo":"trio"); S.siteTab=m.ty==="s"?"tools":"data"; siteForm(s) } });
   const hk=m.ty==="w"||m.ty==="s"?["site",m.id]:["person",m.id];
   $("#plPr")?.addEventListener("click",()=>printDoc(handoverHTML(...hk),"Інструмент — "+m.nm));
   $("#plSh")?.addEventListener("click",async()=>{ const text=handoverText(...hk); try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return } window.open("https://t.me/share/url?url=%20&text="+encodeURIComponent(text),"_blank") });
@@ -571,9 +580,9 @@ function moveTo(ids,opt){ opt=opt||{}; ids=[...new Set(ids)].filter(i=>S.tools.g
   const btn=k=>{ const m=placeMeta(k); return `<button type="button" data-dst="${esc(k)}" data-dq="${esc(m.nm)}" class="${dest===k?"on":""}">${m.ic} ${esc(m.nm)}${from.size===1&&from.has(k)?" <span class='m'>(тут зараз)</span>":""}</button>` };
   const cnt=new Map(); for(const t of S.tools.values()) if(t.site&&t.status!=="lost") cnt.set(t.site,(cnt.get(t.site)||0)+1);
   const rec=plRecent().filter(k=>placeMeta(k).ok).slice(0,4);
-  const wh=[...S.sites.values()].filter(s=>s.type==="warehouse"&&s.active!==false).sort(byName).map(s=>"w:"+s.id);
+  const wh=allSites().filter(s=>s.type==="warehouse"&&s.active!==false).sort(byName).map(s=>"w:"+s.id);
   const cars=[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).sort(byName).map(p=>"car:"+p.id);
-  const objs=[...S.sites.values()].filter(s=>s.type!=="warehouse"&&s.active!==false).sort((a,b)=>(cnt.get(b.id)||0)-(cnt.get(a.id)||0)||byName(a,b)).map(s=>"s:"+s.id);
+  const objs=allSites().filter(s=>s.type!=="warehouse"&&s.active!==false).sort((a,b)=>(cnt.get(b.id)||0)-(cnt.get(a.id)||0)||byName(a,b)).map(s=>"s:"+s.id);
   if(opt.dest&&opt.dest.startsWith("s:")&&!objs.includes(opt.dest)) objs.unshift(opt.dest);
   const item=i=>{ const t=S.tools.get(i), all=qtyOf(t), m=placeMeta(placeKey(t)); return `<div class="card" data-mi="${i}" style="align-items:center;cursor:default;padding:8px 10px"><div class="main"><div class="t">${esc(t.name)}${t.inv?` <span class="inv">#${esc(t.inv)}</span>`:""}</div><div class="m">з: ${m.ic} ${esc(m.nm)}</div></div>${all>1?`<span style="display:flex;align-items:center;gap:4px;flex:none"><button type="button" class="btn ghost sm" data-qd="-1">–</button><b data-qv>${Q.get(i)}</b><span class="m">/${all}</span><button type="button" class="btn ghost sm" data-qd="1">＋</button></span>`:""}<button type="button" class="btn ghost sm" data-mx aria-label="Прибрати" style="flex:none">✕</button></div>` };
   openSheet(`<h2>🚚 Перенести</h2>${opt.info?`<div class="card" style="display:block;cursor:default;margin-bottom:8px;font-size:14px">${opt.info}</div>`:""}
@@ -647,7 +656,7 @@ function tkUnload(t){ const pid=t.pickedBy||meId(), {pick}=tkMatch(t,{only:"car:
   if(ids.length){ moveTo(ids,{qty:pick,dest:"s:"+t.site,info:tkInfo(t),onDone:d=>tkAfter(t,d)}); return }
   const all=placeTools("car:"+pid).map(x=>x.id); if(!all.length){ tkAfter(t,"s:"+t.site); return }
   moveTo(all,{dest:"s:"+t.site,info:tkInfo(t)+`<div class="m" style="margin-top:4px">Не впізнав, що саме для справи — приберіть ✕ зайве</div>`,onDone:d=>tkAfter(t,d)}) }
-async function tkAfter(t,dest){ if(!t||isDuo()) return; const now=Date.now();
+async function tkAfter(t,dest){ if(!t) return; const now=Date.now();
   if(dest==="s:"+t.site){ if(t.done&&t.moved) return; t.done=t.moved=true;
     await write(db=>db.collection("tasks").doc(t.id).update({done:true,doneAt:+t.doneAt||now,doneBy:t.doneBy||S.uid||"",doneByName:t.doneByName||S.meName||"",moved:true,movedAt:now}));
     const st=S.sites.get(t.site); if(st?.needs?.some(n=>n.tid===t.id&&n.kind!=="material"&&!n.done)){ const l=st.needs.map(({_here,...n})=>n.tid===t.id&&n.kind!=="material"?{...n,done:true}:n); if(await write(db=>db.doc("sites/"+st.id).update({needs:l}))) st.needs=l } }
@@ -724,7 +733,7 @@ window.addEventListener("hashchange",hashTool);
 
 // ---------- ✅ Підтвердження «Прийняв» і 📋 перекличка ----------
 const ackOk=t=>!(person(t.holder)?.role==="worker"&&+t.movedAt&&!(+t.ackAt>=+t.movedAt));
-function toolsFromInbox(){ if(S.canWrite===false||!S.tools.size||isDuo()) return; for(const m of S.inbox||[]){ if((m.kind!=="tack"&&m.kind!=="check")||m.status!=="new"||S._tib?.[m.id]) continue;
+function toolsFromInbox(){ if(S.canWrite===false||!S.tools.size) return; for(const m of S.inbox||[]){ if((m.kind!=="tack"&&m.kind!=="check")||m.status!=="new"||S._tib?.[m.id]) continue;
   const p=m.k?[...S.people.values()].find(x=>x.wkey&&x.wkey===m.k):null; if(!p) continue; (S._tib=S._tib||{})[m.id]=1;
   const mine=new Set([p.id,...[...S.people.values()].filter(c=>c.crew&&(c.members||[]).includes(p.id)).map(c=>c.id)]), at=+m.at||Date.now();
   write(async db=>{ const upd=async(id,d)=>{ const t=S.tools.get(id); if(t&&mine.has(t.holder)) await db.doc("tools/"+id).update(d) };
@@ -1171,9 +1180,9 @@ function firmDocForm(f){ f=f||{}; let file=null; const fl=tzFops();
     let id=f.id; if(await write(async db=>{ if(id) await db.doc("firmdocs/"+id).set(data); else { const r=await db.collection("firmdocs").add(data); id=r.id } })){ S.fd.set(id,{id,...data}); closeSheet(); renderTenders() } else b.disabled=false };
   $("#fdDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити документ?")) return; if(await write(db=>db.doc("firmdocs/"+f.id).delete())){ S.fd.delete(f.id); closeSheet(); renderTenders() } });
 }
-function sitesSeg(){ return isDuo()?"":`<div class="seg" id="sitesSeg" style="margin-bottom:6px"><button type="button" data-ssm="obj" class="${S.sitesMode==="tz"?"":"on"}">🏗️ Об'єкти</button><button type="button" data-ssm="tz" class="${S.sitesMode==="tz"?"on":""}">🏛️ Тендери</button></div>` }
+function sitesSeg(){ return `<div class="seg" id="sitesSeg" style="margin-bottom:6px"><button type="button" data-ssm="obj" class="${S.sitesMode==="tz"?"":"on"}">🏗️ Об'єкти</button><button type="button" data-ssm="tz" class="${S.sitesMode==="tz"?"on":""}">🏛️ Тендери</button></div>` }
 function renderSites(){
-  if(S.sitesMode==="tz"&&!isDuo()){ const key="tz"; if($("#headTools").dataset.b!==key){ $("#headTools").dataset.b=key; $("#headTools").innerHTML=sitesSeg() } return renderTenders() }
+  if(S.sitesMode==="tz"){ const key="tz"; if($("#headTools").dataset.b!==key){ $("#headTools").dataset.b=key; $("#headTools").innerHTML=sitesSeg() } return renderTenders() }
   if(!$("#sq")||$("#headTools").dataset.b!==String(isDuo())){ $("#headTools").dataset.b=String(isDuo()); $("#headTools").innerHTML=baseSwitch()+sitesSeg()+`<div class="search"><input id="sq" type="search" placeholder="Пошук об'єкта: перші літери назви…" value="${esc(S.sq||"")}"></div>`;}
   const sq=(S.sq||"").trim().toLowerCase();
   const hit=s=>!sq||(" "+String(s.name||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ")).includes(" "+sq);
@@ -1186,7 +1195,7 @@ function renderSites(){
     return `<div class="card" data-site="${s.id}" ${kid?`style="margin-left:22px;padding-top:8px;padding-bottom:8px"`:""}><div class="main"><div class="t">${kid?"↳ "+(isDuoKid(s)?"🤝 ":""):s.type==="warehouse"?"🏬 ":"🏗️ "}${!nest&&s.parent&&S.sites.get(s.parent)?`<span class="m">${esc(S.sites.get(s.parent).name)} › </span>`:""}${esc(s.name)}${kids.length?` <span class="tag site">📂 ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</span>`:""}${kid&&s.active===false?` <span class="tag">архів</span>`:""}${isTestSite(s)?` <span class="tag">🧪 тест · не рахується</span>`:""}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
     ${t?`<div class="m">прихід <span class="in">${money(t.in)}</span> · витрати <span class="out">${money(t.out)}</span> · прибуток <b class="${p<0?"out":""}">${money(p)}</b></div>`:""}
     ${debt>0?`<div class="m">👤 ${esc(siteCust(s)||"замовник")} винен${F?" усього":""} <b class="in">${money(debt)}</b></div>`:""}
-    ${s.note&&!kid?`<div class="m">${esc(s.note)}</div>`:""}</div>${isDuo()?"":`<span class="count">${(kids.length?siteFam(s.id).reduce((a,k)=>a+(cnt[k]||0),0):cnt[s.id])||0} од.</span>`}</div>`+kids.map(k=>card(k,1)).join("") };
+    ${s.note&&!kid?`<div class="m">${esc(s.note)}</div>`:""}</div>${`<span class="count">${(kids.length?siteFam(s.id).reduce((a,k)=>a+(cnt[k]||0),0):cnt[s.id])||0} од.</span>`}</div>`+kids.map(k=>card(k,1)).join("") };
   let h="";
   { const {shared}=ownerBalances(); const owe=customerRows().reduce((a,r)=>a+Math.max(0,r.debt),0);
     if(S.fin.size) h+=`<div class="sum" style="color:var(--muted)">Поділено між власниками: <b>${money(shared)}</b>${owe>0?` · замовники винні: <b class="in">${money(owe)}</b>`:""}</div>` }
@@ -1266,8 +1275,8 @@ function finLine(f){
     <span class="amt ${k}" style="white-space:nowrap">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
 }
 function renderHistory(){
-  S.htab=isDuo()&&S.htab==="tools"?"money":(S.htab||"money");
-  $("#headTools").innerHTML=baseSwitch()+`<div class="tabs2">${[["money","💰 Гроші"],...(isDuo()?[]:[["tools","🧰 Інструмент"]]),["log","📝 Зміни"]].map(([k,l])=>`<button data-hist="${k}" class="${S.htab===k?"on":""}">${l}</button>`).join("")}</div>`;
+  S.htab=S.htab||"money";
+  $("#headTools").innerHTML=baseSwitch()+`<div class="tabs2">${[["money","💰 Гроші"],["tools","🧰 Інструмент"],["log","📝 Зміни"]].map(([k,l])=>`<button data-hist="${k}" class="${S.htab===k?"on":""}">${l}</button>`).join("")}</div>`;
   if(S.htab==="log") return renderLog();
   if(S.htab==="tools"){
     if(!S.moves.length){ $("#view").innerHTML=`<div class="empty">Переміщень ще не було.</div>`; return; }
@@ -1383,7 +1392,8 @@ function findLot(t,holder,siteId,exceptId){
 async function moveTool(db,t,qty,holder,siteId,note,byName){
   const all=qtyOf(t); qty=Math.min(Math.max(1,qty|0),all); const now=Date.now();
   const names={}; for(const pid of [t.holder,holder]) if(person(pid)) names[pid]=person(pid).name;
-  for(const sid of [t.site,siteId]) if(site(sid)) names[sid]=site(sid).name;
+  for(const sid of [t.site,siteId]) if(site(sid)&&!isDuoSite(sid)) names[sid]=site(sid).name;
+  if(isDuoSite(t.site)||isDuoSite(siteId)) note="🤝";
   const lot=findLot(t,holder,siteId,t.id);
   if(qty>=all){
     if(lot){ await db.doc("tools/"+lot.id).update({qty:qtyOf(lot)+qty,updatedAt:now,movedAt:now}); await db.doc("tools/"+t.id).delete(); }
@@ -1742,7 +1752,7 @@ function matPackOf(name){ const nm=String(name||""), rule=MAT_PACK_RULES.find(r=
   for(const [rx,k,a] of rule.c){ let re; try{ re=new RegExp(rx,"i") }catch(_){ continue } const it=l.find(x=>re.test(x.name)); if(!it||seen.has(normName(it.name))) continue; seen.add(normName(it.name));
     const p=matPriceOf({name:it.name,unit:it.unit}); out.push({n:it.name,k,a:!!a,u:it.unit,price:p?.price||0,cat:"Матеріали",mat:true}) }
   return out }
-function matCatSheet(){ closeSheet(); if(isDuo()) setBase("trio"); S.tab="money"; S.mtab="price"; S.priceMode="mat"; render() }
+function matCatSheet(){ closeSheet(); S.tab="money"; S.mtab="price"; S.priceMode="mat"; render() }
 function mcItemForm(i,cat,back){
   const items=matCat().map(x=>({...x})), it=i>=0?items[i]:{cat,name:"",unit:"шт",alt:""};
   const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100";
@@ -1892,7 +1902,7 @@ function inboxMsg(id){ const m=(S.inbox||[]).find(x=>x.id===id); if(!m) return;
     ${!st&&m.kind!=="join"?`<div class="field"><label>Об'єкт</label><select id="ibSite">${siteOptions("","— виберіть")}</select></div>`:""}
     ${m.kind==="join"&&S.canWrite?`<div class="banner" style="margin-bottom:8px">🆕 Анкета нової людини. ${who?"Вже є в «Людях».":`<button class="btn sm" id="ibAddP2">👤 Додати в «Люди»</button>`}</div>`:""}
     ${S.canWrite&&m.kind!=="join"?`<div class="m" style="margin:4px 0 6px">Куди це перенести (застосунок розбере через ШІ, ви перевірите перед збереженням):</div>
-    <div class="actions" style="flex-wrap:wrap;margin-top:0"><button class="btn ${m.kind==="need"?"":"ghost "}sm" data-ia="need">🧱 У «Потрібно»</button>${isDuo()?"":`<button class="btn ${m.kind==="tools"?"":"ghost "}sm" data-ia="tools">🧰 Інструмент на об'єкті</button>`}<button class="btn ${m.kind==="done"?"":"ghost "}sm" data-ia="done">📋 Звіт робіт</button>${m.photos?.length?`<button class="btn ghost sm" id="ibPh">📷 Фото → в об'єкт</button>`:""}</div>`:""}
+    <div class="actions" style="flex-wrap:wrap;margin-top:0"><button class="btn ${m.kind==="need"?"":"ghost "}sm" data-ia="need">🧱 У «Потрібно»</button><button class="btn ${m.kind==="tools"?"":"ghost "}sm" data-ia="tools">🧰 Інструмент на об'єкті</button><button class="btn ${m.kind==="done"?"":"ghost "}sm" data-ia="done">📋 Звіт робіт</button>${m.photos?.length?`<button class="btn ghost sm" id="ibPh">📷 Фото → в об'єкт</button>`:""}</div>`:""}
     ${S.canWrite?`<div class="actions"><button class="btn danger sm" id="ibDel">🗑 Видалити</button><button class="btn ghost sm" id="ibDone">${m.status==="new"?"✓ Опрацьовано":"↩️ Нове"}</button></div>`:""}
     <div class="actions"><button class="btn ghost" id="ibBack">Назад</button></div>`);
   $("#ibBack").onclick=inboxSheet;
@@ -2094,7 +2104,7 @@ function photoFlow(opts){
     const tOpt=(id,sel)=>{const t=S.tools.get(id);return `<option value="${id}" ${sel===id?"selected":""}>${esc(t.name)}${t.inv?" #"+esc(t.inv):""} · ${qtyOf(t)} шт · ${esc(site(t.site)?.name||person(t.holder)?.name||"")}</option>`};
     const sum=rows.filter(r=>r.on).reduce((a,r)=>a+(+r.qty||0),0);
     $("#pfRes").innerHTML=`<div class="section-t" style="display:flex">Розпізнано<span class="count">${rows.filter(r=>r.on).length} поз. · ${sum} шт</span></div>
-      ${mode==="move"?`<div class="field"><label>Звідки (щоб точніше знайти)</label><select id="pfFrom">${siteOptions(S.pfFrom||"","— будь-де")}</select></div>
+      ${mode==="move"?`<div class="field"><label>Звідки (щоб точніше знайти)</label><select id="pfFrom">${siteOptions(S.pfFrom||"","— будь-де",1)}</select></div>
         <label class="m" style="display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:13.5px"><input type="checkbox" id="pfNew" ${pfNewOn()?"checked":""} style="width:20px;height:20px"> ➕ Чого немає в базі — зареєструвати як новий і одразу перемістити</label>`:""}
       ${rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
         <div class="row" style="align-items:center"><input type="checkbox" class="cb" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"><input data-i="${i}" data-k="qty" inputmode="numeric" value="${r.qty}" style="flex:0 0 64px;text-align:center"></div>
@@ -2184,7 +2194,7 @@ function toolForm(t){
         <div class="field"><label>Інв. номер</label><input name="inv" value="${esc(t.inv)}"></div>
         <div class="field"><label>Серійний №</label><input name="serial" value="${esc(t.serial)}"></div></div>
       ${isNew?`<div class="field"><label>У кого зараз</label><select name="holder">${personOptions(defOwner,"— не вказано")}</select></div>
-      <div class="field"><label>Де зараз</label><select name="site">${siteOptions("","— не вказано")}</select></div>`:""}
+      <div class="field"><label>Де зараз</label><select name="site">${siteOptions("","— не вказано",1)}</select></div>`:""}
       <div class="field"><label>Стан</label><select name="status">${Object.entries(STATUS).map(([k,v])=>`<option value="${k}" ${t.status===k?"selected":""}>${v}</option>`).join("")}</select></div>
       <div class="field"><label>Примітка</label><textarea name="note">${esc(t.note)}</textarea></div>
       <div class="actions">${!isNew?`<button type="button" class="btn danger" id="delTool">Видалити</button>`:""}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div>
@@ -2390,7 +2400,7 @@ function lostForm(ids,opt){ opt=opt||{}; const tools=ids.map(i=>S.tools.get(i)).
     <div class="field"><label>Що сталося</label><select id="lsR">${Object.entries(LOST_R).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select></div>
     <div class="row"><div class="field"><label>Дата</label><input id="lsD" type="date" value="${todayISO()}"></div>
       <div class="field"><label>Ціна за шт, ₴ (≈)</label><input id="lsC" inputmode="decimal" placeholder="для аналітики" value="${one?.price||one?.lost?.cost||""}"></div></div>
-    <div class="field"><label>Де</label><select id="lsS">${siteOptions(opt.site||one?.site||"","— невідомо")}</select></div>
+    <div class="field"><label>Де</label><select id="lsS">${siteOptions(opt.site||one?.site||"","— невідомо",1)}</select></div>
     <div class="field"><label>Хто відповідав</label><select id="lsH">${personOptions(one?.holder||"","— невідомо")}</select></div>
     <div class="field"><label>Коментар</label><input id="lsN" placeholder="напр. зник після вихідних"></div>
     <div class="m" style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Інструмент зникне зі списків, але лишиться в «❌ Втрачено» для аналітики. Якщо знайдеться — «↩️ Знайшовся».</div>
@@ -2444,7 +2454,7 @@ function mergeSite(src){
     <div class="list">${l.map(x=>`<div class="card" data-mg="${x.id}"><div class="main"><div class="t">${esc(x.name)}${x.active===false?" · архів":""}</div>${x.customer?`<div class="m">${esc(x.customer)}</div>`:""}</div></div>`).join("")}</div>
     <div class="actions"><button class="btn ghost" data-close>Скасувати</button></div>`);
   document.querySelectorAll("[data-mg]").forEach(el=>el.onclick=async()=>{ const dst=site(el.dataset.mg); if(!dst) return;
-    const fins=[...S.fin.values()].filter(f=>f.site===src.id), docs=[...S.docs.values()].filter(d=>d.site===src.id), tools=isDuo()?[]:[...S.tools.values()].filter(t=>t.site===src.id);
+    const fins=[...S.fin.values()].filter(f=>f.site===src.id), docs=[...S.docs.values()].filter(d=>d.site===src.id), tools=[...S.tools.values()].filter(t=>t.site===src.id);
     let offs=[]; try{ const sn=await S.db.collection(R("offers")).get(); offs=sn.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.site===src.id) }catch(_){}
     if(!confirm(`Перенести з «${src.name}» у «${dst.name}»:\n• платежів: ${fins.length}\n• рахунків/актів: ${docs.length}\n• інструменту: ${tools.length}\n• КП/смет: ${offs.length}\n• «Потрібно»: ${(src.needs||[]).length}\n\nі видалити «${src.name}»?`)) return;
     el.style.opacity=".5"; toast("⏳ Переношу…");
@@ -2803,7 +2813,7 @@ function renderMoney(){
   $("#headTools").innerHTML=`${baseSwitch()}
     <div class="bal">${owners().map(o=>`<div class="stat own" data-own="${o.id}" title="Скільки загальних грошей на руках"><b class="${b[o.id]<0?"out":""}">${money(b[o.id])}</b><span>у ${esc(o.name)}</span></div>`).join("")}</div>
     ${both?`<div class="sum" style="font-size:13px;margin-top:-2px">Разом в обох базах: ${both.map(x=>`${esc(x.o.name)} <b class="${x.sum<0?"out":""}">${money(x.sum)}</b>`).join(" · ")} <span style="color:var(--muted)">(на трьох + на двох)</span></div>`:""}
-    <div class="tabs2">${[["journal","Журнал"],["workers","Виконавці"],["stats","📈 Аналітика"],...(isDuo()?[]:[["docs","Рахунки"],["price","💲 Прайс"]])].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
+    <div class="tabs2">${[["journal","Журнал"],["workers","Виконавці"],["stats","📈 Аналітика"],["docs","Рахунки"],["price","💲 Прайс"]].map(([k,l])=>`<button data-mt="${k}" class="${S.mtab===k?"on":""}">${l}</button>`).join("")}</div>
     ${S.mtab==="journal"?`<div class="filters">
       <select id="mMonth"><option value="">Весь час</option>${months.map(m=>`<option value="${m}" ${S.mMonth===m?"selected":""}>${MONTHS[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join("")}</select>
       <select id="mSite"><option value="">Усі об'єкти</option>${siteOpts.map(x=>`<option value="${x.id}" ${S.mSite===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
@@ -4890,7 +4900,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v245"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v246"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -4965,8 +4975,8 @@ function tasksBind(){ const v=$("#view");
   v.querySelectorAll("[data-task]").forEach(c=>c.onclick=e=>{ if(e.target.closest("[data-tdone],[data-ttake],[data-tpick],[data-tunl],[data-tmove]")) return; taskForm(tasksNow().find(t=>t.id===c.dataset.task)) });
   v.querySelectorAll("[data-tdone]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const d=b.checked, t=tasksNow().find(x=>x.id===b.dataset.tdone);
     const ok=await write(db=>db.collection(R("tasks")).doc(b.dataset.tdone).update(d?{done:true,doneAt:Date.now(),doneBy:S.uid||"",doneByName:S.meName||""}:{done:false,doneAt:null,doneBy:null,doneByName:null}));
-    if(ok&&t?.mats&&t.site&&!isDuo()){ const st=S.sites.get(t.site); if(st?.needs?.some(n=>n.tid===t.id&&n.kind==="material")){ const l=st.needs.map(({_here,...n})=>n.tid===t.id&&n.kind==="material"?(d?{...n,done:true,got:+n.qty||1}:{...n,done:false,got:0}):n); write(db=>db.doc("sites/"+st.id).update({needs:l})).then(o=>{ if(o) st.needs=l }) } }
-    if(ok&&d&&t?.tools&&!t.moved&&t.site&&!isDuo()) taskMove(t) });
+    if(ok&&t?.mats&&t.site){ const st=S.sites.get(t.site); if(st?.needs?.some(n=>n.tid===t.id&&n.kind==="material")){ const l=st.needs.map(({_here,...n})=>n.tid===t.id&&n.kind==="material"?(d?{...n,done:true,got:+n.qty||1}:{...n,done:false,got:0}):n); write(db=>db.doc("sites/"+st.id).update({needs:l})).then(o=>{ if(o) st.needs=l }) } }
+    if(ok&&d&&t?.tools&&!t.moved&&t.site) taskMove(t) });
   v.querySelectorAll("[data-tpick],[data-tunl]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const t=tasksNow().find(x=>x.id===(b.dataset.tpick||b.dataset.tunl)); if(t) (b.dataset.tpick?tkPick:tkUnload)(t) });
   v.querySelectorAll("[data-tmove]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const t=tasksNow().find(x=>x.id===b.dataset.tmove); if(t) taskMove(t) });
   v.querySelectorAll("[data-ttake]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); write(db=>db.collection(R("tasks")).doc(b.dataset.ttake).update({who:meId(),updatedAt:Date.now()})).then(ok=>ok&&toast("✋ Справа ваша")) });
@@ -4976,7 +4986,7 @@ function tasksBind(){ const v=$("#view");
 const tkToolLines=txt=>String(txt||"").split(/\n|,|;/).map(x=>x.trim()).filter(Boolean).map(line=>{ const m=line.match(/^(.*?)[\s,—–-]*(?:[xх×]\s*)?(\d+)\s*(?:шт\.?|штук[и]?)?\s*$/i); return m&&m[1].trim()?{name:m[1].trim(),qty:+m[2]}:{name:line,qty:1} });
 const tkMatLines=txt=>String(txt||"").split(/\n|;/).map(x=>x.trim()).filter(Boolean).map(line=>{ const m=line.match(/^(.*?)[\s,—–-]+(\d+(?:[.,]\d+)?)\s*([a-zа-яіїєґ²³.]*)\s*$/i);
   if(!m||!m[1].trim()) return {name:line,qty:1,unit:"шт",kind:"material"}; const u=(m[3]||"шт").replace(/\.$/,"").toLowerCase(); return {name:m[1].trim(),qty:+m[2].replace(",","."),unit:/^міш/.test(u)?"мішок":/^шт|^штук/.test(u)||!u?"шт":u,qtySet:true,kind:"material"} });
-async function taskNeedsSync(tid,d,oldSite){ if(isDuo()) return; const ids=[...new Set([oldSite,d?.site].filter(Boolean))]; if(!ids.length) return;
+async function taskNeedsSync(tid,d,oldSite){ const ids=[...new Set([oldSite,d?.site].filter(Boolean))]; if(!ids.length) return;
   await write(async db=>{ for(const sid of ids){ const st=S.sites.get(sid); if(!st) continue; let l=(st.needs||[]).map(({_here,...x})=>({...x}));
     const keep=l.filter(n=>n.tid===tid&&n.done), kT=keep.some(n=>n.kind!=="material"), kM=keep.some(n=>n.kind==="material"); l=l.filter(n=>n.tid!==tid||n.done);
     const ex={tid,req:1,...(d?.who?{who:d.who}:{}),note:"зі справи"};
@@ -4999,7 +5009,7 @@ function tasksDaySheet(day){ const l=tasksNow().filter(t=>t.date===day).sort((a,
 const tkDraftClear=()=>{ try{ Object.keys(localStorage).filter(k=>/^ta:.*справа:tkT$/i.test(k)).forEach(k=>localStorage.removeItem(k)) }catch(_){} };
 function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Date.now()+864e5)), me=meId();
   const date=t.date||td, mode=t.from&&t.to?"range":t.to?"till":t.from?"from":"none";
-  const own=owners(), wk=isDuo()?[]:[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false).sort(byName);
+  const own=owners(), wk=[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false).sort(byName);
   const who=isNew?(t.who??me):(t.who||"");
   const opt=p=>`<option value="${p.id}" ${who===p.id?"selected":""}>${p.id===me?"✋ Я — ":""}${esc(p.name)}</option>`;
   const sites=[...S.sites.values()].filter(x=>x.active!==false).sort(byName);
@@ -5010,7 +5020,7 @@ function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Da
     <div class="field"><label>Час</label><select id="tkM"><option value="none" ${mode==="none"?"selected":""}>— без часу</option><option value="till" ${mode==="till"?"selected":""}>до певної години</option><option value="range" ${mode==="range"?"selected":""}>з … до …</option><option value="from" ${mode==="from"?"selected":""}>з певної години</option></select></div>
     <div class="row" id="tkTimes"><div class="field" id="tkFw"><label>з</label><input type="time" id="tkF" value="${t.from||"09:00"}"></div><div class="field" id="tkTw"><label>до</label><input type="time" id="tkTo" value="${t.to||"12:00"}"></div></div>
     <div class="field"><label>Хто виконує</label><div style="display:flex;gap:6px">${me?`<button type="button" class="btn ghost" id="tkMe" style="white-space:nowrap">✋ Я</button>`:""}<select id="tkW" style="flex:1"><option value="">— не призначено</option><optgroup label="👤 Власники">${own.map(opt).join("")}</optgroup>${wk.length?`<optgroup label="🔧 Виконавці">${wk.map(opt).join("")}</optgroup>`:""}</select></div></div>
-${isDuo()?"":`    <div class="field"><label>🧰 Привезти інструмент (необов'язково)</label><textarea id="tkTl" rows="2" placeholder="напр.: бадья&#10;міксер 2">${esc(t.tools||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Коли справу позначите виконаною — інструмент переїде на вибраний об'єкт.</div></div>
+${`    <div class="field"><label>🧰 Привезти інструмент (необов'язково)</label><textarea id="tkTl" rows="2" placeholder="напр.: бадья&#10;міксер 2">${esc(t.tools||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Коли справу позначите виконаною — інструмент переїде на вибраний об'єкт.</div></div>
     <div class="field"><label>🧱 Привезти матеріали (необов'язково)</label><textarea id="tkMt" rows="2" placeholder="напр.: стяжка 30 мішків&#10;маяки 8 шт">${esc(t.mats||"")}</textarea><div class="m" style="font-size:12px;margin-top:3px">Кожен матеріал — з нового рядка. Потрапить у «📝 Потрібно» об'єкта; галочка «виконано» = привезено.</div></div>`}
     <div class="field"><label>Об'єкт <span id="tkSreq">(необов'язково)</span></label><select id="tkS"><option value="">—</option>${sites.map(x=>`<option value="${x.id}" ${t.site===x.id?"selected":""}>${x.type==="warehouse"?"🏬":"🏗️"} ${esc(x.name)}</option>`).join("")}</select></div>
     ${!isNew&&t.byName?`<div class="m" style="color:var(--muted);margin:4px 0">Записав: ${esc(uaName(t.byName))}${t.done&&t.doneAt?` · виконано ${fmtDate(t.doneAt)}`:""}</div>`:""}
@@ -5084,7 +5094,7 @@ function renderToday(){
   const ibn=inboxNew().length;
   const tzn=suggNew().length, jh=jobsHTML();
   const pick=[...S.sites.values()].filter(x=>x.active===false&&x.type!=="warehouse").map(x=>({x,n:[...S.tools.values()].filter(t=>t.site===x.id&&t.status!=="lost").reduce((a,t)=>a+qtyOf(t),0)})).filter(o=>o.n);
-  let h=tasksHTML()+jh+(pick.length&&!isDuo()?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+(!isDuo()&&[...S.tools.values()].some(t=>t.checkMiss&&t.status!=="lost")?`<div class="banner" id="missB" style="margin-bottom:8px;cursor:pointer">❓ Перекличка: не знайшли <b>${[...S.tools.values()].filter(t=>t.checkMiss&&t.status!=="lost").length}</b> поз. — розібратися →</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:S.canWrite?`<div class="card" id="ibB" style="margin-bottom:8px;cursor:pointer;padding:10px 12px"><div class="main"><div class="t" style="font-size:15px">📨 Від працівників</div><div class="m">нових немає · архів повідомлень →</div></div></div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
+  let h=tasksHTML()+jh+(pick.length?`<div class="section-t">🧰 Забрати інструмент із закритих об'єктів</div><div class="list" style="margin-bottom:8px">${pick.map(o=>`<div class="card" data-pick="${o.x.id}"><div class="main"><div class="t">🏗️ ${esc(o.x.name)}</div><div class="m">${esc([...new Set([...S.tools.values()].filter(t=>t.site===o.x.id&&t.status!=="lost").map(t=>t.name))].slice(0,4).join(", "))}</div></div><span class="count">${o.n} шт</span></div>`).join("")}</div>`:"")+([...S.tools.values()].some(t=>t.checkMiss&&t.status!=="lost")?`<div class="banner" id="missB" style="margin-bottom:8px;cursor:pointer">❓ Перекличка: не знайшли <b>${[...S.tools.values()].filter(t=>t.checkMiss&&t.status!=="lost").length}</b> поз. — розібратися →</div>`:"")+(tzn?`<div class="banner" id="tzsB" style="margin-bottom:8px;cursor:pointer">✨ Нові тендери для нас: <b>${tzn}</b> — переглянути →</div>`:"")+(ibn?`<div class="banner" id="ibB" style="margin-bottom:8px;cursor:pointer">📨 Від працівників: <b>${ibn}</b> нов${ibn===1?"е":"их"} — переглянути →</div>`:S.canWrite?`<div class="card" id="ibB" style="margin-bottom:8px;cursor:pointer;padding:10px 12px"><div class="main"><div class="t" style="font-size:15px">📨 Від працівників</div><div class="m">нових немає · архів повідомлень →</div></div></div>`:"")+(S.canWrite&&S.people.size&&!meId()&&[...S.people.values()].some(p=>p.role==="owner")?`<div class="banner" id="iamB" style="margin-bottom:8px;cursor:pointer">👤 Вкажіть, хто ви (раз) — і застосунок сам підставлятиме вас у платежі та переміщення →</div>`:"")+`<div class="section-t" style="display:flex">👷 Винні виконавцям<span class="count">${dl.length?money(n2(dsum)):""}</span></div>
     ${dl.length?`<div class="list">${dl.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div></div><span class="amt out">${money(n2(v))}</span></div>`).join("")}</div>`:`<div class="empty" style="padding:10px">Боргів немає ✅</div>`}
     ${ml.length?`<div class="section-t" style="display:flex;margin-top:12px">💵 Винні нам (аванси, переплата)<span class="count">${money(n2(msum))}</span></div><div class="list">${ml.slice(0,12).map(([id,v])=>`<div class="card" data-mworker="${id}"><div class="stripe wrk"></div><div class="main"><div class="t">${person(id).crew?"👥 ":""}${esc(person(id).name)}</div><div class="m">відпрацювати або повернути</div></div><span class="amt in">−${money(n2(-v))}</span></div>`).join("")}</div>`:""}
     <div class="section-t" style="display:flex;margin-top:12px">📝 Потрібно на об'єкти<span class="count">${deliver.reduce((a,d)=>a+d.l.length,0)?deliver.reduce((a,d)=>a+d.l.length,0)+" поз.":""}</span></div>
@@ -5095,7 +5105,7 @@ function renderToday(){
       +(nBuy?`<button class="btn ghost" id="tBuy" style="width:100%;margin-top:4px">🛒 Список на закупівлю для менеджера (${nBuy} поз.)</button>`:"")
       :`<div class="empty" style="padding:10px">Усе привезено ✅</div>`}`;
   // 🏛️ тендери: строки подання та документи фірми, що спливають
-  if(!isDuo()){ if(!S.tz&&S.db&&!S._tzLoading){ S._tzLoading=1; loadTenders().then(()=>{ if(S.tab==="today") renderToday() }) }
+  { if(!S.tz&&S.db&&!S._tzLoading){ S._tzLoading=1; loadTenders().then(()=>{ if(S.tab==="today") renderToday() }) }
     if(S.tz){ const tl=[...S.tz.values()].filter(t=>(t.stage||"work")==="work"&&((tzDays(t.tEnd)!=null&&tzDays(t.tEnd)>=0&&tzDays(t.tEnd)<=7)||(tzDays(t.qEnd)!=null&&tzDays(t.qEnd)>=0&&tzDays(t.qEnd)<=2))).sort((a,b)=>String(a.tEnd).localeCompare(String(b.tEnd)));
       const fx=[...(S.fd||new Map()).values()].filter(f=>f.until&&tzDays(f.until+"T23:59")<=14);
       if(tl.length||fx.length) h+=`<div class="section-t" style="display:flex;margin-top:12px">🏛️ Тендери<span class="count">${tl.length||""}</span></div><div class="list">`+tl.map(t=>`<div class="card" data-ttz="${t.id}"><div class="main"><div class="t">${esc(String(t.title||t.tid).slice(0,70))}</div><div class="m">${tzDays(t.qEnd)!=null&&tzDays(t.qEnd)>=0&&tzDays(t.qEnd)<=2?`питання до ${tzWhen(t.qEnd)} · `:""}подати до ${tzWhen(t.tEnd)} — ${tzLeft(t.tEnd)}</div></div></div>`).join("")
@@ -5114,7 +5124,7 @@ function renderToday(){
     taskForm({title:"Привезти на «"+st.name+"»",site:st.id,tools:T.join("\n"),mats:M.join("\n"),who:"",_needIdx:idx}) });
   $("#view").querySelectorAll("[data-nmove]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const st=S.sites.get(b.dataset.nmove);
     const recs=(st.needs||[]).filter(n=>!n.done&&n.kind!=="material").map(n=>({...n,need:1,qty:(+n.qty||1)-haveOnSite(n,st.id)})).filter(r=>r.qty>0);
-    if(!isDuo()){ const {pick,miss}=tkMatch({site:st.id},{recs,pref:sitePeople(st.id)}); if(Object.keys(pick).length){ moveTo(Object.keys(pick),{qty:pick,dest:"s:"+st.id,info:`📝 Потрібно на «${esc(st.name)}»${miss.length?`<div style="color:#ef4444;margin-top:4px">❓ Немає в базі: ${esc(miss.join(", "))} — треба купити</div>`:""}`}); return } }
+    { const {pick,miss}=tkMatch({site:st.id},{recs,pref:sitePeople(st.id)}); if(Object.keys(pick).length){ moveTo(Object.keys(pick),{qty:pick,dest:"s:"+st.id,info:`📝 Потрібно на «${esc(st.name)}»${miss.length?`<div style="color:#ef4444;margin-top:4px">❓ Немає в базі: ${esc(miss.join(", "))} — треба купити</div>`:""}`}); return } }
     const lines=recs.map(r=>r.name+" "+Math.max(1,r.qty)+" шт").join("\n");
     photoFlow({mode:"move",text:true,auto:true,noTask:true,to:st.id,listText:lines}) });
   $("#tBuy2")?.addEventListener("click",e=>{ e.stopPropagation(); $("#tBuy")?.click() });
@@ -5133,7 +5143,7 @@ function globalSearch(){
     if(P.length) out.push(`<div class="section-t">Люди</div>`+P.slice(0,8).map(p=>row("p",p.id,p.crew?"👥":p.role==="owner"?"👤":"🔧",esc(p.name),esc(p.phone||""))).join(""));
     const St=[...S.sites.values()].filter(x=>hit([x.name,x.customer,x.note].join(" ")));
     if(St.length) out.push(`<div class="section-t">Об'єкти і склади</div>`+St.slice(0,8).map(x=>row("s",x.id,x.type==="warehouse"?"🏬":"🏗️",esc(x.name),esc([x.customer,x.active===false?"архів":""].filter(Boolean).join(" · ")))).join(""));
-    if(!isDuo()){ const Tl=[...S.tools.values()].filter(t=>hit([t.name,t.brand,t.model,t.inv?"#"+t.inv:"",t.serial,t.cat].join(" ")));
+    { const Tl=[...S.tools.values()].filter(t=>hit([t.name,t.brand,t.model,t.inv?"#"+t.inv:"",t.serial,t.cat].join(" ")));
       if(Tl.length) out.push(`<div class="section-t">Інструмент</div>`+Tl.slice(0,12).map(t=>row("t",t.id,"🧰",esc(t.name)+(t.brand?" · "+esc(t.brand):"")+(t.inv?` <span class="m">#${esc(t.inv)}</span>`:""),esc([site(t.site)?.name,person(t.holder)?.name].filter(Boolean).join(" · ")),qtyOf(t)+" шт")).join("")) }
     const F=[...S.fin.values()].filter(f=>isNum?Math.abs((+f.amount||0)-num)<0.5:hit([f.note,f.kind,site(f.site)?.name,person(f.owner)?.name,person(f.worker)?.name,fmtDay(f.date)].join(" "))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
     if(F.length) out.push(`<div class="section-t">Платежі${F.length>15?` (${F.length}, показано 15)`:""}</div>`+F.slice(0,15).map(f=>row("f",f.id,f.type==="in"?"💰":f.type==="accrual"?"👷":"💸",esc(fmtDay(f.date))+" · "+esc(site(f.site)?.name||f.kind||""),esc([person(f.worker)?.name||person(f.owner)?.name,f.note].filter(Boolean).join(" · ").slice(0,80)),(f.type==="in"?"+":"")+money(f.amount))).join(""));
@@ -5520,9 +5530,9 @@ function siteDocsHTML(s){ return `<div id="sDocs"><div class="empty">Заван�
 function loadSiteDocs(s){
   const box=$("#sDocs"); if(!box) return;
   S.db.collection(R("offers")).get().then(sn=>{ const off=sn.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.site===s.id).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-    const docs=isDuo()?[]:[...S.docs.values()].filter(d=>d.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    const docs=[...S.docs.values()].filter(d=>d.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
     const row=(ic,t,sub,amt,attr,del)=>`<div class="card" ${attr} style="cursor:pointer"><div class="main"><div class="t">${ic} ${t}</div><div class="m">${sub}</div></div><span class="amt">${amt}</span>${S.canWrite?`<button class="btn ghost sm" ${del} title="Видалити" style="margin-left:6px">✕</button>`:""}</div>`;
-    box.innerHTML=`${S.canWrite?`<div class="actions" style="margin:0 0 8px;flex-wrap:wrap">${!isDuo()?`<button class="btn ghost sm" id="sdKp">📄 Кошторис</button>`:""}<button class="btn ghost sm" id="sdSm">📋 Акт</button>${!isDuo()?`<button class="btn ghost sm" id="sdDoc">🧾 Рахунок / акт</button>`:""}<button class="btn ghost sm" id="sdUp">📎 Додати готовий</button></div>`:""}
+    box.innerHTML=`${S.canWrite?`<div class="actions" style="margin:0 0 8px;flex-wrap:wrap"><button class="btn ghost sm" id="sdKp">📄 Кошторис</button><button class="btn ghost sm" id="sdSm">📋 Акт</button><button class="btn ghost sm" id="sdDoc">🧾 Рахунок / акт</button><button class="btn ghost sm" id="sdUp">📎 Додати готовий</button></div>`:""}
       ${off.length||docs.length?`<div class="list">${off.map(o=>row(o.kind==="smeta"?"📋":o.kind==="file"?"📎":"📄",(o.kind==="smeta"?"Акт":o.kind==="file"?esc(o.sub||"Документ"):"Кошторис")+(o.no?" № "+esc(o.no):"")+(s.approved?.id===o.id?" ✅":""),fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":""),money(o.total||0),`data-off="${o.id}"`,`data-xoff="${o.id}"`)).join("")}
         ${docs.map(d=>row("🧾","Рах. № "+esc(d.invNo||"")+(d.actNo?" · Акт № "+esc(d.actNo):""),fmtDay(d.date)+" · "+esc(cliOf(d).name||""),money(docTotal(d)),`data-sdoc="${d.id}"`,`data-xdoc="${d.id}"`)).join("")}</div>`
         :`<div class="empty">Документів ще немає. Кошториси, акти, рахунки й договори цього об'єкта з'являться тут.</div>`}`;
@@ -5543,10 +5553,10 @@ function fabMenu(){
     <div class="section-t">💰 Гроші</div>
     ${it("out","💸","Витрата")}${it("rc","🧾","Витрата з чеком","сфотографуйте — сума зчитається сама")}${it("in","💰","Прихід від замовника")}
     ${it("acc","👷","Нарахування / виплата виконавцю")}${it("rep","📋","Звіт робіт від хлопців","перевірити, нарахувати, в акт")}
-    ${!duo?`<div class="section-t">🧰 Інструмент і матеріали</div>
-    ${it("tlist","📝","Список інструменту (з Viber/Telegram)","перемістити, зареєструвати, «куплено»")}${it("tphoto","📷","Інструмент з фото","інвентаризація або переміщення")}${it("tnew","🔧","Новий інструмент вручну")}${it("need","📝","Потрібно на об'єкт: інструмент і матеріали","одним списком — застосунок сам розкладе")}`:""}
+    ${`<div class="section-t">🧰 Інструмент і матеріали</div>
+    ${it("tlist","📝","Список інструменту (з Viber/Telegram)","перемістити, зареєструвати, «куплено»")}${it("tphoto","📷","Інструмент з фото","інвентаризація або переміщення")}${it("tnew","🔧","Новий інструмент вручну")}${it("need","📝","Потрібно на об'єкт: інструмент і матеріали","одним списком — застосунок сам розкладе")}`}
     <div class="section-t">📁 Інше</div>
-    ${it("inbox","📨","Від працівників"+(inboxNew().length?" ("+inboxNew().length+" нових)":""),"списки й фото з об'єктів; посилання для бригад")}${it("site","🏗️","Новий об'єкт / склад")}${it("person","👤","Нова людина / бригада")}${it("kp","📄","Нова смета / КП (без об'єкта)","тендер чи пропозиція; погодять — стане об'єктом")}${it("kpl","📂","Збережені пропозиції","відкрити, погодити")}${!duo?it("doc","🧾","Рахунок / акт"):""}
+    ${it("inbox","📨","Від працівників"+(inboxNew().length?" ("+inboxNew().length+" нових)":""),"списки й фото з об'єктів; посилання для бригад")}${it("site","🏗️","Новий об'єкт / склад")}${it("person","👤","Нова людина / бригада")}${it("kp","📄","Нова смета / КП (без об'єкта)","тендер чи пропозиція; погодять — стане об'єктом")}${it("kpl","📂","Збережені пропозиції","відкрити, погодити")}${it("doc","🧾","Рахунок / акт")}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#modal").onclick=e=>{ const b=e.target.closest("[data-fa]"); if(!b) return; const a=b.dataset.fa;
     if(a==="out") finForm(null,{type:"out"});
@@ -5709,7 +5719,7 @@ window.__fbAI=async(imgs,prompt,onTry)=>{
   throw new Error(errs.join(" | "));
 };
 window.__fbDump=async()=>{ const out={exportedAt:new Date().toISOString(),exportedAtMs:Date.now()};
-  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","offers","meta","photos","tasks","duo_fin","duo_sites","duo_files","duo_photos","duo_tasks"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
+  for(const c of ["people","sites","tools","moves","fin","fops","clients","docs","contracts","files","offers","meta","photos","tasks","duo_fin","duo_sites","duo_files","duo_photos","duo_tasks","duo_docs","duo_contracts","duo_offers","duo_log"]){ try{ const sn=await getDocs(collection(fs,px(c))); out[c]=sn.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ if(!c.startsWith("duo_")) throw e } }
   return out; };
 let drvTok=null, drvExp=0;
 window.__driveToken=async()=>{ if(drvTok&&Date.now()<drvExp) return drvTok;
