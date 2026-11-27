@@ -1627,7 +1627,7 @@ function bindNeeds(s){ loadToolCat(); loadMatCat(); loadMatPrices(()=>{ if(!S._m
     $("#nAdd").style.display="none"; $("#nTxt").focus(); if(pre){ $("#nTxt").value=pre.text||""; nImgs=pre.imgs||[] }
     const drawT=()=>{ $("#nThumbs").innerHTML=nImgs.map((x,i)=>`<div style="position:relative"><img src="${x.thumb}" style="width:64px;height:64px;object-fit:cover;border-radius:8px"><button type="button" data-nri="${i}" style="position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:22px;height:22px;background:#e11d48;color:#fff">×</button></div>`).join("") };
     const addImgs=async fl=>{ for(const f of fl){ try{ nImgs.push(await shrinkImage(f,1600)) }catch(_){} } drawT() };
-    drawT(); $("#nCam").onchange=e=>{addImgs(e.target.files);e.target.value=""}; $("#nGal").onchange=e=>{addImgs(e.target.files);e.target.value=""};
+    drawT(); $("#nCam").onchange=e=>{const fl=[...e.target.files];e.target.value="";addImgs(fl)}; $("#nGal").onchange=e=>{const fl=[...e.target.files];e.target.value="";addImgs(fl)};
     $("#nThumbs").onclick=e=>{ const i=e.target.dataset.nri; if(i!=null){ nImgs.splice(+i,1); drawT() } };
     $("#nCancel").onclick=re;
     $("#nOk").onclick=async()=>{ const raw=$("#nTxt").value.trim(); if(!raw&&!nImgs.length){re();return}
@@ -4987,7 +4987,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v248"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v249"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
