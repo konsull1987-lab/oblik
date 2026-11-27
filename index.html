@@ -1263,8 +1263,9 @@ function renderSites(){
   if(!all.length){ $("#view").innerHTML=`<div class="empty">${sq?"Нічого не знайдено":"Додайте склади й об'єкти кнопкою «+»."}</div>`; return; }
   const tot=siteTotals();
   const nest=!sq, isKid=x=>nest&&x.parent&&S.sites.has(x.parent), CP=custPaid(tot);
-  const card=(s,kid)=>{ const kids=nest&&!kid?siteKids(s.id):[], F=kids.length?famTotals(s.id,tot):null, t=F||tot[s.id], p=t?t.in-t.out:0, debt=F?(famCustDebt(s.id,tot)||0):(+s.contract||0)>0?(+s.contract)-(CP[s.id]?.paid??(t?.in||0)):0;
-    return `<div class="card" data-site="${s.id}" ${kid?`style="margin-left:22px;padding-top:8px;padding-bottom:8px"`:""}><div class="main"><div class="t">${kid?"↳ "+(isDuoKid(s)?"🤝 ":""):s.type==="warehouse"?"🏬 ":"🏗️ "}${!nest&&s.parent&&S.sites.get(s.parent)?`<span class="m">${esc(S.sites.get(s.parent).name)} › </span>`:""}${esc(s.name)}${kids.length?` <span class="tag site">📂 ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</span>`:""}${kid&&s.active===false?` <span class="tag">архів</span>`:""}${isTestSite(s)?` <span class="tag">🧪 тест · не рахується</span>`:""}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
+  // основний об'єкт в архіві, а ділянки активні → ділянки лишаються серед активних (під «шапкою» основного), в архіві — лише неактивні
+  const card=(s,kid,sec)=>{ const kids=nest&&!kid?siteKids(s.id).filter(k=>s.active!==false||(sec==="arch"?k.active===false:k.active!==false)):[], F=kids.length?famTotals(s.id,tot):null, t=F||tot[s.id], p=t?t.in-t.out:0, debt=F?(famCustDebt(s.id,tot)||0):(+s.contract||0)>0?(+s.contract)-(CP[s.id]?.paid??(t?.in||0)):0;
+    return `<div class="card" data-site="${s.id}" ${kid?`style="margin-left:22px;padding-top:8px;padding-bottom:8px"`:""}><div class="main"><div class="t">${kid?"↳ "+(isDuoKid(s)?"🤝 ":""):s.type==="warehouse"?"🏬 ":"🏗️ "}${!kid&&s.active===false&&sec!=="arch"?`<span class="m" style="font-size:12px">🗄 основний в архіві · </span>`:""}${!nest&&s.parent&&S.sites.get(s.parent)?`<span class="m">${esc(S.sites.get(s.parent).name)} › </span>`:""}${esc(s.name)}${kids.length?` <span class="tag site">📂 ${kids.length+1} ${kids.length+1<5?"частини":"частин"}</span>`:""}${kid&&s.active===false?` <span class="tag">архів</span>`:""}${isTestSite(s)?` <span class="tag">🧪 тест · не рахується</span>`:""}${isPerm(s)?` <span class="tag site">♾️ постійний</span>`:s.split?` <span class="tag site">✓ поділено</span>`:""}</div>
     ${t?`<div class="m">прихід <span class="in">${money(t.in)}</span> · витрати <span class="out">${money(t.out)}</span> · прибуток <b class="${p<0?"out":""}">${money(p)}</b></div>`:""}
     ${debt>0?`<div class="m">👤 ${esc(siteCust(s)||"замовник")} винен${F?" усього":""} <b class="in">${money(debt)}</b></div>`:""}
     ${s.note&&!kid?`<div class="m">${esc(s.note)}</div>`:""}</div>${`<span class="count">${(kids.length?siteFam(s.id).reduce((a,k)=>a+(cnt[k]||0),0):cnt[s.id])||0} од.</span>`}</div>`+kids.map(k=>card(k,1)).join("") };
@@ -1272,14 +1273,14 @@ function renderSites(){
   { const {shared}=ownerBalances(); const owe=customerRows().reduce((a,r)=>a+Math.max(0,r.debt),0);
     if(S.fin.size) h+=`<div class="sum" style="color:var(--muted)">Поділено між власниками: <b>${money(shared)}</b>${owe>0?` · замовники винні: <b class="in">${money(owe)}</b>`:""}</div>` }
   for(const [type,label] of [["warehouse","Склади"],["site","Активні об'єкти"]]){
-    const l=all.filter(s=>s.type===type&&s.active!==false&&!isKid(s)); if(!l.length)continue;
+    const l=all.filter(s=>s.type===type&&!isKid(s)&&(s.active!==false||nest&&siteKids(s.id).some(k=>k.active!==false))); if(!l.length)continue;
     h+=`<div class="section-t">${label} (${l.length})</div><div class="list">`+l.map(x=>card(x)).join("")+`</div>`;
   }
-  const arch=all.filter(s=>s.active===false&&!(isKid(s)&&S.sites.get(s.parent).active!==false));
+  const arch=all.filter(s=>s.active===false&&(nest?!isKid(s)&&(!siteKids(s.id).some(k=>k.active!==false)||siteKids(s.id).some(k=>k.active===false)):true));
   if(arch.length){
     const openA=S.showArch||!!sq;
     h+=`<div class="section-t" id="archT" style="cursor:pointer">${openA?"▾":"▸"} Архів (${arch.length})</div>`;
-    if(openA) h+=`${sq?"":`<input id="archQ" type="search" placeholder="Пошук в архіві" value="${esc(S.archQ||"")}" style="margin-bottom:8px">`}<div class="list" id="archL">`+arch.map(x=>card(x)).join("")+`</div>`;
+    if(openA) h+=`${sq?"":`<input id="archQ" type="search" placeholder="Пошук в архіві" value="${esc(S.archQ||"")}" style="margin-bottom:8px">`}<div class="list" id="archL">`+arch.map(x=>card(x,0,"arch")).join("")+`</div>`;
   }
   $("#view").innerHTML=h; if(S.archQ) archFilter();
 }
@@ -5117,7 +5118,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v255"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v256"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
