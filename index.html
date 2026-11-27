@@ -4987,7 +4987,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v249"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v250"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -5093,7 +5093,9 @@ function tasksDaySheet(day){ const l=tasksNow().filter(t=>t.date===day).sort((a,
     <div class="actions"><button class="btn ghost" data-close>Закрити</button>${S.canWrite?`<button class="btn" id="tdsAdd">＋ Справа</button>`:""}</div>`);
   $("#modal").querySelectorAll("[data-tds]").forEach(c=>c.onclick=()=>taskForm(l.find(t=>t.id===c.dataset.tds)));
   $("#tdsAdd")?.addEventListener("click",()=>taskForm({date:day})) }
-const tkDraftClear=()=>{ try{ Object.keys(localStorage).filter(k=>/^ta:.*справа:tkT$/i.test(k)).forEach(k=>localStorage.removeItem(k)) }catch(_){} };
+// чернетка справи: після збереження чистимо всі її поля (назва, інструмент, матеріали) — інакше інструмент «приклеювався» до кожної нової справи
+const tkDraftClear=()=>{ try{ Object.keys(localStorage).filter(k=>/^ta:.*справа:tk(T|Tl|Mt)$/i.test(k)).forEach(k=>localStorage.removeItem(k)) }catch(_){} };
+try{ if(!localStorage.getItem("tkFix250")){ Object.keys(localStorage).filter(k=>/^ta:.*справа:tk(Tl|Mt)$/i.test(k)).forEach(k=>localStorage.removeItem(k)); localStorage.setItem("tkFix250","1") } }catch(_){}
 function taskForm(t){ t=t||{}; const isNew=!t.id, td=dISO(), tm=dISO(new Date(Date.now()+864e5)), me=meId();
   const date=t.date||td, mode=t.from&&t.to?"range":t.to?"till":t.from?"from":"none";
   const own=owners(), wk=[...S.people.values()].filter(p=>p.role==="worker"&&p.active!==false).sort(byName);
