@@ -2881,10 +2881,26 @@ function siteEstimate(siteId){ const out=[];
 function workReport(workerId,opts){
   const pctGet=()=>{ try{ const v=parseFloat(localStorage.getItem("wrPct")); return isFinite(v)?v:40 }catch(_){ return 40 } };
   // ціни для робіт без ціни: спершу кошторис об'єкта, потім загальний прайс фірми
-  const estFor=site=>{ const a=siteEstimate(site).map(e=>({...e,src:"кошторис"})); return [...a,...priceList().filter(p=>+p.price>0).map(p=>({name:p.name,unit:p.unit,price:+p.price,src:"прайс",cat:p.cat,alt:p.alt||""}))] };
+  // кілька об'єктів в одному звіті: кошториси всіх вибраних об'єктів + прайс фірми
+  const estFor=sites=>{ const a=[]; for(const sid of [].concat(sites||[]).filter(Boolean)) a.push(...siteEstimate(sid).map(e=>({...e,src:"кошторис",site:sid,sname:site(sid)?.name||""}))); return [...a,...priceList().filter(p=>+p.price>0).map(p=>({name:p.name,unit:p.unit,price:+p.price,src:"прайс",cat:p.cat,alt:p.alt||""}))] };
   loadAliases();
-  let st={worker:workerId||"",site:opts?.site||"",date:todayISO(),pct:pctGet(),text:opts?.text||"",file:opts?.imgs?.length?{name:`фото від працівника (${opts.imgs.length})`}:null,fileParts:opts?.imgs?.length?opts.imgs.map(({mime,b64})=>({mime,b64})):[],shots:(opts?.imgs||[]).map(x=>"data:"+(x.mime||"image/jpeg")+";base64,"+x.b64),rows:[],their:0,est:estFor(opts?.site||"")};
-  if(!S.priceLoaded){ S.priceLoading=false; loadPrice(); const t0=Date.now(); const iv=setInterval(()=>{ if(S.priceLoaded||Date.now()-t0>8000){ clearInterval(iv); st.est=estFor(st.site); if(!st.rows.length&&$("#wrEst")) draw() } },300) }
+  let st={worker:workerId||"",site:opts?.site||"",date:todayISO(),pct:pctGet(),text:opts?.text||"",file:opts?.imgs?.length?{name:`фото від працівника (${opts.imgs.length})`}:null,fileParts:opts?.imgs?.length?opts.imgs.map(({mime,b64})=>({mime,b64})):[],shots:(opts?.imgs||[]).map(x=>"data:"+(x.mime||"image/jpeg")+";base64,"+x.b64),rows:[],their:0,more:[],est:estFor(opts?.site||"")};
+  const sitesOf=()=>[st.site,...st.more].filter((x,i,a)=>x&&a.indexOf(x)===i);
+  const ekey=e=>e?e.src+"|"+(e.site||"")+"|"+e.name+"|"+e.price:"";
+  const rebuildEst=()=>{ const prev=st.est; st.est=estFor(sitesOf()); for(const r of st.rows) if(r.est>=0){ const k=ekey(prev[r.est]); r.est=st.est.findIndex(e=>ekey(e)===k) } };
+  const rowSite=r=>r.site||st.site||"";
+  // рядок переносимо на інший об'єкт: роботу шукаємо в кошторисі нового об'єкта, інакше — у прайсі
+  // робота з кошторису іншого об'єкта → та сама робота в кошторисі свого об'єкта (або в прайсі); не знайшли — лишаємо ціну як «вручну»
+  const stem4=t=>normName(t).split(" ").filter(w=>w.length>=4&&!TS_STOP.has(w)).map(w=>w.slice(0,4));
+  const fixEst=r=>{ const to=rowSite(r), e=r.est>=0?st.est[r.est]:null;
+    if(!e){ if(!to||r.manual||r.price>0) return; const a=new Set(stem4(r.orig||r.name)); if(!a.size) return; // ШІ не бачив кошторису цього об'єкта — шукаємо єдину схожу роботу в ньому
+      const c=st.est.map((x,j)=>j).filter(j=>st.est[j].site===to&&stem4(st.est[j].name+" "+(st.est[j].alt||"")).some(w=>a.has(w))); if(c.length===1) r.est=c[0]; return }
+    const n=normW(e.name);
+    if(e.site&&e.site!==to){ let j=st.est.findIndex(x=>x.site===to&&normW(x.name)===n); if(j<0) j=st.est.findIndex(x=>!x.site&&normW(x.name)===n);
+      if(j<0&&+r.rate>0&&!(r.price>0)){ r.manual=true; r.est=-1 } else { r.est=j; r.manual=false } }
+    else if(!e.site){ const j=st.est.findIndex(x=>x.site===to&&normW(x.name)===n); if(j>=0){ r.est=j; r.manual=false } } };
+  const moveRow=(r,sid)=>{ r.site=sid; if(sid&&!sitesOf().includes(sid)){ st.more.push(sid); rebuildEst() } fixEst(r); calc(r) };
+  if(!S.priceLoaded){ S.priceLoading=false; loadPrice(); const t0=Date.now(); const iv=setInterval(()=>{ if(S.priceLoaded||Date.now()-t0>8000){ clearInterval(iv); if(st.rows.length) rebuildEst(); else st.est=estFor(sitesOf()); if(!st.rows.length&&$("#wrEst")) draw() } },300) }
   const workers=[...S.people.values()].filter(p=>p.role==="worker").sort((a,b)=>(b.crew?1:0)-(a.crew?1:0)||byName(a,b));
   const n2=v=>Math.round((+v||0)*100)/100;
   const calc=r=>{ const e=r.est>=0?st.est[r.est]:null; const k=1-st.pct/100;
@@ -2899,6 +2915,7 @@ function workReport(workerId,opts){
     openSheet(`<h2>📋 Звіт робіт</h2>
       <div class="row"><div class="field"><label>Виконавець / бригада *</label><select id="wrW"><option value="">— виберіть</option>${workers.map(p=>`<option value="${p.id}" ${st.worker===p.id?"selected":""}>${p.crew?"👥 ":""}${esc(p.name)}</option>`).join("")}</select></div>
         <div class="field"><label>Об'єкт</label><select id="wrS">${siteOptions(st.site,"— виберіть")}</select></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-4px 0 8px">${st.more.map(id=>`<span class="chip" style="font-size:12.5px">🏗 ${esc(site(id)?.name||"?")} <button type="button" data-wrmx="${id}" style="all:unset;cursor:pointer;margin-left:4px">✕</button></span>`).join("")}<select id="wrS2" style="flex:1;min-width:170px;font-size:13px;padding:6px">${siteOptions("",st.more.length?"＋ Ще об'єкт…":"＋ Роботи з кількох об'єктів…")}</select></div>
       <div class="row"><div class="field"><label>Дата</label><input type="date" id="wrD" value="${st.date}"></div>
         <div class="field"><label>Мінус від кошторису, %</label><input id="wrP" inputmode="decimal" value="${st.pct}"></div></div>
       <div class="m" id="wrEst" style="color:var(--muted);font-size:12.5px;margin:-4px 0 8px">${(()=>{const k=st.est.filter(e=>e.src==="кошторис").length;return `Роботи без ціни рахую: ${k?`за кошторисом об'єкта (позицій: ${k}), а чого там немає — `:""}за прайсом фірми, мінус ${st.pct}% (виконавцю ${100-st.pct}%).`})()}</div>
@@ -2912,7 +2929,9 @@ function workReport(workerId,opts){
       <div id="wrRes"></div>
       <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
     $("#wrW").onchange=e=>st.worker=e.target.value;
-    $("#wrS").onchange=e=>{st.site=e.target.value;st.est=estFor(st.site);if(st.rows.length){rematch()}else draw()};
+    $("#wrS").onchange=e=>{ const old=st.site; st.site=e.target.value; st.more=st.more.filter(x=>x!==st.site); for(const r of st.rows) if(!r.site||r.site===old||r.site===st.site) r.site=""; rebuildEst(); if(st.rows.length){ st.rows.forEach(calc); rematch() } else draw() };
+    $("#wrS2").onchange=e=>{ const v=e.target.value; if(v&&v!==st.site&&!st.more.includes(v)){ st.more.push(v); rebuildEst(); if(st.rows.length) toast("Тепер біля кожної роботи можна вибрати об'єкт") } draw() };
+    document.querySelectorAll("[data-wrmx]").forEach(b=>b.onclick=()=>{ const id=b.dataset.wrmx; for(const r of st.rows) if(r.site===id) moveRow(r,""); st.more=st.more.filter(x=>x!==id); rebuildEst(); st.rows.forEach(calc); draw() });
     $("#wrD").onchange=e=>st.date=e.target.value;
     $("#wrP").onchange=e=>{const v=parseFloat(String(e.target.value).replace(",","."));if(isFinite(v)&&v>=0&&v<100){st.pct=v;try{localStorage.setItem("wrPct",String(v))}catch(_){}}st.rows.forEach(calc);draw()};
     $("#wrT").oninput=e=>st.text=e.target.value;
@@ -2931,7 +2950,8 @@ function workReport(workerId,opts){
     S._wshots=st.shots||[]; S._wst=st; if(!window._wshL){ window._wshL=1; document.addEventListener("click",e=>{ const x=e.target.closest?.("[data-wsh]"); if(x&&S._wshots?.length){ e.preventDefault(); imgOverlay(S._wshots,+x.dataset.wsh) } const d=e.target.closest?.("[data-wdock]"); if(d&&S._wshots?.length){ e.preventDefault(); imgDock(S._wshots,0) } const dd=e.target.closest?.("[data-wdoc]"); if(dd){ e.preventDefault(); docDock(S._wst?.site,"#wrGo") } }) }
     if(st.rows.length) drawRows();
   };
-  const estList=()=>st.est.map((e,i)=>`${i}. ${e.src} | ${e.name}${e.alt?` (також: ${e.alt})`:""} | ${e.unit} | ${e.price}`).join("\n");
+  const estList=()=>st.est.map((e,i)=>`${i}. ${e.src}${e.site&&sitesOf().length>1?` «${e.sname}»`:""} | ${e.name}${e.alt?` (також: ${e.alt})`:""} | ${e.unit} | ${e.price}`).join("\n");
+  const siteList=()=>{ const l=sitesOf(), all=[...S.sites.values()].filter(s=>s.type==="site"&&s.active!==false&&!l.includes(s.id)).slice(0,60); return [...l,...all.map(s=>s.id)] };
   const known=()=>{ const a=Object.entries(S.aliases||{}); return a.length?`\nВідомі відповідності з минулих звітів (так пишуть → наша назва):\n${a.slice(-150).map(([k,v])=>`${k} → ${v}`).join("\n")}`:"" };
   async function go(){
     if(!st.text.trim()&&!st.fileParts.length){toast("Вставте текст або додайте файл");return}
@@ -2943,11 +2963,17 @@ function workReport(workerId,opts){
 total — загальна сума, якщо виконавець її написав, інакше 0.
 Ось наші розцінки (номер. джерело | назва | од. | ціна); «кошторис» — кошторис цього об'єкта, «прайс» — загальний прайс фірми:\n${estList()}\n${AI_SYN}${known()}\nДля кожної роботи вкажи est — номер рядка, який означає ту саму роботу за змістом, з сумісною одиницею (якщо є і в кошторисі, і в прайсі — бери кошторис), або -1, якщо такої роботи справді немає. Не підставляй роботу іншого виду (наприклад, шпаклівку замість штукатурки).
 ВАЖЛИВО: name — пиши словами виконавця, не перейменовуй. est став ЛИШЕ коли це та сама робота (заливка стяжки = стяжка; але стяжка ≠ поклейка багетів, штукатурка ≠ шпаклівка). Не підбирай за схожою ціною чи одиницею. Сумніваєшся — став -1, людина вибере сама.
-Відповідь — лише JSON {"items":[{"name":"","qty":0,"unit":"","price":0,"sum":0,"est":-1}],"total":0}.`;
+${(()=>{ const sl=siteList(); return sl.length>1?`\nВиконавець може працювати на кількох об'єктах і прислати один список на всі. Наші об'єкти (номер. назва):\n${sl.map((id,i)=>`${i}. ${siteFull(site(id)||{name:""})}`).join("\n")}\nДля кожної роботи вкажи site — номер об'єкта, якщо з повідомлення видно, до якого об'єкта вона належить (заголовок «Щербані:», назва, адреса, «на аграрці» тощо; заголовок діє на всі роботи під ним), інакше -1. Якщо об'єкт відомий — est бери з кошторису саме цього об'єкта.`:"" })()}
+Відповідь — лише JSON {"items":[{"name":"","qty":0,"unit":"","price":0,"sum":0,"est":-1,"site":-1}],"total":0}.`;
     try{ const txt=await window.__fbAI([...(st.text.trim()?[{text:"Повідомлення виконавця:\n"+st.text}]:[]),...st.fileParts],prompt);
       clearInterval(tick); const j=JSON.parse(String(txt).replace(/^```(json)?|```$/g,"").trim());
       st.their=+j.total||0;
-      st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>({on:true,name:String(x.name).trim(),orig:String(x.name).trim(),qty:+x.qty||0,unit:String(x.unit||(+x.qty>0?"":"посл.")),price:+x.price||0,sum:+x.sum||0,est:Number.isInteger(+x.est)&&+x.est>=0&&+x.est<st.est.length?+x.est:-1}));
+      const sl=siteList();
+      st.rows=(j.items||[]).filter(x=>x&&x.name).map(x=>{ const e=Number.isInteger(+x.est)&&+x.est>=0&&+x.est<st.est.length?+x.est:-1, si=Number.isInteger(+x.site)&&+x.site>=0&&+x.site<sl.length?sl[+x.site]:"";
+        return {on:true,name:String(x.name).trim(),orig:String(x.name).trim(),qty:+x.qty||0,unit:String(x.unit||(+x.qty>0?"":"посл.")),price:+x.price||0,sum:+x.sum||0,est:e,site:si||(e>=0&&st.est[e].site)||""} });
+      // ШІ впізнав об'єкт, якого не було у звіті — додаємо його (і його кошторис)
+      let add=false; for(const r of st.rows) if(r.site&&!sitesOf().includes(r.site)){ add=true; if(!st.site) st.site=r.site; else st.more.push(r.site) }
+      if(add) rebuildEst(); for(const r of st.rows){ if(r.site===st.site) r.site=""; calc(r); fixEst(r) }
       // 🛡 перевірка ШІ: зіставлена робота мусить мати спільне за змістом слово з тим, що написав виконавець (стяжка ≠ багети)
       const stem=t=>normName(t).split(" ").filter(w=>w.length>=4&&!TS_STOP.has(w)).map(w=>w.slice(0,4));
       for(const r of st.rows){ if(r.est<0) continue; const e=st.est[r.est], a=new Set(stem(r.orig)), b=stem(e.name+" "+(e.alt||""));
@@ -2963,18 +2989,20 @@ total — загальна сума, якщо виконавець її напи
     const estOpt=r=>{ const e=r.est>=0?st.est[r.est]:null; return `<button type="button" class="btn ghost sm" data-pick="${st.rows.indexOf(r)}" style="width:100%;text-align:left;font-size:12.5px">🔍 ${e?`${e.src==="кошторис"?"📋 ":""}${esc(e.name.slice(0,60))} · ${money(e.price)}/${esc(e.unit)}`:"Вибрати роботу з кошторису/прайсу…"}</button>${r.est<0&&r.aiDrop?`<div class="m" style="font-size:12px;margin-top:3px">ШІ пропонував «${esc(r.aiDrop.slice(0,50))}» — не схоже на «${esc(r.orig.slice(0,40))}», тому не підставлено. Виберіть вручну — застосунок запам'ятає.</div>`:""}` };
     $("#wrRes").innerHTML=(!st.shots?.length?`<button class="btn ghost" data-wdoc="1" style="width:100%;margin:8px 0 4px;position:sticky;top:0;z-index:2">📄 Відкрити договір / кошторис / акт поруч</button>`:"")+(st.shots?.length?`<div style="display:flex;gap:6px;margin:8px 0 4px;position:sticky;top:0;z-index:2;background:var(--card)"><button class="btn" data-wdock="1" style="flex:1">📌 Фото поруч</button><button class="btn ghost" data-wdoc="1" style="flex:1">📄 Документ поруч</button><button class="btn ghost" data-wsh="0" style="flex:0 0 auto">🔍 На весь екран</button></div>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
-        <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
+        <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}">${sitesOf().length<2&&!r.pickSite?`<button type="button" class="btn ghost sm" data-wmv="${i}" title="Ця робота — з іншого об'єкта" style="flex:0 0 auto;padding:6px 8px">🏗↪</button>`:""}</div>
         <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span style="flex:0 0 auto">${esc(r.unit)} ×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
+        ${sitesOf().length>1||r.pickSite?`<div class="row" style="margin-top:6px;align-items:center"><span style="flex:0 0 auto;font-size:13px">🏗</span><select data-i="${i}" data-k="site" style="font-size:13px;padding:5px;${r.site&&r.site!==st.site?"border-color:#7c3aed":""}">${siteOptions(rowSite(r),"— без об'єкта")}</select></div>`:""}
         ${st.est.length?`<div style="margin-top:6px">${estOpt(r)}</div>`:""}
         <div class="m" style="font-size:12.5px;margin-top:4px">${[r.price>0?`ціна виконавця ${money(r.price)}`:r.estRate&&!r.manual?`за ${st.est[r.est].src==="кошторис"?"кошторисом":"прайсом"} ${money(st.est[r.est].price)} −${st.pct}% = ${money(r.estRate)}`:"",r.manual?"ціна вручну":""].filter(Boolean).join(" · ")}
           ${r.err?`<div style="color:var(--bad,#e57373)">❗ Помилка в сумі: ${r.err}</div>`:""}${r.warn?`<div style="color:#e0a040">⚠️ ${r.warn}</div>`:""}${r.need?`<div style="color:var(--bad,#e57373)">Вкажіть ціну</div>`:""}</div></div>`).join("")}
+      ${(()=>{ const g=new Map(); for(const r of on) g.set(rowSite(r),n2((g.get(rowSite(r))||0)+r.pay)); return g.size>1?`<div class="card" style="display:block;cursor:default;margin-top:6px">${[...g].map(([sid,v])=>`<div style="display:flex;gap:8px"><span style="flex:1">🏗 ${esc(sid?(site(sid)?.name||"?"):"Без об'єкта")}</span><b>${money(v)}</b></div>`).join("")}</div>`:"" })()}
       <div class="sum">До нарахування: <b>${money(tot)}</b></div>
       ${st.their?`<div class="m" style="${Math.abs(st.their-tot)>0.5?"color:var(--bad,#e57373)":""}">Виконавець написав разом: <b>${money(st.their)}</b>${Math.abs(st.their-tot)>0.5?` — різниця ${money(n2(st.their-tot))}`:" ✅ збігається"}${on.every(r=>r.price>0||r.sum>0)&&Math.abs(st.their-theirSum)>0.5?` · сума його ж рядків ${money(theirSum)}`:""}</div>`:""}
       ${errs?`<div class="banner">❗ Помилок у рахунках виконавця: ${errs}. До нарахування взято правильну суму (обсяг × ціна).</div>`:""}
       ${need?`<div class="banner">Без ціни: ${need} поз. — впишіть ціну або виберіть рядок кошторису.</div>`:""}
       <label class="m" style="display:flex;gap:8px;align-items:center;margin:8px 0;font-size:14px"><input type="checkbox" id="wrPay" checked style="width:20px;height:20px"> 💵 і одразу виплатити (зніміть, якщо платите пізніше)</label>
       <div class="field" id="wrOwnBox"><label>Хто платить</label><select id="wrOwn">${owners().map(o=>`<option value="${o.id}" ${o.id===myOwner()?"selected":""}>${esc(o.name)}</option>`).join("")}</select></div>
-      ${S.canWrite?`<button class="btn" id="wrSave" style="width:100%" ${tot>0?"":"disabled"}>✅ Нарахувати й виплатити ${money(tot)}</button>`:""}`;
+      ${S.canWrite?`<button class="btn" id="wrSave" style="width:100%" ${tot>0?"":"disabled"}>✅ Нарахувати й виплатити ${money(tot)}</button>`:""}${new Set(on.map(rowSite)).size>1?`<div class="m" style="text-align:center;font-size:12px;color:var(--muted);margin-top:4px">Запишеться окремо по кожному об'єкту</div>`:""}`;
     $("#wrRes").onchange=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;
       if(e.target.id==="wrPay"){$("#wrOwnBox").style.display=e.target.checked?"":"none";$("#wrSave").textContent=(e.target.checked?"✅ Нарахувати й виплатити ":"✅ Нарахувати ")+money(tot);return}
       if(i==null)return; const r=st.rows[i];
@@ -2982,9 +3010,12 @@ total — загальна сума, якщо виконавець її напи
       else if(k==="qty") r.qty=parseFloat(String(e.target.value).replace(",","."))||0;
       else if(k==="rate"){ const v=parseFloat(String(e.target.value).replace(",","."))||0; r.rate=v; r.manual=v>0 }
       else if(k==="est"){ r.est=+e.target.value; r.manual=false; if(r.est>=0) learnAlias(r.orig||r.name,st.est[r.est].name) }
+      else if(k==="site"){ const v=e.target.value, n0=sitesOf().length; moveRow(r,v===st.site?"":v); if(sitesOf().length!==n0){ calc(r); draw(); return } }
       calc(r); drawRows()};
     $("#wrRes").onclick=e=>{ const b=e.target.closest("[data-pick]"); if(!b) return; const i=b.dataset.pick;
-      pickWork(st.est.map(x=>({...x,tag:x.src==="кошторис"?"📋":""})),st.rows[i].est,v=>$("#wrRes").onchange({target:{dataset:{i,k:"est"},value:String(v)}}),"— немає в кошторисі/прайсі") };
+      const r=st.rows[i], sid=rowSite(r), idx=st.est.map((x,j)=>j).filter(j=>!st.est[j].site||st.est[j].site===sid);
+      pickWork(idx.map(j=>({...st.est[j],tag:st.est[j].src==="кошторис"?"📋":""})),idx.indexOf(r.est),v=>$("#wrRes").onchange({target:{dataset:{i,k:"est"},value:String(v>=0?idx[v]:-1)}}),"— немає в кошторисі/прайсі") };
+    $("#wrRes").querySelectorAll("[data-wmv]").forEach(b=>b.onclick=()=>{ st.rows[+b.dataset.wmv].pickSite=true; drawRows() });
     $("#wrSave")?.addEventListener("click",save);
   }
   async function save(){
@@ -2995,13 +3026,17 @@ total — загальна сума, якщо виконавець її напи
     const note=("Звіт робіт: "+lines.join("; ")).slice(0,900);
     let byName=""; try{byName=(await S.user?.me?.())?.name||""}catch(_){}
     let fileId=""; if(st.file){ try{ fileId=(await saveFile(st.file)).id }catch(_){ toast("Файл звіту не збережено") } }
-    const now=Date.now(), base={date:st.date||todayISO(),site:st.site||"",worker:st.worker,amount:tot,createdAt:now,by:S.uid||"",byName,
-      report:{pct:st.pct,their:st.their,items:on.map(r=>({name:r.name,qty:r.qty,unit:r.unit,rate:r.rate,pay:r.pay,price:r.price,sum:r.sum,est:r.est>=0?st.est[r.est].price:0}))}};
-    const ok=await write(async db=>{
-      await db.collection("fin").add({...base,type:"accrual",owner:"",kind:"",note,...(fileId?{receipt:fileId}:{})});
-      if(pay) await db.collection("fin").add({date:base.date,site:base.site,worker:st.worker,amount:tot,createdAt:now+1,by:base.by,byName,type:"out",owner:own,kind:"Зарплата",note:"За звітом робіт "+fmtDay(base.date)});
-    });
-    if(ok){closeSheet();toast(pay?`Нараховано й виплачено ${money(tot)}`:`Нараховано ${money(tot)}`)} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
+    // роботи з різних об'єктів — окреме нарахування (і виплата) на кожен об'єкт, щоб витрати лягли куди треба; усе одним пакетом
+    const groups=new Map(); for(const r of on){ const k=rowSite(r); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(r) }
+    const now=Date.now(), date=st.date||todayISO(), multi=groups.size>1; let k=0;
+    const ok=await write(async db=>{ const ops=[];
+      for(const [sid,rs] of groups){ const sum=n2(rs.reduce((a,r)=>a+r.pay,0)), t=now+(k++)*2, sn=multi?` (${site(sid)?.name||"без об'єкта"})`:"";
+        const nt=multi?("Звіт робіт: "+rs.map(r=>`${r.name} ${r.qty} ${r.unit}×${r.rate}=${r.pay}`).join("; ")).slice(0,900):note;
+        ops.push(["fin/"+db.newId(),{date,site:sid,worker:st.worker,amount:sum,createdAt:t,by:S.uid||"",byName,type:"accrual",owner:"",kind:"",note:nt,...(fileId?{receipt:fileId}:{}),
+          report:{pct:st.pct,their:multi?0:st.their,items:rs.map(r=>({name:r.name,qty:r.qty,unit:r.unit,rate:r.rate,pay:r.pay,price:r.price,sum:r.sum,est:r.est>=0?st.est[r.est].price:0}))}}]);
+        if(pay) ops.push(["fin/"+db.newId(),{date,site:sid,worker:st.worker,amount:sum,createdAt:t+1,by:S.uid||"",byName,type:"out",owner:own,kind:"Зарплата",note:"За звітом робіт "+fmtDay(date)+sn}]) }
+      await db.batchSet(ops) });
+    if(ok){closeSheet();toast((pay?`Нараховано й виплачено ${money(tot)}`:`Нараховано ${money(tot)}`)+(multi?` · ${groups.size} об'єкти`:""))} else {btn.disabled=false;btn.textContent="Спробувати ще раз"}
   }
   draw(); if(opts?.auto&&st.worker&&st.site) setTimeout(()=>$("#wrGo")?.click(),60); // з повідомлення працівника — одразу розбираємо його фото/текст
 }
@@ -4855,7 +4890,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v244"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v245"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
