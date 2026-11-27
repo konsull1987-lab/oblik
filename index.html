@@ -383,6 +383,23 @@ async function write(fn){
 }
 
 // ---------- Рендер ----------
+// ---------- Крок «назад» (свайп від краю / кнопка назад Android) ----------
+let popIgnore=0, H_d=history.state?.d||0;
+// кожен крок у історії знає свою глибину: «назад» ніколи не виходить за межі застосунку і не лишає «мертвих» свайпів
+function histPush(kind){ H_d++; try{ history.pushState({[kind]:1,d:H_d},"") }catch(_){ H_d-- } }
+function histBack(n){ n=Math.min(n,H_d); if(n<=0) return; H_d-=n; popIgnore++; try{ history.go(-n) }catch(_){ popIgnore--; H_d+=n } }
+const isPop=n=>n?.nodeType===1&&(n.classList.contains("overlay")||!!n.dataset?.bk);
+// 🔙 екрани (вкладки й підвкладки, режим вибору): кожна зміна — крок назад
+const VIEW_KEYS=["tab","mtab","htab","priceMode","tzMode","sitesMode","statMode","tview","select"], viewStack=[]; let viewLast=null, viewRestoring=false;
+const viewSnap=()=>{ const o={}; for(const k of VIEW_KEYS) o[k]=S[k]; o.k=VIEW_KEYS.map(k=>String(S[k]??"")).join("|"); o.y=window.scrollY||0; return o };
+function viewTrack(){ const cur=viewSnap(); if(!viewLast||viewRestoring){ viewLast=cur; return } if(cur.k===viewLast.k) return;
+  // повернулись на попередній екран кнопкою в застосунку (вийшли з режиму вибору, знову ту саму вкладку) — це крок назад, а не новий
+  if(viewStack.length&&viewStack[viewStack.length-1].k===cur.k&&H_d>0){ viewStack.pop(); viewLast=cur; histBack(1); return }
+  viewStack.push(viewLast); if(viewStack.length>40) viewStack.shift(); viewLast=cur; histPush("view") }
+function viewBack(){ const v=viewStack.pop(); if(!v) return false; viewRestoring=true;
+  try{ for(const k of VIEW_KEYS) S[k]=v[k]; if(!v.select){ S.select=false; S.selected?.clear?.() } S.forceRender=true; render() }finally{ S.forceRender=false; viewRestoring=false }
+  viewLast=viewSnap(); (window.requestAnimationFrame||setTimeout)(()=>window.scrollTo(0,v.y||0)); return true }
+window.addEventListener("scroll",()=>{ if(viewLast&&!$("#modal").firstElementChild) viewLast.y=window.scrollY },{passive:true});
 function render(){
   if(S.duoLoaded) wpubSync();
   try{ sessionStorage.setItem("oblikUI",JSON.stringify({tab:S.tab,mtab:S.mtab,statMode:S.statMode})) }catch(_){}
@@ -406,7 +423,7 @@ function render(){
   // поки дані з кешу ще не прийшли — лишаємо знімок, не малюємо порожній екран
   if(document.body.classList.contains("snap")){ if(!(S.people?.size&&S.fin&&(S.fin.size||S.loaded?.fin))) return; document.body.classList.remove("snap") }
   ({today:renderToday,tools:renderTools,sites:renderSites,people:renderPeople,history:renderHistory,money:renderMoney})[S.tab]();
-  renderBulk();
+  renderBulk(); viewTrack();
   if(S.tab==="today"&&!S.select){ clearTimeout(S.snapT); S.snapT=setTimeout(()=>{ try{ const h=$("#view").innerHTML; if(h.length<350000&&!/Завантаження…/.test(h)) localStorage.setItem("oblikSnap",JSON.stringify({at:Date.now(),html:h})) }catch(_){} },1500) }
 }
 
@@ -767,7 +784,7 @@ async function scanSheet(){ if(!("BarcodeDetector" in window)||!navigator.mediaD
   const ov=document.createElement("div"); ov.className="overlay"; ov.style.cssText="position:fixed;inset:0;z-index:40;background:#000;display:flex;flex-direction:column";
   ov.innerHTML=`<video playsinline muted style="flex:1;min-height:0;object-fit:cover;width:100%"></video><div style="background:var(--card);padding:10px 12px;max-height:40vh;overflow:auto"><div class="m" id="scS">Наведіть на QR-наліпку…</div><div id="scL" class="m" style="margin:6px 0"></div><div class="actions" style="margin:6px 0 0"><button class="btn ghost" id="scX">Закрити</button><button class="btn" id="scGo">Перенести →</button></div></div>`;
   document.body.appendChild(ov); const v=ov.querySelector("video"); let st=null, on=true, last="", lastAt=0; const got=[];
-  const stop=()=>{ on=false; try{ st?.getTracks().forEach(x=>x.stop()) }catch(_){} if(ov.isConnected){ ovPop=true; ov.remove(); try{ history.back() }catch(_){} } renderBulk(); cbtnSync(document) };
+  const stop=()=>{ on=false; try{ st?.getTracks().forEach(x=>x.stop()) }catch(_){} if(ov.isConnected) ov.remove(); renderBulk(); cbtnSync(document) }; ov._close=stop;
   ov.querySelector("#scX").onclick=stop; ov.querySelector("#scGo").onclick=()=>{ stop(); if(S.cart.size) setTimeout(()=>moveTo([...S.cart.keys()],{cart:true}),60) };
   try{ st=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}); v.srcObject=st; await v.play() }catch(e){ stop(); toast("Немає доступу до камери"); return }
   const loop=async()=>{ if(!on) return; try{ const r=await det.detect(v); for(const c of r){ const raw=String(c.rawValue||""), id=(raw.match(/#t=([\w-]+)/)||[])[1]; const t=id?S.tools.get(id):[...S.tools.values()].find(x=>x.inv&&x.inv===raw.trim());
@@ -1398,32 +1415,38 @@ function renderBulk(){ const c=S.tab==="tools"&&S.canWrite?cartLive():null;
 // ---------- Модальні вікна ----------
 // Вікна з історією: свайп «назад» (кнопка назад Android) повертає на попередній крок, а не закриває все.
 // Перемальовування того самого вікна (пошук, галочки) крок не додає; перемикання вкладок об'єкта — додає.
-const sheetStack=[]; let popIgnore=0;
+const sheetStack=[];
 const sheetKey=()=>{ const m=$("#modal"); return (m.querySelector(".sheet h2")?.textContent||"")+"|"+(m.querySelector("#segS button.on")?.dataset.v||"") };
 function openSheet(html){ S.sheetRefresh=null; const m=$("#modal"), had=m.firstElementChild, oldKey=had?sheetKey():"";
   const tmp=document.createElement("div"); tmp.innerHTML=`<div class="overlay"><div class="sheet">${html}</div></div>`; const node=tmp.firstElementChild;
   const newKey=(node.querySelector(".sheet h2")?.textContent||"")+"|"+(node.querySelector("#segS button.on")?.dataset.v||"");
-  if(had&&newKey!==oldKey){ sheetStack.push({node:had,onclick:m.onclick,onchange:m.onchange,oninput:m.oninput,scroll:had.querySelector(".sheet")?.scrollTop||0}); had.remove(); try{history.pushState({sheet:sheetStack.length+1},"")}catch(_){} }
-  else if(!had){ try{history.pushState({sheet:1},"")}catch(_){} }
+  if(had&&newKey!==oldKey){ sheetStack.push({node:had,onclick:m.onclick,onchange:m.onchange,oninput:m.oninput,scroll:had.querySelector(".sheet")?.scrollTop||0}); had.remove(); histPush("sheet") }
+  else if(!had) histPush("sheet");
   if(had&&newKey===oldKey){ const sc=had.querySelector(".sheet")?.scrollTop||0; had.remove(); m.appendChild(node); siteSelSearch(node); const sh=node.querySelector(".sheet"); if(sh) sh.scrollTop=sc; return }
   if(had) { m.onclick=null; m.onchange=null; m.oninput=null }
   m.appendChild(node); siteSelSearch(node); taAutosave(node); }
 function closeSheet(){ const m=$("#modal"); taClear(m.firstElementChild); const n=sheetStack.length+(m.firstElementChild?1:0); sheetStack.length=0; m.innerHTML=""; m.onclick=null; m.onchange=null; m.oninput=null;
-  if(n>0&&history.state&&history.state.sheet){ popIgnore+=n; try{history.go(-n)}catch(_){ popIgnore=0 } } }
+  if(n>0) histBack(n) }
 function sheetBack(){ const m=$("#modal"), prev=sheetStack.pop(); m.innerHTML="";
   if(prev){ m.appendChild(prev.node); m.onclick=prev.onclick; m.onchange=prev.onchange; m.oninput=prev.oninput; const sh=prev.node.querySelector(".sheet"); if(sh) sh.scrollTop=prev.scroll }
   else { m.onclick=null; m.onchange=null; m.oninput=null } }
-window.addEventListener("popstate",()=>{
+// посилання «#» не повинні створювати кроків в історії (інакше свайп закривав не те)
+document.addEventListener("click",e=>{ if(e.target.closest?.('a[href="#"]')) e.preventDefault() },true);
+window.addEventListener("popstate",()=>{ const prevD=H_d;
+  if(!history.state&&/#$/.test(location.href)&&prevD>=0&&popIgnore===0){ try{ history.replaceState({stray:1,d:prevD+1},"",location.href.replace(/#$/,"")) }catch(_){} H_d=prevD+1; return } // випадковий перехід на «#»
+  H_d=history.state?.d||0;
   if(popIgnore>0){ popIgnore--; return }
-  const ov=[...document.body.children].filter(x=>x.classList?.contains("overlay")); // вікна вибору (пошук, вибір роботи) — закриваємо першими
-  if(ov.length){ ovPop=true; ov[ov.length-1].remove(); return }
-  if($("#modal").firstElementChild) sheetBack();
+  const ov=[...document.body.children].filter(isPop); // вікна вибору, фото, перегляд файлів — закриваємо першими
+  if(ov.length){ const t=ov[ov.length-1]; ovPop=true; if(t._close) t._close(); else t.remove(); if(t.isConnected) t.remove(); return }
+  if($("#modal").firstElementChild){ sheetBack(); return }
+  if(viewBack()) return;
+  if(H_d>0) histBack(H_d); // зайві кроки (після перезапуску тощо) — проскакуємо, щоб свайп не був «порожнім»
 });
 // вікна вибору/пошуку поверх усього: відкрили — крок в історії; закрили кнопкою — прибираємо цей крок
 let ovPop=false;
 new MutationObserver(ms=>{ for(const m of ms){
-  for(const n of m.addedNodes) if(n.classList?.contains("overlay")) try{history.pushState({ov:1},"")}catch(_){}
-  for(const n of m.removedNodes) if(n.classList?.contains("overlay")){ if(ovPop){ ovPop=false } else { popIgnore++; try{history.back()}catch(_){ popIgnore-- } } } } }).observe(document.body,{childList:true});
+  for(const n of m.addedNodes) if(isPop(n)) histPush("ov");
+  for(const n of m.removedNodes) if(isPop(n)){ if(ovPop){ ovPop=false } else histBack(1) } } }).observe(document.body,{childList:true});
 $("#modal").addEventListener("click",e=>{ if(e.target.classList.contains("overlay")||e.target.closest("[data-close]")) closeSheet(); });
 
 
@@ -1601,7 +1624,7 @@ function bindNeeds(s){ loadToolCat(); loadMatCat(); loadMatPrices(()=>{ if(!S._m
     const ppl=[...S.people.values()].filter(p=>p.role==="owner").sort(byName).concat([...S.people.values()].filter(p=>p.role!=="owner"&&!p.helper&&p.active!==false).sort(byName));
     const ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center";
     ov.innerHTML=`<div style="background:var(--card,#1b1f27);color:inherit;border-radius:14px 14px 0 0;padding:14px;width:100%;max-width:520px;max-height:70vh;overflow:auto"><b>Хто везе «${esc(s.needs[i].name)}»?</b><div class="list" style="margin-top:8px">${ppl.map(p=>`<div class="card" data-pw="${p.id}"><div class="main"><div class="t">${cur===p.id?"✅ ":""}${p.role==="owner"?"👤 ":"🔧 "}${esc(p.name)}</div></div></div>`).join("")}${cur?`<div class="card" data-pw=""><div class="main"><div class="t">✕ Зняти відповідального</div></div></div>`:""}</div><button class="btn ghost" style="width:100%;margin-top:8px" data-x>Скасувати</button></div>`;
-    ov.onclick=e=>{ const c=e.target.closest("[data-pw]"); if(c){ ov.remove(); setWho(i,c.dataset.pw) } else if(e.target===ov||e.target.closest("[data-x]")) ov.remove() }; document.body.appendChild(ov) });
+    ov.onclick=e=>{ const c=e.target.closest("[data-pw]"); if(c){ ov.remove(); setWho(i,c.dataset.pw) } else if(e.target===ov||e.target.closest("[data-x]")) ov.remove() }; ov.dataset.bk=1; document.body.appendChild(ov) });
   box.querySelectorAll("[data-ndel]").forEach(b=>b.onclick=()=>save((s.needs||[]).filter((_,i)=>i!==+b.dataset.ndel)));
   box.querySelectorAll("[data-nq]").forEach(el=>el.onchange=()=>{ const v=parseFloat(String(el.value).replace(",",".")); if(!(v>0)){ el.value=s.needs[+el.dataset.nq].qty||1; return } const l=s.needs.map(x=>({...x})); l[+el.dataset.nq].qty=v; save(l) });
   box.querySelectorAll("[data-npr]").forEach(el=>el.onchange=()=>{ const l=s.needs.map(x=>({...x})), x=l[+el.dataset.npr], v=parseFloat(String(el.value).replace(",","."))||0; x.price=v; x.priceSrc=v?"вручну":""; save(l) });
@@ -2382,7 +2405,7 @@ async function docDock(siteId,anchor){ const st=site(siteId); if(!st){ toast("С
   if(!items.length){ toast("У об'єкта немає документів (📁 Документи)"); return }
   const pk=document.createElement("div"); pk.style.cssText="position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px";
   pk.innerHTML=`<div style="background:var(--card);border-radius:14px;padding:14px;width:100%;max-width:440px;max-height:80vh;overflow:auto"><b>📄 Що відкрити поруч?</b><div class="list" style="margin-top:8px">${items.map(x=>`<div class="card" data-dk="${x.k}" style="cursor:pointer"><div class="t">${esc(x.t)}</div></div>`).join("")}</div><button class="btn ghost" data-dk="" style="width:100%;margin-top:8px">Скасувати</button></div>`;
-  document.body.appendChild(pk);
+  pk.dataset.bk=1; document.body.appendChild(pk);
   pk.onclick=async e=>{ const c=e.target.closest("[data-dk]"); if(!c&&e.target!==pk) return; pk.remove(); const k=c?.dataset.dk; if(!k) return; const it=items.find(x=>x.k===k);
     if(k==="ap"){ imgDock([{html:docTable(it.t,st.approved.items)}],0,anchor,it.t); return }
     const o=off.find(x=>x.id===k);
@@ -2395,13 +2418,13 @@ function imgOverlay(list,i=0){ if(!list?.length) return; let k=i, big=false; con
     <div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y pinch-zoom"><img src="${list[k]}" style="${big?"width:250%;max-width:none":"width:100%"};display:block"></div>`;
     o.querySelector("img").onclick=()=>{ big=!big; draw() };
     o.querySelectorAll("[data-io]").forEach(b=>b.onclick=()=>{ const v=b.dataset.io; if(v==="x"){ o.remove(); return } k=(k+ +v+list.length)%list.length; big=false; draw() }) };
-  draw(); document.body.appendChild(o) }
+  draw(); o.dataset.bk=1; document.body.appendChild(o) }
 async function photoView(all,i,s){ const p=all[i]; if(!p) return; let src=p.src;
   const ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;z-index:1100;background:#000;display:flex;flex-direction:column";
   const draw=()=>{ ov.innerHTML=`<div style="display:flex;gap:8px;align-items:center;padding:10px;color:#fff"><span style="flex:1;font-size:13px">${new Date(p.at).toLocaleString("uk-UA")}${p.from?" · "+esc(p.from):p.byName?" · "+esc(uaName(p.byName)):""}${p.note?" · "+esc(p.note):""}</span>${S.canWrite&&p.id?`<button class="btn ghost sm" data-pd>🗑</button>`:""}<button class="btn ghost sm" data-px>✕</button></div>
     <div style="flex:1;display:flex;align-items:center;justify-content:center;overflow:auto"><img src="${src}" style="max-width:100%;max-height:100%"></div>
     <div style="display:flex;justify-content:space-between;padding:10px"><button class="btn ghost" data-pp ${i?"":"disabled"}>‹</button><span style="color:#aaa;align-self:center">${i+1} / ${all.length}</span><button class="btn ghost" data-pn ${i<all.length-1?"":"disabled"}>›</button></div>` };
-  draw(); document.body.appendChild(ov);
+  draw(); ov.dataset.bk=1; document.body.appendChild(ov);
   if(p.fileId){ try{ const r=await fileBlob(p.fileId); if(r){ src=URL.createObjectURL(r.blob); draw() } }catch(_){} }
   ov.onclick=async e=>{ if(e.target.closest("[data-px]")){ ov.remove(); return } if(e.target.closest("[data-pp]")){ ov.remove(); photoView(all,i-1,s); return } if(e.target.closest("[data-pn]")){ ov.remove(); photoView(all,i+1,s); return }
     if(e.target.closest("[data-pd]")&&confirm("Видалити фото?")){ if(await write(db=>db.doc(R("photos")+"/"+p.id).delete())){ deleteFile(p.fileId).catch(()=>{}); ov.remove(); sitePhotos(s) } } } }
@@ -4525,7 +4548,7 @@ async function viewFile(id){
   try{ const r=await fileBlob(id); if(!r){toast("Файл не знайдено");return} const url=URL.createObjectURL(r.blob);
     const ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px";
     ov.innerHTML=`<img src="${url}" style="max-width:100%;max-height:82vh;object-fit:contain;border-radius:6px"><div style="display:flex;gap:10px;margin-top:12px"><a class="btn" href="${url}" download="${esc(r.meta.name)}">⬇️ Завантажити</a><button class="btn ghost" style="color:#fff">Закрити</button></div>`;
-    ov.querySelector("button").onclick=()=>{ov.remove();URL.revokeObjectURL(url)}; ov.onclick=e=>{if(e.target===ov){ov.remove();URL.revokeObjectURL(url)}}; document.body.appendChild(ov);
+    ov.querySelector("button").onclick=()=>{ov.remove();URL.revokeObjectURL(url)}; ov.onclick=e=>{if(e.target===ov){ov.remove();URL.revokeObjectURL(url)}}; ov.dataset.bk=1; document.body.appendChild(ov);
   }catch(e){ toast("Не вдалося відкрити: "+String(e?.message||e).slice(0,80)) } }
 async function openFile(id){
   toast("Завантажую файл…");
@@ -4987,7 +5010,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v250"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v251"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
