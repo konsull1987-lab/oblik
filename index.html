@@ -4098,6 +4098,8 @@ function kpFlow(saved,opts){
   const items=priceList(); const n2=v=>Math.round((+v||0)*100)/100; loadMatCat(); loadMatPrices();
   let st=saved?{...saved,rows:(saved.rows||[]).map(r=>({...r})),text:"",fileParts:[],file:null}:{id:"",withMat:false,site:opts?.site||"",no:String(new Date().getFullYear()).slice(2)+"-"+String(Date.now()).slice(-4),date:todayISO(),client:opts?.client||site(opts?.site)?.customer||"",object:opts?.object||site(opts?.site)?.name||"",tender:opts?.tender||"",fop:[...S.fops.values()][0]?.id||"",disc:0,valid:14,note:MAT_NOTE[0],text:"",fileParts:[],file:null,rows:[]};
   const tot=()=>n2(st.rows.filter(r=>r.on!==false&&!r.rec&&(st.withMat||!r.mat)).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0));
+  const kpSig=()=>JSON.stringify([st.rows.filter(r=>r.on!==false).map(r=>[r.name||"",+r.qty||0,r.unit||"",+r.price||0,!!r.mat,!!r.rec]),+st.disc||0,!!st.withMat]);
+  if(saved) st._sig=kpSig();
   // ➕ під рядком — супутні роботи з пакета; 💡 рядок «Рекомендуємо також» (не в сумі)
   const pkFor=r=>r.mat?matPackOf(r.name).filter(c=>!st.rows.some(x=>x.mat&&x.on!==false&&normName(x.name)===normName(c.n))):(r.p>=0&&items[r.p]?packOf(items[r.p],items).filter(c=>!st.rows.some(x=>!x.mat&&(x.room||"")===(r.room||"")&&(x.p===c.p||normW(x.name)===normW(c.n)))):[]);
   const packCard=(r,i)=>{ if(r.on===false||r.rec||r.packDone||(r.mat&&!st.withMat)) return "";
@@ -4366,10 +4368,17 @@ ${matCatFor(text).map(m=>m.name+" | "+m.unit).join("\n")}
     const ckGo=()=>{ const n=kpChecks().length; return !n||confirm(`У кошторисі ${n} зауважень (картка «⚠️ Перевірте»). Все одно продовжити?`) };
     $("#kpPrint").onclick=()=>{ if(ckGo()) printDoc(kpHTML(st),"Кошторис "+st.no) };
     $("#kpShare").onclick=()=>{ if(!ckGo()) return; const c=$("#kpC")?.value; if(c) st.client=c; sharePdf(kpHTML(st),`Кошторис ${st.no}${st.client?" — "+st.client:""}`,`Комерційна пропозиція № ${st.no}${st.object?" · "+st.object:""}`) };
-    $("#kpAp")?.addEventListener("click",()=>approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,rows:st.rows.filter(r=>r.on!==false&&(st.withMat||!r.mat))}));
+    $("#kpAp")?.addEventListener("click",async()=>{ const r=await kpPersist(); if(!r) return; if(r.nv) toast(`Зміни збережено новою редакцією № ${st.no}`);
+      await approveOffer({id:st.id,kind:"kp",site:st.site,no:st.no,object:st.object,client:st.client,prev:st.prev||"",rows:st.rows.filter(x=>x.on!==false&&(st.withMat||!x.mat))}); if($("#kpRes")) draw() });
     $("#kpDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити кошторис № "+st.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+st.id).delete())){ unapproveOffer(st.id); toast("Видалено"); sheetStack.length?sheetBack():closeSheet() } });
-    $("#kpSave").onclick=async()=>{ const data={kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat,...(r.rec?{rec:true}:{}),...(r.of?{of:r.of}:{}),...(r.packDone?{packDone:true}:{}),...(r.room?{room:r.room}:{}),...(r.surf?{surf:r.surf}:{}),...(r.ask?{ask:true}:{})})),okChk:st.okChk||[],rooms:(st.rooms||[]).filter(rm=>st.rows.some(r=>r.room===rm.id&&r.on!==false)||rm.l||rm.area),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()};
-      const ok=await write(async db=>{ if(st.id) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); st.id=r.id } }); if(ok){ st.createdAt=data.createdAt; S.kpDraftClear?.(); S.kpClean=JSON.stringify(st.rows); toast(st.site?"Кошторис збережено в об'єкті («📁 Документи»)":"Кошторис збережено"); printDoc(kpHTML(st),"Кошторис "+st.no); draw();
+    const kpData=()=>({kind:"kp",tender:st.tender||"",site:st.site||"",withMat:!!st.withMat,no:st.no,date:st.date,client:st.client,object:st.object,fop:st.fop,disc:+st.disc||0,valid:+st.valid||14,note:st.note,total:n2(tot()*(1-(+st.disc||0)/100)),rows:st.rows.filter(r=>r.on!==false).map(r=>({name:r.name,qty:r.qty,unit:r.unit,price:r.price,cat:r.cat||"",p:r.p,mat:!!r.mat,...(r.rec?{rec:true}:{}),...(r.of?{of:r.of}:{}),...(r.packDone?{packDone:true}:{}),...(r.room?{room:r.room}:{}),...(r.surf?{surf:r.surf}:{}),...(r.ask?{ask:true}:{})})),okChk:st.okChk||[],rooms:(st.rooms||[]).filter(rm=>st.rows.some(r=>r.room===rm.id&&r.on!==false)||rm.l||rm.area),createdAt:st.createdAt||Date.now(),updatedAt:Date.now()});
+    // 📄 погоджений з замовником кошторис змінили → зберігаємо НОВОЮ РЕДАКЦІЄЮ (окремий документ № …/2), стара лишається в документах
+    async function kpPersist(){ const data=kpData(), sp=site(st.site), isAp=!!(st.id&&sp?.approved?.id===st.id), nv=isAp&&kpSig()!==st._sig;
+      if(nv){ const ver=(+st.ver||1)+1, base=String(st.no||"").replace(/\/\d+$/,""); Object.assign(data,{prev:st.id,ver,no:base+"/"+ver,createdAt:Date.now(),date:todayISO()}) }
+      else { if(st.prev) data.prev=st.prev; if(st.ver) data.ver=st.ver; if(st.replacedBy) data.replacedBy=st.replacedBy }
+      let id=st.id; const ok=await write(async db=>{ if(st.id&&!nv) await db.doc(R("offers")+"/"+st.id).set(data); else { const r=await db.collection(R("offers")).add(data); id=r.id } });
+      if(!ok) return null; if(nv){ st.prev=data.prev; st.ver=data.ver; st.no=data.no; st.date=data.date; delete st.replacedBy } st.id=id; st.createdAt=data.createdAt; st._sig=kpSig(); S.kpDraftClear?.(); S.kpClean=JSON.stringify(st.rows); return {id,nv,data} }
+    $("#kpSave").onclick=async()=>{ const r=await kpPersist(), ok=!!r, data=r?.data; if(ok){ toast(r.nv?`Кошторис був погоджений — зміни збережено НОВОЮ РЕДАКЦІЄЮ № ${st.no}. Стара лишилась погодженою; щоб діяла нова — «✅ Погоджено».`:st.site?"Кошторис збережено в об'єкті («📁 Документи»)":"Кошторис збережено",r.nv?7000:0); printDoc(kpHTML(st),"Кошторис "+st.no); draw();
         if(st.tender){ const on=st.rows.filter(r=>r.on!==false), w=n2(on.filter(r=>!r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)), m=st.withMat?n2(on.filter(r=>r.mat).reduce((a,r)=>a+n2((+r.qty||0)*(+r.price||0)),0)):0;
           write(db=>db.doc("tenders/"+st.tender).update({kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m,updatedAt:Date.now()})).then(()=>{ const t=S.tz?.get(st.tender); if(t) Object.assign(t,{kpId:st.id,kpTotal:data.total,kpWorks:w,kpMats:m}) }) }
         savePricesFromRows(st.rows,"з кошторису № "+st.no).then(n=>{ if(n) setTimeout(()=>{ toast(`📌 Ціни збережено в прайс: ${n}`); drawRows() },3200) });
@@ -5106,7 +5115,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v252"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v253"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -5433,12 +5442,15 @@ async function approveOffer(o,stIn){
   const items=[...(o.rows||[]),...(o.mrows||[]).map(r=>({...r,mat:true}))].filter(r=>r.name&&!r.rec).map(r=>{ const rm=r.room&&(o.rooms||[]).find(x=>x.id===r.room); return {name:r.name,unit:r.unit||"",qty:+r.qty||0,price:+r.price||0,mat:!!r.mat,...(rm?.name?{room:rm.name}:{}),...(r.of?{of:r.of}:{})} });
   if(!items.length){ toast("У документі немає позицій — спершу розберіть їх"); return }
   const total=Math.round(items.reduce((a,r)=>a+r.qty*r.price,0)*100)/100;
-  if(st.approved&&!confirm(`На об'єкті вже є погоджений кошторис № ${st.approved.no||""}. Замінити його на № ${o.no||""}?`)) return;
+  const oldAp=st.approved?.id&&st.approved.id!==o.id?st.approved.id:"";
+  if(oldAp&&o.prev!==oldAp&&!confirm(`На об'єкті вже є погоджений кошторис № ${st.approved.no||""}. Замінити його на № ${o.no||""}?\n(старий лишиться в документах як замінений)`)) return;
   const docT=+o.total>0?Math.round(+o.total*100)/100:0, diff=docT&&Math.abs(docT-total)>Math.max(1,docT*0.005);
   const cT=diff?docT:total;
   const setC=confirm(diff?`Сума документа ${money(docT)}, а позиції дають ${money(total)} (різниця ${money(Math.round((docT-total)*100)/100)}).\n\nЗаписати суму ДОКУМЕНТА ${money(docT)} як суму договору з замовником?`:`Записати суму ${money(total)} як суму договору з замовником?\n(тоді буде видно «замовник винен»)`);
   const upd={approved:{id:o.id,kind:o.kind,no:o.no||"",items,total,docTotal:docT||total,at:Date.now()},approvedDone:[]}; if(setC) upd.contract=cT;
-  if(await write(db=>db.doc("sites/"+st.id).update(upd))){ Object.assign(st,upd); toast("✅ Погоджено: тепер це кошторис об'єкта") } }
+  if(await write(async db=>{ await db.doc("sites/"+st.id).update(upd);
+      if(oldAp) try{ await db.doc(R("offers")+"/"+oldAp).update({replacedBy:o.id||"",replacedAt:Date.now()}) }catch(_){}
+      if(o.id) try{ await db.doc(R("offers")+"/"+o.id).update({replacedBy:null}) }catch(_){} })){ Object.assign(st,upd); toast(`✅ Погоджено: тепер № ${o.no||""} — кошторис об'єкта${oldAp?"; попередній позначено «замінено»":""}`) } }
 // скільки виконано по кожному рядку погодженої смети — за звітами робіт по об'єкту
 function apProgress(s){ const ap=s.approved, out={}; if(!ap?.items) return out; const key=x=>normW(x).split(" ").filter(w=>w.length>2).slice(0,6).join(" ");
   const idx=ap.items.map((r,i)=>({i,k:key(r.name),n:normName(r.name),u:normUnit(r.unit||"")}));
@@ -5756,16 +5768,38 @@ function smetaSavedView(o){ const s=site(o.site)||{name:o.object,customer:o.clie
   $("#svAp")?.addEventListener("click",()=>approveOffer(o));
   $("#svDel")?.addEventListener("click",async()=>{ if(!confirm("Видалити акт № "+o.no+"?")) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); sheetBack() } });
 }
+async function apSaveAsDoc(s,o){ const ap=s.approved; if(!ap||!o) return; const ver=(+o.ver||1)+1, base=String(o.no||"").replace(/\/\d+$/,""), now=Date.now();
+  const rows=(ap.items||[]).map(r=>({name:r.name,qty:+r.qty||0,unit:r.unit||"",price:+r.price||0,cat:r.mat?"Матеріали":"",p:-1,mat:!!r.mat,...(r.of?{of:r.of}:{}),...(r.room&&(o.rooms||[]).find(x=>x.name===r.room)?{room:(o.rooms||[]).find(x=>x.name===r.room).id}:{})}));
+  const sum=Math.round(rows.reduce((a,r)=>a+r.qty*r.price,0)*100)/100, {id:_x,replacedBy:_r,...rest}=o;
+  const data={...rest,rows,withMat:!!(o.withMat||rows.some(r=>r.mat)),no:base+"/"+ver,ver,prev:o.id,total:Math.round(sum*(1-(+o.disc||0)/100)*100)/100,createdAt:now,updatedAt:now,date:todayISO()};
+  let nid=""; if(await write(async db=>{ const r=await db.collection(R("offers")).add(data); nid=r.id;
+      await db.doc(R("offers")+"/"+o.id).update({replacedBy:nid,replacedAt:now}); await db.doc("sites/"+s.id).update({approved:{...ap,id:nid,no:data.no}}) })){
+    s.approved={...ap,id:nid,no:data.no}; toast(`💾 Збережено погоджену редакцію № ${data.no} — стару позначено «замінено»`); loadSiteDocs(s) } }
 function siteDocsHTML(s){ return `<div id="sDocs"><div class="empty">Завантажую документи…</div></div>` }
 function loadSiteDocs(s){
   const box=$("#sDocs"); if(!box) return;
   S.db.collection(R("offers")).get().then(sn=>{ const off=sn.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.site===s.id).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
     const docs=[...S.docs.values()].filter(d=>d.site===s.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
     const row=(ic,t,sub,amt,attr,del)=>`<div class="card" ${attr} style="cursor:pointer"><div class="main"><div class="t">${ic} ${t}</div><div class="m">${sub}</div></div><span class="amt">${amt}</span>${S.canWrite?`<button class="btn ghost sm" ${del} title="Видалити" style="margin-left:6px">✕</button>`:""}</div>`;
+    // 📄 редакції кошторису: діє лише погоджений; замінені й старіші непогоджені — згорнуто внизу
+    const apId=s.approved?.id||"", apO=off.find(o=>o.id===apId), byId=id=>off.find(o=>o.id===id);
+    const isOld=o=>o.kind==="kp"&&o.id!==apId&&(!!o.replacedBy||!!(apO&&apO.kind==="kp"&&(o.createdAt||0)<(apO.createdAt||0)));
+    const cur=off.filter(o=>!isOld(o)), old=off.filter(isOld);
+    const oRow=o=>row(o.kind==="smeta"?"📋":o.kind==="file"?"📎":"📄",(o.kind==="smeta"?"Акт":o.kind==="file"?esc(o.sub||"Документ"):"Кошторис")+(o.no?" № "+esc(o.no):""),
+      fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":"")
+        +(o.id===apId?` · <b style="color:var(--accent)">✅ погоджено — кошторис об'єкта</b>`:o.replacedBy?` · замінено${byId(o.replacedBy)?.no?" № "+esc(byId(o.replacedBy).no):""}`:o.kind==="kp"&&apId?" · не погоджено":""),
+      money(o.total||0),`data-off="${o.id}"`,`data-xoff="${o.id}"`);
+    // погодили змінений кошторис, а документ лишився старий (так було до цієї версії) — пропонуємо зберегти погоджену редакцію
+    const apSum=Math.round((s.approved?.items||[]).reduce((a,r)=>a+(+r.qty||0)*(+r.price||0),0)*100)/100;
+    const oSum=apO&&apO.kind==="kp"?Math.round((apO.rows||[]).filter(r=>r.name&&!r.rec&&(apO.withMat||!r.mat)).reduce((a,r)=>a+(+r.qty||0)*(+r.price||0),0)*100)/100:apSum;
+    const apWarn=apO&&Math.abs(oSum-apSum)>1?`<div class="banner" style="margin-bottom:8px">⚠️ На об'єкті погоджено <b>${money(apSum)}</b>, а в документі «Кошторис № ${esc(apO.no||"")}» — <b>${money(oSum)}</b>. Кошторис змінили й погодили, але змінений не зберегли окремим документом.
+      ${S.canWrite?`<button class="btn sm" id="apFix" style="width:100%;margin-top:6px">💾 Зберегти погоджену редакцію окремим документом</button>`:""}</div>`:"";
     box.innerHTML=`${S.canWrite?`<div class="actions" style="margin:0 0 8px;flex-wrap:wrap"><button class="btn ghost sm" id="sdKp">📄 Кошторис</button><button class="btn ghost sm" id="sdSm">📋 Акт</button><button class="btn ghost sm" id="sdDoc">🧾 Рахунок / акт</button><button class="btn ghost sm" id="sdUp">📎 Додати готовий</button></div>`:""}
-      ${off.length||docs.length?`<div class="list">${off.map(o=>row(o.kind==="smeta"?"📋":o.kind==="file"?"📎":"📄",(o.kind==="smeta"?"Акт":o.kind==="file"?esc(o.sub||"Документ"):"Кошторис")+(o.no?" № "+esc(o.no):"")+(s.approved?.id===o.id?" ✅":""),fmtDay(o.date||new Date(o.createdAt||0).toISOString().slice(0,10))+(o.kind==="smeta"?` · ${fmtDay(o.from)}–${fmtDay(o.to)}`:"")+(o.withMat?" · з матеріалами":""),money(o.total||0),`data-off="${o.id}"`,`data-xoff="${o.id}"`)).join("")}
+      ${apWarn}${off.length||docs.length?`<div class="list">${cur.map(o=>oRow(o)).join("")}
         ${docs.map(d=>row("🧾","Рах. № "+esc(d.invNo||"")+(d.actNo?" · Акт № "+esc(d.actNo):""),fmtDay(d.date)+" · "+esc(cliOf(d).name||""),money(docTotal(d)),`data-sdoc="${d.id}"`,`data-xdoc="${d.id}"`)).join("")}</div>`
-        :`<div class="empty">Документів ще немає. Кошториси, акти, рахунки й договори цього об'єкта з'являться тут.</div>`}`;
+        :`<div class="empty">Документів ще немає. Кошториси, акти, рахунки й договори цього об'єкта з'являться тут.</div>`}
+      ${old.length?`<details style="margin-top:8px"><summary class="m" style="cursor:pointer;padding:6px 0">🗄 Попередні редакції й непогоджені кошториси (${old.length})</summary><div class="list" style="opacity:.6">${old.map(o=>oRow(o)).join("")}</div></details>`:""}`;
+    $("#apFix")?.addEventListener("click",()=>apSaveAsDoc(s,apO));
     box.querySelectorAll("[data-xoff]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const o=off.find(x=>x.id===b.dataset.xoff); if(!confirm(`Видалити ${o.kind==="smeta"?"акт":"кошторис"} № ${o.no}?`)) return; if(await write(db=>db.doc(R("offers")+"/"+o.id).delete())){ unapproveOffer(o.id); toast("Видалено"); loadSiteDocs(s) } });
     box.querySelectorAll("[data-xdoc]").forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const d=S.docs.get(b.dataset.xdoc); if(!confirm(`Видалити рахунок № ${d?.invNo||""}${d?.actNo?" і акт № "+d.actNo:""}?`)) return; if(await write(db=>db.doc("docs/"+b.dataset.xdoc).delete())){ toast("Видалено"); setTimeout(()=>loadSiteDocs(s),300) } });
     box.querySelectorAll("[data-off]").forEach(c=>c.onclick=()=>openOffer(off.find(o=>o.id===c.dataset.off)));
