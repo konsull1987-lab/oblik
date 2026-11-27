@@ -1836,7 +1836,7 @@ function mcItemForm(i,cat,back){
   const ov=document.createElement("div"); ov.className="overlay"; ov.style.zIndex="1100";
   ov.innerHTML=`<div class="sheet"><h2>${i>=0?"Матеріал":"Новий матеріал"}</h2>
     <div class="field"><label>Правильна назва *</label><input id="mcN" value="${esc(it.name)}"></div>
-    <div class="row"><div class="field"><label>Одиниця</label><input id="mcU" value="${esc(it.unit||"шт")}" list="nUnits2"><datalist id="nUnits2">${["шт","мішок","лист","відро","кг","л","м²","м³","м.п.","т","рулон","упак.","балон","туба","каністра"].map(u=>`<option value="${u}">`).join("")}</datalist></div>
+    <div class="row"><div class="field"><label>Одиниця</label>${unitSel(`id="mcU"`,it.unit||"шт","")}</div>
       <div class="field"><label>Категорія</label><select id="mcC">${[...new Set([...MAT_CATS,it.cat])].filter(Boolean).map(c=>`<option ${c===it.cat?"selected":""}>${esc(c)}</option>`).join("")}</select></div></div>
     <div class="field"><label>Як ще називають (через кому)</label><input id="mcA" value="${esc(it.alt||"")}"></div>
     <div class="field"><label>Ціна, ₴ за ${esc(it.unit||"од.")} ${(()=>{ const p=it.name?matPriceOf({name:it.name,unit:it.unit}):null; return p?`<span style="color:var(--muted);font-weight:400">· зараз ${money(p.price)} — ${esc(p.src||"")}</span>`:"" })()}</label><input id="mcP" inputmode="decimal" value="${(()=>{ const p=it.name?matPriceOf({name:it.name,unit:it.unit}):null; return p?p.price:"" })()}"></div>
@@ -2062,8 +2062,9 @@ const UNITS=["шт","м²","м³","м.п.","м","кг","т","л","мішок","�
 function unitSel(attrs,val,style){ val=String(val||""); const l=UNITS.includes(val)||!val?UNITS:[val,...UNITS];
   return `<select class="unitSel" ${attrs} style="${style||""}">${l.map(u=>`<option ${u===val?"selected":""}>${esc(u)}</option>`).join("")}<option value="__o">✏️ інша…</option></select>` }
 document.addEventListener("input",e=>{ if(e.target.matches?.("select.unitSel")&&e.target.value==="__o") e.stopPropagation() },true);
+document.addEventListener("focusin",e=>{ if(e.target.matches?.("select.unitSel")&&e.target.value!=="__o") e.target.dataset.prev=e.target.value },true);
 document.addEventListener("change",e=>{ const t=e.target; if(!t.matches?.("select.unitSel")||t.value!=="__o") return;
-  const v=(prompt("Одиниця виміру:","")||"").trim(); if(!v){ t.selectedIndex=0 } else { const o=document.createElement("option"); o.textContent=v; t.insertBefore(o,t.firstChild); t.value=v }
+  const v=(prompt("Одиниця виміру:","")||"").trim(); if(!v){ const p=t.dataset.prev; if(p&&[...t.options].some(o=>o.value===p)) t.value=p; else t.selectedIndex=0 } else { const o=document.createElement("option"); o.textContent=v; t.insertBefore(o,t.firstChild); t.value=v }
   setTimeout(()=>t.dispatchEvent(new Event("input",{bubbles:true})),0) },true);
 async function epicentrPrices(items){ // items: [{name,unit}] → оновлює S.matprices і meta/matprices
   if(!window.__fbAIWeb) throw new Error("ШІ недоступний");
@@ -3167,7 +3168,7 @@ ${(()=>{ const sl=siteList(); return sl.length>1?`\nВиконавець мож�
     $("#wrRes").innerHTML=(!st.shots?.length?`<button class="btn ghost" data-wdoc="1" style="width:100%;margin:8px 0 4px;position:sticky;top:0;z-index:2">📄 Відкрити договір / кошторис / акт поруч</button>`:"")+(st.shots?.length?`<div style="display:flex;gap:6px;margin:8px 0 4px;position:sticky;top:0;z-index:2;background:var(--card)"><button class="btn" data-wdock="1" style="flex:1">📌 Фото поруч</button><button class="btn ghost" data-wdoc="1" style="flex:1">📄 Документ поруч</button><button class="btn ghost" data-wsh="0" style="flex:0 0 auto">🔍 На весь екран</button></div>`:"")+`<div class="section-t" style="display:flex">Роботи<span class="count">${on.length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"};${r.err||r.need?"border:1px solid var(--bad,#e57373)":""}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}">${sitesOf().length<2&&!r.pickSite?`<button type="button" class="btn ghost sm" data-wmv="${i}" title="Ця робота — з іншого об'єкта" style="flex:0 0 auto;padding:6px 8px">🏗↪</button>`:""}</div>
-        <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span style="flex:0 0 auto">${esc(r.unit)} ×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
+        <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-i="${i}" data-k="unit"`,r.unit,"flex:0 0 74px;padding-left:4px;padding-right:2px")}<span style="flex:0 0 auto">×</span><input data-i="${i}" data-k="rate" inputmode="decimal" value="${r.rate||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(r.pay)}</b></div>
         ${sitesOf().length>1||r.pickSite?`<div class="row" style="margin-top:6px;align-items:center"><span style="flex:0 0 auto;font-size:13px">🏗</span><select data-i="${i}" data-k="site" style="font-size:13px;padding:5px;${r.site&&r.site!==st.site?"border-color:#7c3aed":""}">${siteOptions(rowSite(r),"— без об'єкта")}</select></div>`:""}
         ${st.est.length?`<div style="margin-top:6px">${estOpt(r)}</div>`:""}
         <div class="m" style="font-size:12.5px;margin-top:4px">${[r.price>0?`ціна виконавця ${money(r.price)}`:r.estRate&&!r.manual?`за ${st.est[r.est].src==="кошторис"?"кошторисом":"прайсом"} ${money(st.est[r.est].price)} −${st.pct}% = ${money(r.estRate)}`:"",r.manual?"ціна вручну":""].filter(Boolean).join(" · ")}
@@ -3183,7 +3184,7 @@ ${(()=>{ const sl=siteList(); return sl.length>1?`\nВиконавець мож�
     $("#wrRes").onchange=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;
       if(e.target.id==="wrPay"){$("#wrOwnBox").style.display=e.target.checked?"":"none";$("#wrSave").textContent=(e.target.checked?"✅ Нарахувати й виплатити ":"✅ Нарахувати ")+money(tot);return}
       if(i==null)return; const r=st.rows[i];
-      if(k==="on") r.on=e.target.checked; else if(k==="name") r.name=e.target.value;
+      if(k==="on") r.on=e.target.checked; else if(k==="name") r.name=e.target.value; else if(k==="unit") r.unit=e.target.value;
       else if(k==="qty") r.qty=parseFloat(String(e.target.value).replace(",","."))||0;
       else if(k==="rate"){ const v=parseFloat(String(e.target.value).replace(",","."))||0; r.rate=v; r.manual=v>0 }
       else if(k==="est"){ r.est=+e.target.value; r.manual=false; if(r.est>=0) learnAlias(r.orig||r.name,st.est[r.est].name) }
@@ -3341,11 +3342,11 @@ function finForm(f,preset){
   $("#repDoc")?.addEventListener("click",()=>docDock(f.site,"#repEd"));
   const repDraw=(init)=>{ const box=$("#repEd"); if(!box||!repItems) return; const num=v=>parseFloat(String(v).replace(",","."))||0;
     box.innerHTML=repItems.map((it,i)=>`<div style="border-top:1px solid var(--line,#2a2f38);padding:6px 0"><div style="display:flex;gap:6px"><input data-ri="${i}" data-rk="name" value="${esc(it.name)}" style="flex:1;min-width:0"><button type="button" class="btn ghost sm" data-rdel="${i}">✕</button></div>
-      <div class="row" style="align-items:center;gap:6px;margin-top:4px"><input data-ri="${i}" data-rk="qty" inputmode="decimal" value="${it.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(it.unit||"")} ×</span><input data-ri="${i}" data-rk="rate" inputmode="decimal" value="${it.rate??""}" style="flex:0 0 80px;text-align:center"><b style="flex:1;text-align:right">${money(Math.round(num(it.qty)*num(it.rate)))}</b></div></div>`).join("")
+      <div class="row" style="align-items:center;gap:6px;margin-top:4px"><input data-ri="${i}" data-rk="qty" inputmode="decimal" value="${it.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-ri="${i}" data-rk="unit"`,it.unit||"","flex:0 0 74px;padding-left:4px;padding-right:2px")}<span>×</span><input data-ri="${i}" data-rk="rate" inputmode="decimal" value="${it.rate??""}" style="flex:0 0 80px;text-align:center"><b style="flex:1;text-align:right">${money(Math.round(num(it.qty)*num(it.rate)))}</b></div></div>`).join("")
       +`<button type="button" class="btn ghost sm" id="repAdd" style="width:100%;margin-top:4px">+ Рядок</button>`;
     const tot=repItems.reduce((a,it)=>a+Math.round(num(it.qty)*num(it.rate)),0); const am=$("#finForm [name=amount]"); if(!init&&am&&tot>0){ am.value=String(tot); am.dispatchEvent(new Event("input",{bubbles:true})) } };
   if(repItems){ $("#repEd")?.addEventListener("change",e=>{ const t=e.target; if(t.dataset.ri==null) return; const it=repItems[+t.dataset.ri], k=t.dataset.rk;
-      it[k]=k==="name"?t.value:parseFloat(String(t.value).replace(",","."))||0; if(k!=="name") it.pay=Math.round((+it.qty||0)*(+it.rate||0)); repDraw() });
+      it[k]=k==="name"||k==="unit"?t.value:parseFloat(String(t.value).replace(",","."))||0; if(k!=="name"&&k!=="unit") it.pay=Math.round((+it.qty||0)*(+it.rate||0)); repDraw() });
     $("#repEd")?.addEventListener("click",e=>{ const d=e.target.closest("[data-rdel]"); if(d){ repItems.splice(+d.dataset.rdel,1); repDraw(); return } if(e.target.id==="repAdd"){ repItems.push({name:"",qty:1,unit:"м²",rate:0,pay:0}); repDraw() } });
     repDraw(true) }
   // 💵 підсоба: розрахунок одразу — це завжди виплата з видом «Підсоба», без нарахування
@@ -4068,7 +4069,7 @@ function priceItemForm(i,cat){
   const items=priceList().map(x=>({...x})), it=i>=0?items[i]:{cat,name:"",unit:"м²",price:0,src:"власна"};
   openSheet(`<h2>${i>=0?"Ціна роботи":"Нова робота"}</h2><form id="piF">
     <div class="field"><label>Назва *</label><input name="name" required value="${esc(it.name)}"></div>
-    <div class="row"><div class="field"><label>Од.</label><input name="unit" value="${esc(it.unit)}"></div><div class="field"><label>Ціна, ₴ *</label><input name="price" inputmode="decimal" value="${it.price||""}"></div></div>
+    <div class="row"><div class="field"><label>Од.</label>${unitSel(`name="unit"`,it.unit||"м²","")}</div><div class="field"><label>Ціна, ₴ *</label><input name="price" inputmode="decimal" value="${it.price||""}"></div></div>
     <div class="field"><label>Інші назви (через кому) — як цю роботу можуть написати хлопці чи замовник</label><input name="alt" value="${esc(it.alt||"")}" placeholder="напр. арміровка, армування сіткою"></div>
     <div class="field"><label>Категорія</label><select name="cat">${[...new Set([...PRICE_CATS,it.cat])].map(c=>`<option ${c===it.cat?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
     <div class="section-t" style="margin-top:8px">➕ Разом з цією роботою</div><div class="m" style="font-size:12px;margin-bottom:6px">Супутні роботи, які кошторис запропонує під цим рядком. Коефіцієнт — частка від обсягу (порожньо = питати кількість). «Завжди» — одразу позначено.</div><div id="piPk"></div>
@@ -4459,11 +4460,11 @@ function smetaFlow(siteId){
       ${st.rows.length||st.withMat?`<div class="section-t" style="display:flex">Роботи<span class="count">${st.rows.filter(r=>r.on).length} поз.</span></div>
       ${st.rows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}">
         <div class="row" style="align-items:center"><input type="checkbox" data-i="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><input data-i="${i}" data-k="name" value="${esc(r.name)}"></div>
-        <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(r.unit)} ×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price}" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
+        <div class="row" style="margin-top:6px;align-items:center"><input data-i="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-i="${i}" data-k="unit"`,r.unit,"flex:0 0 74px;padding-left:4px;padding-right:2px")}<span>×</span><input data-i="${i}" data-k="price" inputmode="decimal" value="${r.price}" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>
         <div class="m" style="font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1">виконавцям: ${money(r.cost)}</span>${pinHTML(r,"data-pw",i)}</div></div>`).join("")}
       ${st.withMat?`<div class="section-t" style="display:flex">Матеріали<span class="count">${st.mrows.filter(r=>r.on).length} поз.</span></div>
         ${st.mrows.length?st.mrows.map((r,i)=>`<div class="card" style="display:block;cursor:default;margin-bottom:6px;${r.on?"":"opacity:.5"}"><div class="row" style="align-items:center"><input type="checkbox" data-mi="${i}" data-k="on" ${r.on?"checked":""} style="flex:0 0 22px"><span style="flex:1">${esc(r.name)}</span></div>
-          <div class="row" style="margin-top:6px;align-items:center"><input data-mi="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center"><span>${esc(r.unit)} ×</span><input data-mi="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>${+r.price>0?`<div style="margin-top:4px">${pinHTML({...r,price:st.mmk?r.price/(1+st.mmk/100):r.price,toPrice:r.toPrice},"data-pm",i)}</div>`:""}</div>`).join("")
+          <div class="row" style="margin-top:6px;align-items:center"><input data-mi="${i}" data-k="qty" inputmode="decimal" value="${r.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-mi="${i}" data-k="unit"`,r.unit,"flex:0 0 74px;padding-left:4px;padding-right:2px")}<span>×</span><input data-mi="${i}" data-k="price" inputmode="decimal" value="${r.price||""}" placeholder="ціна" style="flex:0 0 90px;text-align:center"><b style="flex:1;text-align:right">${money(n2(r.qty*r.price))}</b></div>${+r.price>0?`<div style="margin-top:4px">${pinHTML({...r,price:st.mmk?r.price/(1+st.mmk/100):r.price,toPrice:r.toPrice},"data-pm",i)}</div>`:""}</div>`).join("")
           :`<div class="m" style="color:var(--muted);margin-bottom:6px">Немає привезених матеріалів у «Потрібно» цього об'єкта — додайте вручну нижче.</div>`}
         <div class="card" style="display:block;cursor:default;margin-bottom:8px"><div class="m" style="margin-bottom:4px">➕ Додати матеріали вручну — кожен з нового рядка: <i>назва, к-сть, од., ціна</i> (ціну можна не писати — візьметься з прайсу). Можна голосом 🎤.</div>
           <textarea id="smMAdd" rows="3" placeholder="цемент 10 мішків 180&#10;профіль CD-60 24 шт&#10;клей для плитки 5 мішків 320"></textarea>
@@ -4484,9 +4485,9 @@ function smetaFlow(siteId){
     $("#smMmk")?.addEventListener("change",e=>{st.mmk=parseFloat(String(e.target.value).replace(",","."))||0;re()});
     $("#smMAddB")?.addEventListener("click",()=>{ const l=String($("#smMAdd").value||"").split(/\n|;/).map(parseMat).filter(Boolean); if(!l.length){ toast("Напишіть хоча б одну позицію"); return }
       st.mextra.push(...l); st.mrows.push(...l); const np=l.filter(r=>!r.price).length; toast(`Додано ${l.length}${np?` · ${np} без ціни — впишіть`:""}`); draw() });
-    document.querySelectorAll("#modal [data-mi]").forEach(el=>el.onchange=e=>{const r=st.mrows[e.target.dataset.mi],k=e.target.dataset.k; if(k==="on") r.on=e.target.checked; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()}); $("#smNo").onchange=e=>st.no=e.target.value;
+    document.querySelectorAll("#modal [data-mi]").forEach(el=>el.onchange=e=>{const r=st.mrows[e.target.dataset.mi],k=e.target.dataset.k; if(k==="on") r.on=e.target.checked; else if(k==="unit") r.unit=e.target.value; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()}); $("#smNo").onchange=e=>st.no=e.target.value;
     document.querySelectorAll("#modal [data-i]").forEach(el=>el.onchange=e=>{const r=st.rows[e.target.dataset.i],k=e.target.dataset.k;
-      if(k==="on") r.on=e.target.checked; else if(k==="name") r.name=e.target.value; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()});
+      if(k==="on") r.on=e.target.checked; else if(k==="name"||k==="unit") r[k]=e.target.value; else r[k]=parseFloat(String(e.target.value).replace(",","."))||0; draw()});
     $("#smPrint")?.addEventListener("click",()=>printDoc(smetaHTML(s,st),"Акт "+st.no));
     $("#smShare")?.addEventListener("click",()=>sharePdf(smetaHTML(s,st),`Акт ${st.no} — ${s.name||""}`,`Акт виконаних робіт № ${st.no} · ${s.name||""}`));
     document.querySelectorAll("#modal [data-pw]").forEach(b=>b.onclick=()=>{ const r=st.rows[+b.dataset.pw]; r.toPrice=!r.toPrice; draw() });
@@ -5116,7 +5117,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v254"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v255"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -5550,17 +5551,17 @@ async function billSheet(s,pre){
     for(const rm of rs){ const lr=l.filter(r=>r.room===rm), p=pref("w",rm,multi);
       if(st.group){ const g=new Map(); for(const r of lr){ const n=gname(r); g.set(n,Math.round(((g.get(n)||0)+(+st.sel[r.i])*r.price)*100)/100) }
         [...g].forEach(([n,sum],k)=>out.push({name:(k===0&&p?p+" — ":"")+n,unit:"посл.",qty:1,price:sum})) }
-      else lr.forEach((r,k)=>out.push({name:(k===0&&p?p+" — ":"")+r.name,unit:r.unit,qty:+st.sel[r.i],price:r.price})) }
+      else lr.forEach((r,k)=>out.push({name:(k===0&&p?p+" — ":"")+r.name,unit:st.unit?.[r.i]||r.unit,qty:+st.sel[r.i],price:r.price})) }
     return out };
   const nakItems=()=>{ const l=M(), rs=rooms(l), multi=rs.length>1||rs.some(Boolean), out=[];
-    for(const rm of rs){ const p=pref("m",rm,multi); l.filter(r=>r.room===rm).forEach((r,k)=>out.push({name:(k===0&&p?p+" — ":"")+r.name,unit:r.unit,qty:+st.sel[r.i],price:r.price})) }
+    for(const rm of rs){ const p=pref("m",rm,multi); l.filter(r=>r.room===rm).forEach((r,k)=>out.push({name:(k===0&&p?p+" — ":"")+r.name,unit:st.unit?.[r.i]||r.unit,qty:+st.sel[r.i],price:r.price})) }
     return out };
   // номери: пропозиція за ФОП (наступні після останніх), вписане вручну — зберігається
   const defs=()=>{ const f=S.fops.get(st.fop), inv=billNext(f,"inv"), n=billNum(inv), P=f?.invPrefix||"СФ-"; return {invW:inv,actNo:billNext(f,"act"),invM:nextNo(P,W().length?n+1:n),nakNo:billNext(f,"nak")} };
   const nos=()=>({...defs(),...st.nos});
   const draw=()=>{ const tab=st.tab, l=L.filter(r=>tab==="w"?!r.mat:r.mat), open=l.filter(r=>r.left>0), done=l.filter(r=>!(r.left>0)), w=W(), m=M(), N=nos(); st._D=defs();
     const row=r=>{ const on=+st.sel[r.i]>0; return `<div style="padding:6px 0;border-bottom:1px solid var(--line,#2a2f38)"><label style="display:flex;gap:8px;align-items:flex-start;font-size:13.5px"><input type="checkbox" data-bs="${r.i}" ${on?"checked":""} style="width:20px;height:20px;flex:0 0 20px;margin-top:1px"><span style="flex:1;min-width:0">${esc(r.name)}<div class="m" style="font-size:11.5px;color:var(--muted)">${r.left<r.qty?`лишилось ${+r.left} з ${+r.qty}`:+r.qty} ${esc(r.unit)} × ${money(r.price)}</div></span><b style="white-space:nowrap">${money(Math.round((on?+st.sel[r.i]:r.left)*r.price))}</b></label>
-      ${on?`<div style="display:flex;gap:6px;align-items:center;margin:4px 0 0 28px"><span class="m" style="font-size:12px">Виставити:</span><input data-bq="${r.i}" inputmode="decimal" value="${+st.sel[r.i]}" style="width:80px;text-align:center;padding:4px"><span class="m" style="font-size:12px">${esc(r.unit)}</span>${+st.sel[r.i]<r.left?`<button type="button" class="chip" data-bfull="${r.i}" style="font:inherit;font-size:12px;padding:2px 8px">усе ${+r.left}</button>`:""}</div>`:""}</div>` };
+      ${on?`<div style="display:flex;gap:6px;align-items:center;margin:4px 0 0 28px"><span class="m" style="font-size:12px">Виставити:</span><input data-bq="${r.i}" inputmode="decimal" value="${+st.sel[r.i]}" style="width:80px;text-align:center;padding:4px">${unitSel(`data-bu="${r.i}"`,st.unit?.[r.i]||r.unit,"width:80px;padding:4px 2px;font-size:12.5px")}${+st.sel[r.i]<r.left?`<button type="button" class="chip" data-bfull="${r.i}" style="font:inherit;font-size:12px;padding:2px 8px">усе ${+r.left}</button>`:""}</div>`:""}</div>` };
     const byRoom=ls=>{ const rs=rooms(ls); return rs.map(rm=>`${rs.length>1||rm?`<div class="m" style="font-weight:600;margin:8px 0 2px">🏠 ${esc(rm||"Без приміщення")}</div>`:""}${ls.filter(r=>r.room===rm).map(row).join("")}`).join("") };
     const groups=(()=>{ if(!st.group||!w.length) return ""; const keys=new Map(); for(const r of w){ const k=gk(r); if(!keys.has(k)) keys.set(k,{r,sum:0}); keys.get(k).sum+=(+st.sel[r.i])*r.price }
       return `<div class="section-t">Рядки акта (групи)</div><div class="m" style="color:var(--muted);font-size:12px;margin:-4px 0 6px">Однакова назва — одна позиція «1 послуга». Перейменуйте, щоб об'єднати.</div>${[...keys].map(([k,x])=>`<div class="row" style="align-items:center;margin-bottom:4px"><div style="flex:1;min-width:0">${rooms(w).length>1&&x.r.room?`<div class="m" style="font-size:11.5px;color:var(--muted)">🏠 ${esc(x.r.room)}</div>`:""}<input data-bg="${esc(k)}" value="${esc(gname(x.r))}" style="width:100%"></div><b style="white-space:nowrap">${money(Math.round(x.sum))}</b></div>`).join("")}` })();
@@ -5594,6 +5595,7 @@ async function billSheet(s,pre){
     $("#bNone").onclick=()=>{ for(const r of L) if(st.tab==="w"?!r.mat:r.mat) delete st.sel[r.i]; redraw() };
     sh?.querySelectorAll("[data-bs]").forEach(c=>c.onchange=()=>{ const r=L[+c.dataset.bs]; if(c.checked) st.sel[r.i]=r.left; else delete st.sel[r.i]; redraw() });
     sh?.querySelectorAll("[data-bq]").forEach(c=>c.onchange=()=>{ const r=L[+c.dataset.bq]; let v=parseFloat(String(c.value).replace(",","."))||0; if(v>r.left){ v=r.left; toast(`Більше, ніж лишилось (${+r.left} ${r.unit})`) } if(v>0) st.sel[r.i]=n3(v); else delete st.sel[r.i]; redraw() });
+    sh?.querySelectorAll("[data-bu]").forEach(c=>c.onchange=()=>{ (st.unit=st.unit||{})[c.dataset.bu]=c.value; redraw() });
     sh?.querySelectorAll("[data-bfull]").forEach(b=>b.onclick=()=>{ const r=L[+b.dataset.bfull]; st.sel[r.i]=r.left; redraw() });
     sh?.querySelectorAll("[data-bg]").forEach(c=>c.onchange=()=>{ st.ren[c.dataset.bg]=c.value.trim(); redraw() });
     $("#bFop")?.addEventListener("change",()=>{ keep(); st.nos={}; draw() });
