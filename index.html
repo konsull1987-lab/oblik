@@ -1290,7 +1290,9 @@ function renderSites(){
 const PT_TYPES=[["sub","🏗️","Субпідрядник"],["shop","🏪","Магазин / база"],["svc","🚚","Послуги й техніка"],["oth","📌","Інше"]];
 const PT_TAGS=["Стяжка / заливка підлог","Гіпсокартон","Штукатурка","Плитка","Малярка","Покрівля","Фасад / утеплення","Електрика","Сантехніка","Опалення","Вентиляція / кондиціонери","Вікна / двері","Бетон / фундамент","Металоконструкції","Зварювання","Демонтаж","Вивіз сміття","Спецтехніка","Доставка","Будматеріали","Сантехніка (магазин)","Електротовари","Лакофарби","Метал","Пиломатеріали","Плитка (магазин)","Оренда інструменту","Проєктування"];
 const ptType=t=>PT_TYPES.find(x=>x[0]===t)||PT_TYPES[3];
-const ptPhones=p=>String(p.phone||"").split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean);
+const ptContacts=p=>{ if(Array.isArray(p.contacts)&&p.contacts.length) return p.contacts.filter(c=>c&&(c.name||c.tel));
+  const t=String(p.phone||"").split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean); return t.length?t.map((x,i)=>({name:i?"":p.contact||"",tel:x})):p.contact?[{name:p.contact,tel:""}]:[] };
+const ptPhones=p=>ptContacts(p).map(c=>c.tel).filter(Boolean);
 const telNorm=t=>{ let d=String(t).replace(/[^\d+]/g,""); if(/^0\d{9}$/.test(d)) d="+38"+d; else if(/^380\d{9}$/.test(d)) d="+"+d; return d };
 const ptOf=id=>S.partners?.get(id);
 // оплати партнеру з обох баз («на двох» бачать лише Андрій і Сергій)
@@ -1299,11 +1301,11 @@ function ptPaid(id){ const out=[]; for(const [b,B] of [["trio",S.B.trio],...(S.d
 const pplSeg=()=>`<div class="seg" style="margin-bottom:6px"><button type="button" data-ppm="ppl" class="${S.pplMode==="pt"?"":"on"}">👷 Люди</button><button type="button" data-ppm="pt" class="${S.pplMode==="pt"?"on":""}">🤝 Партнери${S.partners?.size?" · "+[...S.partners.values()].filter(p=>p.active!==false).length:""}</button></div>`;
 function renderPartners(){ const all=[...(S.partners?.values()||[])].sort((a,b)=>(!!b.fav-!!a.fav)||byName(a,b)), act=all.filter(p=>p.active!==false), q=(S.ptq||"").trim(), typ=S.ptType||"";
   const tags={}; for(const p of act) for(const t of p.tags||[]) tags[t]=(tags[t]||0)+1;
-  const hit=p=>(!typ||p.type===typ)&&(!S.ptTag||(p.tags||[]).includes(S.ptTag))&&(!q||wordHit([p.name,p.contact,p.phone,(p.tags||[]).join(" "),p.note,p.address].join(" "),q)||q.replace(/\D/g,"").length>=3&&String(p.phone||"").replace(/\D/g,"").includes(q.replace(/\D/g,"")));
+  const hit=p=>(!typ||p.type===typ)&&(!S.ptTag||(p.tags||[]).includes(S.ptTag))&&(!q||wordHit([p.name,...ptContacts(p).map(c=>c.name+" "+c.tel),(p.tags||[]).join(" "),p.note,p.address].join(" "),q)||q.replace(/\D/g,"").length>=3&&ptPhones(p).join(" ").replace(/\D/g,"").includes(q.replace(/\D/g,"")));
   const l=act.filter(hit), arch=all.filter(p=>p.active===false&&hit(p));
   const card=p=>{ const T=ptType(p.type), ph=ptPhones(p)[0], paid=ptPaid(p.id).reduce((a,x)=>a+(+x.amount||0),0);
     return `<div class="card" data-pt="${p.id}" style="cursor:pointer"><div class="main"><div class="t">${T[1]} ${esc(p.name)}${p.fav?" ⭐":""}</div>${(p.tags||[]).length?`<div class="m">${esc(p.tags.join(" · "))}</div>`:""}
-      <div class="m">${[p.contact?"👤 "+esc(p.contact):"",ph?esc(ph):"",paid?"оплачено "+money(paid):""].filter(Boolean).join(" · ")}</div></div>${ph?`<a class="btn ghost sm" href="tel:${telNorm(ph)}" data-ptcall style="flex:none;text-decoration:none">📞</a>`:""}</div>` };
+      <div class="m">${(cs=>[cs[0]?.name?"👤 "+esc(cs[0].name)+(cs.length>1?` +${cs.length-1}`:""):"",ph?esc(ph):"",paid?"оплачено "+money(paid):""].filter(Boolean).join(" · "))(ptContacts(p))}</div></div>${ph?`<a class="btn ghost sm" href="tel:${telNorm(ph)}" data-ptcall style="flex:none;text-decoration:none">📞</a>`:""}</div>` };
   let hh=`<input type="search" id="ptQ" placeholder="🔍 Назва, телефон, чим займається" value="${esc(S.ptq||"")}" style="margin-bottom:8px">
     <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px">${[["","Усі"],...PT_TYPES.map(t=>[t[0],t[1]+" "+t[2]])].map(([k,lb])=>`<button class="btn ghost sm" data-ptt="${k}" style="white-space:nowrap;flex:none;${typ===k?"border-color:var(--accent);color:var(--accent)":""}">${lb}</button>`).join("")}</div>
     ${Object.keys(tags).length?`<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:4px">${Object.entries(tags).sort((a,b)=>b[1]-a[1]).map(([t,n])=>`<button class="btn ghost sm" data-ptg="${esc(t)}" style="white-space:nowrap;flex:none;font-size:12.5px;${S.ptTag===t?"border-color:var(--accent);color:var(--accent)":""}">${esc(t)} <b>${n}</b></button>`).join("")}</div>`:""}`;
@@ -1317,14 +1319,13 @@ function renderPartners(){ const all=[...(S.partners?.values()||[])].sort((a,b)=
   $("#view").querySelectorAll("[data-ptcall]").forEach(a=>a.onclick=e=>e.stopPropagation());
   $("#view").querySelectorAll("[data-pt]").forEach(c=>c.onclick=()=>partnerCard(c.dataset.pt));
   $("#ptNew")?.addEventListener("click",()=>partnerForm()) }
-const ptShareText=p=>{ const T=ptType(p.type); return [`${T[1]} ${p.name}`,(p.tags||[]).length?p.tags.join(", "):"",p.contact?"👤 "+p.contact:"",...ptPhones(p).map(x=>"📞 "+x),p.address?"📍 "+p.address:"",p.link||""].filter(Boolean).join("\n") };
+const ptShareText=p=>{ const T=ptType(p.type); return [`${T[1]} ${p.name}`,(p.tags||[]).length?p.tags.join(", "):"",...ptContacts(p).map(c=>"👤 "+[c.name,c.tel].filter(Boolean).join(" — ")),p.address?"📍 "+p.address:"",p.link||""].filter(Boolean).join("\n") };
 function partnerCard(id){ const p=ptOf(id); if(!p) return; const T=ptType(p.type), pays=ptPaid(id), tot=pays.reduce((a,x)=>a+(+x.amount||0),0), bySite={};
   for(const x of pays){ const k=x.site||""; bySite[k]=(bySite[k]||0)+(+x.amount||0) }
   const phs=ptPhones(p), map=p.address?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address)}`:"", link=p.link?(/^https?:/i.test(p.link)?p.link:"https://"+p.link):"";
   openSheet(`<h2>${T[1]} ${esc(p.name)}${p.fav?" ⭐":""}</h2>
     <div class="m" style="margin:-4px 0 8px">${T[2]}${(p.tags||[]).length?" · "+esc(p.tags.join(" · ")):""}${p.active===false?" · 🗄 архів":""}</div>
-    ${p.contact?`<div style="margin-bottom:6px">👤 ${esc(p.contact)}</div>`:""}
-    ${phs.map(x=>{ const t=telNorm(x); return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><b style="flex:1">${esc(x)}</b><a class="btn sm" href="tel:${t}" style="text-decoration:none">📞</a><a class="btn ghost sm" href="viber://chat?number=${encodeURIComponent(t)}" style="text-decoration:none">Viber</a><a class="btn ghost sm" href="https://t.me/${t.replace(/^\+/,"%2B")}" target="_blank" rel="noopener" style="text-decoration:none">Telegram</a></div>` }).join("")}
+    ${ptContacts(p).map(c=>{ const t=telNorm(c.tel||""); return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap"><div style="flex:1;min-width:120px">${c.name?`<div>👤 ${esc(c.name)}</div>`:""}${c.tel?`<b>${esc(c.tel)}</b>`:""}</div>${c.tel?`<a class="btn sm" href="tel:${t}" style="text-decoration:none">📞</a><a class="btn ghost sm" href="viber://chat?number=${encodeURIComponent(t)}" style="text-decoration:none">Viber</a><a class="btn ghost sm" href="https://t.me/${t.replace(/^\+/,"%2B")}" target="_blank" rel="noopener" style="text-decoration:none">Telegram</a>`:""}</div>` }).join("")}
     ${p.address?`<div style="margin-bottom:6px">📍 ${esc(p.address)} · <a href="${map}" target="_blank" rel="noopener" style="color:var(--accent)">на карті</a></div>`:""}
     ${link?`<div style="margin-bottom:6px">🔗 <a href="${esc(link)}" target="_blank" rel="noopener" style="color:var(--accent);word-break:break-all">${esc(p.link)}</a></div>`:""}
     ${p.note?`<div class="card" style="display:block;cursor:default;white-space:pre-wrap;margin-bottom:8px">${esc(p.note)}</div>`:""}
@@ -1337,14 +1338,15 @@ function partnerCard(id){ const p=ptOf(id); if(!p) return; const T=ptType(p.type
   $("#ptEdit")?.addEventListener("click",()=>partnerForm(p));
   $("#ptShare").onclick=async()=>{ const text=ptShareText(p); try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return } try{ await navigator.clipboard.writeText(text); toast("Скопійовано") }catch(_){ prompt("Скопіюйте:",text) } };
   $("#modal").querySelectorAll("[data-ptf]").forEach(c=>c.onclick=()=>{ if(c.dataset.ptb!==(isDuo()?"duo":"trio")) setBase(c.dataset.ptb); const x=S.fin.get(c.dataset.ptf); if(x) finForm(x) }) }
+const ptcRow=(c={})=>`<div class="ptcR" style="display:flex;gap:6px;margin-bottom:6px"><input class="ptcN" value="${esc(c.name||"")}" placeholder="ім'я, посада" style="flex:1;min-width:0"><input class="ptcT" type="tel" value="${esc(c.tel||"")}" placeholder="+380…" style="flex:1;min-width:0"><button type="button" class="btn ghost sm ptcP" title="З контактів">📇</button><button type="button" class="btn ghost sm ptcX" title="Прибрати">✕</button></div>`;
 function partnerForm(p){ const isNew=!p; p=p||{type:"sub",tags:[],active:true}; let tags=[...(p.tags||[])];
   openSheet(`<h2>${isNew?"＋ Новий партнер":"✏️ "+esc(p.name)}</h2><form id="ptF">
     <div class="field"><label>Назва *</label><input name="name" value="${esc(p.name||"")}" placeholder="напр.: «Стяжка Полтава», магазин «Сантехнік», бригада Ігоря (ГКЛ)" required></div>
     <div class="field"><label>Хто це</label><div class="seg" id="ptTy">${PT_TYPES.map(t=>`<button type="button" data-v="${t[0]}" class="${p.type===t[0]?"on":""}">${t[1]} ${t[2]}</button>`).join("")}</div></div>
     <div class="field"><label>Чим займається / що продає</label><div id="ptTg" style="display:flex;flex-wrap:wrap;gap:6px"></div>
       <div style="display:flex;gap:6px;margin-top:6px"><input id="ptTgN" placeholder="своє — напр.: «Наливна підлога», «Бетон М300»" style="flex:1"><button type="button" class="btn ghost sm" id="ptTgA">＋</button></div></div>
-    <div class="field"><label>Контактна особа</label><input name="contact" value="${esc(p.contact||"")}" placeholder="ім'я, посада"></div>
-    <div class="field"><label>Телефон(и)</label><div style="display:flex;gap:6px"><input name="phone" value="${esc(p.phone||"")}" inputmode="tel" placeholder="кілька — через кому" style="flex:1;min-width:0"><button type="button" class="btn ghost" id="ptPick" style="white-space:nowrap">📇 З контактів</button></div></div>
+    <div class="field"><label>Контактні особи</label><div id="ptCL">${(ptContacts(p).length?ptContacts(p):[{}]).map(c=>ptcRow(c)).join("")}</div>
+      <div style="display:flex;gap:6px"><button type="button" class="btn ghost sm" id="ptCA" style="flex:1">＋ ще особа</button><button type="button" class="btn ghost sm" id="ptPick" style="flex:1">📇 З контактів</button></div></div>
     <div class="field"><label>Адреса</label><input name="address" value="${esc(p.address||"")}" placeholder="місто, вулиця — для карти й навігатора"></div>
     <div class="field"><label>Сайт / сторінка</label><input name="link" value="${esc(p.link||"")}" placeholder="сайт, Instagram, OLX…"></div>
     <div class="field"><label>Умови, ціни, примітки</label><textarea name="note" rows="3" placeholder="напр.: стяжка 280 ₴/м² з матеріалом; мін. 50 м²; знижка 5% від 100 м²; реквізити для оплати">${esc(p.note||"")}</textarea></div>
@@ -1357,19 +1359,25 @@ function partnerForm(p){ const isNew=!p; p=p||{type:"sub",tags:[],active:true}; 
   $("#ptTg").onclick=e=>{ const b=e.target.closest("[data-tg]"); if(!b) return; const t=b.dataset.tg; tags=tags.includes(t)?tags.filter(x=>x!==t):[...tags,t]; tagDraw() };
   const addTag=()=>{ const v=$("#ptTgN").value.trim(); if(!v) return; if(!tags.includes(v)) tags.push(v); $("#ptTgN").value=""; tagDraw() };
   $("#ptTgA").onclick=addTag; $("#ptTgN").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addTag() } });
-  $("#ptPick").onclick=async()=>{ try{ const r=await contactsSelect(["name","tel"],{multiple:false}), c=r&&r[0]; if(!c) return;
-      const F=n=>$("#ptF [name="+n+"]"), cur=String(F("phone").value||"").split(/[,;]+/).map(x=>x.trim()).filter(Boolean), have=new Set(cur.map(telNorm));
-      const add=(c.tel||[]).map(x=>String(x||"").trim()).filter(x=>x&&!have.has(telNorm(x))); if(!add.length&&!(c.tel||[]).length){ toast("У контакту немає номера"); return }
-      F("phone").value=[...cur,...add.filter((x,i,a)=>a.findIndex(y=>telNorm(y)===telNorm(x))===i)].join(", "); const nm=String((c.name||[])[0]||"").trim();
-      if(nm&&!F("name").value.trim()) F("name").value=nm; else if(nm&&!F("contact").value.trim()) F("contact").value=nm;
-      toast(add.length>1?`Додано номерів: ${add.length}`:"Номер додано") }catch(_){ toast("Не вдалося відкрити контакти") } };
+  // 📇 з телефонної книги: у порожній рядок (або новий); якщо в контакту кілька номерів — кожен окремим рядком з тим самим ім'ям
+  const fillRow=(r,c)=>{ const tels=(c.tel||[]).map(x=>String(x||"").trim()).filter(Boolean).filter((x,i,a)=>a.findIndex(y=>telNorm(y)===telNorm(x))===i), nm=String((c.name||[])[0]||"").trim();
+    if(!tels.length&&!nm){ toast("Порожній контакт"); return } const have=new Set([...$("#ptCL").querySelectorAll(".ptcT")].filter(x=>x.closest(".ptcR")!==r).map(x=>telNorm(x.value)).filter(Boolean)), fresh=tels.filter(t=>!have.has(telNorm(t)));
+    if(!fresh.length&&tels.length){ toast("Цей номер уже є"); return }
+    if(nm&&!r.querySelector(".ptcN").value.trim()) r.querySelector(".ptcN").value=nm; r.querySelector(".ptcT").value=fresh[0]||r.querySelector(".ptcT").value;
+    for(const t of fresh.slice(1)) $("#ptCL").insertAdjacentHTML("beforeend",ptcRow({name:nm,tel:t}));
+    const F=$("#ptF [name=name]"); if(nm&&!F.value.trim()) F.value=nm; toast(fresh.length>1?`Додано номерів: ${fresh.length}`:"Контакт додано") };
+  const pick=async r=>{ try{ const res=await contactsSelect(["name","tel"],{multiple:false}), c=res&&res[0]; if(c) fillRow(r,c) }catch(_){ toast("Не вдалося відкрити контакти") } };
+  $("#ptCA").onclick=()=>{ $("#ptCL").insertAdjacentHTML("beforeend",ptcRow()); [...$("#ptCL").querySelectorAll(".ptcN")].pop()?.focus() };
+  $("#ptPick").onclick=()=>{ let r=[...$("#ptCL").querySelectorAll(".ptcR")].find(x=>!x.querySelector(".ptcN").value.trim()&&!x.querySelector(".ptcT").value.trim()); if(!r){ $("#ptCL").insertAdjacentHTML("beforeend",ptcRow()); r=[...$("#ptCL").querySelectorAll(".ptcR")].pop() } pick(r) };
+  $("#ptCL").onclick=e=>{ const r=e.target.closest(".ptcR"); if(!r) return; if(e.target.closest(".ptcX")){ if($("#ptCL").querySelectorAll(".ptcR").length>1) r.remove(); else r.querySelectorAll("input").forEach(i=>i.value=""); return } if(e.target.closest(".ptcP")) pick(r) };
   $("#ptTy").onclick=e=>{ const b=e.target.closest("[data-v]"); if(!b) return; typ=b.dataset.v; $("#ptTy").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)) };
   $("#ptDel")?.addEventListener("click",async()=>{ const n=ptPaid(p.id).length;
     if(n){ if(!confirm(`Є ${n} оплат цьому партнеру — їх не чіпаємо. Перенести партнера в архів?`)) return; if(await write(db=>db.doc("partners/"+p.id).update({active:false}))){ closeSheet(); toast("🗄 В архіві") } return }
     if(!confirm(`Видалити «${p.name}»?`)) return; if(await write(db=>db.doc("partners/"+p.id).delete())){ closeSheet(); toast("Видалено") } });
   $("#ptF").addEventListener("submit",async e=>{ e.preventDefault(); const v=Object.fromEntries(new FormData(e.target)); const nm=String(v.name||"").trim(); if(!nm){ toast("Вкажіть назву"); return }
     const dup=[...(S.partners?.values()||[])].find(x=>x.id!==p.id&&x.name.trim().toLowerCase()===nm.toLowerCase()); if(dup&&!confirm(`«${dup.name}» уже є. Все одно зберегти ще один?`)) return;
-    const data={name:nm,type:typ,tags,contact:String(v.contact||"").trim(),phone:String(v.phone||"").trim(),address:String(v.address||"").trim(),link:String(v.link||"").trim(),note:String(v.note||"").trim(),fav:!!v.fav,active:isNew?true:!!v.active,updatedAt:Date.now(),...(isNew?{createdAt:Date.now(),by:S.uid||""}:{})};
+    const contacts=[...$("#ptCL").querySelectorAll(".ptcR")].map(r=>({name:r.querySelector(".ptcN").value.trim(),tel:r.querySelector(".ptcT").value.trim()})).filter(c=>c.name||c.tel);
+    const data={name:nm,type:typ,tags,contacts,contact:contacts.find(c=>c.name)?.name||"",phone:contacts.map(c=>c.tel).filter(Boolean).join(", "),address:String(v.address||"").trim(),link:String(v.link||"").trim(),note:String(v.note||"").trim(),fav:!!v.fav,active:isNew?true:!!v.active,updatedAt:Date.now(),...(isNew?{createdAt:Date.now(),by:S.uid||""}:{})};
     let nid=p.id; const ok=await write(async db=>{ if(isNew){ const r=await db.collection("partners").add(data); nid=r.id } else await db.doc("partners/"+p.id).update(data) });
     if(ok){ closeSheet(); toast(isNew?"🤝 Партнера додано":"Збережено"); if(isNew){ S.partners=S.partners||new Map(); S.partners.set(nid,{id:nid,...data}) } } }) }
 function renderPeople(){
@@ -5231,7 +5239,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v259"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v260"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -5496,7 +5504,7 @@ function globalSearch(){
     const num=parseFloat(q.replace(/\s/g,"").replace(",",".")), isNum=/^[\d\s.,]+$/.test(q)&&num>0, hit=t=>wordHit(t,q), out=[];
     const P=[...S.people.values()].filter(p=>hit([p.name,p.phone,...(p.phones||[]).map(x=>x.tel+" "+x.label)].join(" "))||(isNum&&String(p.phone||"").replace(/\D/g,"").includes(q.replace(/\D/g,""))));
     if(P.length) out.push(`<div class="section-t">Люди</div>`+P.slice(0,8).map(p=>row("p",p.id,p.crew?"👥":p.role==="owner"?"👤":"🔧",esc(p.name),esc(p.phone||""))).join(""));
-    const Pt=[...(S.partners?.values()||[])].filter(x=>hit([x.name,x.contact,x.phone,(x.tags||[]).join(" "),x.note].join(" "))||(isNum&&String(x.phone||"").replace(/\D/g,"").includes(q.replace(/\D/g,""))));
+    const Pt=[...(S.partners?.values()||[])].filter(x=>hit([x.name,...ptContacts(x).map(c=>c.name+" "+c.tel),(x.tags||[]).join(" "),x.note].join(" "))||(isNum&&ptPhones(x).join(" ").replace(/\D/g,"").includes(q.replace(/\D/g,""))));
     if(Pt.length) out.push(`<div class="section-t">Партнери</div>`+Pt.slice(0,8).map(x=>row("pt",x.id,ptType(x.type)[1],esc(x.name),esc([(x.tags||[]).slice(0,3).join(", "),ptPhones(x)[0]].filter(Boolean).join(" · ")))).join(""));
     const St=[...S.sites.values()].filter(x=>hit([x.name,x.customer,x.note,x.address].join(" ")));
     if(St.length) out.push(`<div class="section-t">Об'єкти і склади</div>`+St.slice(0,8).map(x=>row("s",x.id,x.type==="warehouse"?"🏬":"🏗️",esc(x.name),esc([x.customer,x.active===false?"архів":""].filter(Boolean).join(" · ")))).join(""));
