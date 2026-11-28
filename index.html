@@ -1344,7 +1344,7 @@ function partnerForm(p){ const isNew=!p; p=p||{type:"sub",tags:[],active:true}; 
     <div class="field"><label>Чим займається / що продає</label><div id="ptTg" style="display:flex;flex-wrap:wrap;gap:6px"></div>
       <div style="display:flex;gap:6px;margin-top:6px"><input id="ptTgN" placeholder="своє — напр.: «Наливна підлога», «Бетон М300»" style="flex:1"><button type="button" class="btn ghost sm" id="ptTgA">＋</button></div></div>
     <div class="field"><label>Контактна особа</label><input name="contact" value="${esc(p.contact||"")}" placeholder="ім'я, посада"></div>
-    <div class="field"><label>Телефон(и)</label><input name="phone" value="${esc(p.phone||"")}" inputmode="tel" placeholder="кілька — через кому"></div>
+    <div class="field"><label>Телефон(и)</label><div style="display:flex;gap:6px"><input name="phone" value="${esc(p.phone||"")}" inputmode="tel" placeholder="кілька — через кому" style="flex:1;min-width:0"><button type="button" class="btn ghost" id="ptPick" style="white-space:nowrap">📇 З контактів</button></div></div>
     <div class="field"><label>Адреса</label><input name="address" value="${esc(p.address||"")}" placeholder="місто, вулиця — для карти й навігатора"></div>
     <div class="field"><label>Сайт / сторінка</label><input name="link" value="${esc(p.link||"")}" placeholder="сайт, Instagram, OLX…"></div>
     <div class="field"><label>Умови, ціни, примітки</label><textarea name="note" rows="3" placeholder="напр.: стяжка 280 ₴/м² з матеріалом; мін. 50 м²; знижка 5% від 100 м²; реквізити для оплати">${esc(p.note||"")}</textarea></div>
@@ -1357,6 +1357,12 @@ function partnerForm(p){ const isNew=!p; p=p||{type:"sub",tags:[],active:true}; 
   $("#ptTg").onclick=e=>{ const b=e.target.closest("[data-tg]"); if(!b) return; const t=b.dataset.tg; tags=tags.includes(t)?tags.filter(x=>x!==t):[...tags,t]; tagDraw() };
   const addTag=()=>{ const v=$("#ptTgN").value.trim(); if(!v) return; if(!tags.includes(v)) tags.push(v); $("#ptTgN").value=""; tagDraw() };
   $("#ptTgA").onclick=addTag; $("#ptTgN").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addTag() } });
+  $("#ptPick").onclick=async()=>{ try{ const r=await contactsSelect(["name","tel"],{multiple:false}), c=r&&r[0]; if(!c) return;
+      const F=n=>$("#ptF [name="+n+"]"), cur=String(F("phone").value||"").split(/[,;]+/).map(x=>x.trim()).filter(Boolean), have=new Set(cur.map(telNorm));
+      const add=(c.tel||[]).map(x=>String(x||"").trim()).filter(x=>x&&!have.has(telNorm(x))); if(!add.length&&!(c.tel||[]).length){ toast("У контакту немає номера"); return }
+      F("phone").value=[...cur,...add.filter((x,i,a)=>a.findIndex(y=>telNorm(y)===telNorm(x))===i)].join(", "); const nm=String((c.name||[])[0]||"").trim();
+      if(nm&&!F("name").value.trim()) F("name").value=nm; else if(nm&&!F("contact").value.trim()) F("contact").value=nm;
+      toast(add.length>1?`Додано номерів: ${add.length}`:"Номер додано") }catch(_){ toast("Не вдалося відкрити контакти") } };
   $("#ptTy").onclick=e=>{ const b=e.target.closest("[data-v]"); if(!b) return; typ=b.dataset.v; $("#ptTy").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)) };
   $("#ptDel")?.addEventListener("click",async()=>{ const n=ptPaid(p.id).length;
     if(n){ if(!confirm(`Є ${n} оплат цьому партнеру — їх не чіпаємо. Перенести партнера в архів?`)) return; if(await write(db=>db.doc("partners/"+p.id).update({active:false}))){ closeSheet(); toast("🗄 В архіві") } return }
@@ -2706,7 +2712,18 @@ function mergeSite(src){
     if(ok){ closeSheet(); toast(`✅ «${src.name}» об'єднано з «${dst.name}»`) } });
 }
 // 📞 рядок контакту об'єкта: хто + телефон (+ з телефонної книги)
-const scRow=(c={})=>`<div class="scR" style="display:flex;gap:6px;margin-bottom:6px"><input class="scN" value="${esc(c.name||"")}" placeholder="хто (напр. технагляд)" style="flex:1;min-width:0"><input class="scT" type="tel" value="${esc(c.tel||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost sm scP" title="З контактів">📇</button>`:""}<button type="button" class="btn ghost sm scX">✕</button></div>`;
+// 📇 Контакт із телефонної книги: Chrome на Android — системний вибір контакту; де його немає (Samsung Internet, айфон) — вибір файлу-візитки (.vcf), Android сам пропонує «Контакти»
+function vcfParse(txt){ const out=[]; const lines=String(txt||"").replace(/\r\n[ \t]/g,"").replace(/\n[ \t]/g,"").split(/\r?\n/); let cur=null;
+  const dec=v=>{ try{ return /=[0-9A-F]{2}/i.test(v)?decodeURIComponent(v.replace(/=\s*$/,"").replace(/=([0-9A-F]{2})/gi,"%$1")):v }catch(_){ return v } };
+  for(const l of lines){ if(/^BEGIN:VCARD/i.test(l)){ cur={name:[],tel:[]}; continue } if(/^END:VCARD/i.test(l)){ if(cur) out.push(cur); cur=null; continue } if(!cur) continue;
+    const m=l.match(/^([^:]+):(.*)$/); if(!m) continue; const k=m[1].split(";")[0].toUpperCase().replace(/^ITEM\d+\./,""), v=dec(m[2]).trim();
+    if(k==="FN"&&v) cur.name.unshift(v); else if(k==="N"&&v&&!cur.name.length){ const p=v.split(";"); const n=[p[1],p[2],p[0]].filter(Boolean).join(" ").trim(); if(n) cur.name.push(n) } else if(k==="TEL"&&v) cur.tel.push(v) }
+  return out }
+function contactsSelect(props,opts){ if(navigator.contacts?.select) return navigator.contacts.select(props,opts);
+  return new Promise(ok=>{ const i=document.createElement("input"); i.type="file"; i.accept=".vcf,text/vcard,text/x-vcard"; if(opts?.multiple) i.multiple=true; i.style.display="none"; document.body.appendChild(i);
+    const done=v=>{ i.remove(); ok(v) }; i.addEventListener("cancel",()=>done([]));
+    i.onchange=async()=>{ const r=[]; for(const fl of [...(i.files||[])]) try{ r.push(...vcfParse(await fl.text())) }catch(_){} if(!r.length&&i.files?.length) toast("У файлі немає контактів"); done(r) }; i.click() }) }
+const scRow=(c={})=>`<div class="scR" style="display:flex;gap:6px;margin-bottom:6px"><input class="scN" value="${esc(c.name||"")}" placeholder="хто (напр. технагляд)" style="flex:1;min-width:0"><input class="scT" type="tel" value="${esc(c.tel||"")}" placeholder="+380…" style="flex:1;min-width:0"><button type="button" class="btn ghost sm scP" title="З контактів">📇</button><button type="button" class="btn ghost sm scX">✕</button></div>`;
 function siteForm(s,pre){
   const isNew=!s; s=s||{type:"site",...(pre||{})};
   const par=s.parent&&S.sites.get(s.parent)?S.sites.get(s.parent):null, myKids=isNew?[]:siteKids(s.id);
@@ -2751,7 +2768,7 @@ function siteForm(s,pre){
       <div class="field"><label>Адреса, примітка</label><input name="note" value="${esc(s.note)}"></div>
       <div class="field"><label>📍 Місце на карті</label><div id="sGeoB"></div></div>
       ${s.type==="warehouse"&&!isNew?`<div class="field"><label>👤 Відповідальний за склад</label><select name="resp">${[...S.people.values()].filter(p=>p.role==="owner"&&p.active!==false).sort(byName).map(p=>`<option value="${p.id}" ${whResp(s)===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>`:""}
-      ${s.type!=="warehouse"?`<div class="field"><label>📞 Телефон замовника</label><div style="display:flex;gap:6px"><input name="custPhone" type="tel" value="${esc(s.custPhone||"")}" placeholder="+380…" style="flex:1;min-width:0">${"contacts" in navigator&&navigator.contacts?.select?`<button type="button" class="btn ghost" id="sPickC" style="white-space:nowrap">📇 З контактів</button>`:""}${s.custPhone?`<a class="btn ghost" href="${telHref(s.custPhone)}" style="text-decoration:none">📞</a>`:""}</div></div>
+      ${s.type!=="warehouse"?`<div class="field"><label>📞 Телефон замовника</label><div style="display:flex;gap:6px"><input name="custPhone" type="tel" value="${esc(s.custPhone||"")}" placeholder="+380…" style="flex:1;min-width:0"><button type="button" class="btn ghost" id="sPickC" style="white-space:nowrap">📇 З контактів</button>${s.custPhone?`<a class="btn ghost" href="${telHref(s.custPhone)}" style="text-decoration:none">📞</a>`:""}</div></div>
         <div class="field"><label>📞 Інші контакти <span class="m">(технагляд, менеджер…)</span></label><div id="scList">${(s.contacts||[]).map(c=>scRow(c)).join("")}</div><button type="button" class="btn ghost sm" id="scAdd" style="width:100%">＋ Ще номер</button></div>
         <div class="row"><div class="field"><label>Замовник</label><input name="customer" value="${esc(s.customer)}" placeholder="ім'я / назва"></div>
         <div class="field"><label>Сума договору, ₴</label><input name="contract" inputmode="decimal" value="${ctrBase(s)||""}" placeholder="0">${+s.adj?`<div class="m" style="font-size:12px">⚖️ коригування ${+s.adj>0?"+":""}${money(+s.adj)} → разом ${money(s.contract)}</div>`:""}</div></div>
@@ -2817,8 +2834,8 @@ function siteForm(s,pre){
   $("#scAdd")?.addEventListener("click",()=>{ $("#scList").insertAdjacentHTML("beforeend",scRow()); $("#scList .scR:last-child .scN").focus() });
   $("#scList")?.addEventListener("click",async e=>{ const r=e.target.closest(".scR"); if(!r) return;
     if(e.target.closest(".scX")){ r.remove(); return }
-    if(e.target.closest(".scP")){ try{ const x=(await navigator.contacts.select(["name","tel"],{multiple:false}))?.[0]; if(!x) return; const t=(x.tel||[]).map(v=>String(v||"").trim()).filter(Boolean)[0]; if(!t){ toast("У контакту немає номера"); return } r.querySelector(".scT").value=t; const nm=(x.name||[])[0]; if(nm&&!r.querySelector(".scN").value.trim()) r.querySelector(".scN").value=nm.trim() }catch(_){ toast("Не вдалося відкрити контакти") } } });
-  $("#sPickC")?.addEventListener("click",async()=>{ try{ const r=await navigator.contacts.select(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
+    if(e.target.closest(".scP")){ try{ const x=(await contactsSelect(["name","tel"],{multiple:false}))?.[0]; if(!x) return; const t=(x.tel||[]).map(v=>String(v||"").trim()).filter(Boolean)[0]; if(!t){ toast("У контакту немає номера"); return } r.querySelector(".scT").value=t; const nm=(x.name||[])[0]; if(nm&&!r.querySelector(".scN").value.trim()) r.querySelector(".scN").value=nm.trim() }catch(_){ toast("Не вдалося відкрити контакти") } } });
+  $("#sPickC")?.addEventListener("click",async()=>{ try{ const r=await contactsSelect(["name","tel"],{multiple:false}); const c=r&&r[0]; if(!c) return;
     const tel=(c.tel||[]).map(x=>String(x||"").trim()).filter(Boolean); if(!tel.length){ toast("У контакту немає номера"); return }
     const F=n=>$("#siteForm [name="+n+"]"); F("custPhone").value=tel[0]; const nm=(c.name||[])[0]; if(nm&&!F("customer").value.trim()) F("customer").value=nm.trim();
     toast(tel.length>1?`Взято перший номер із ${tel.length}`:"Номер додано") }catch(e){ toast("Не вдалося відкрити контакти") } });
@@ -2883,7 +2900,7 @@ function personForm(p){
         <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${[...S.people.values()].filter(x=>x.role==="worker"&&!x.crew&&x.id!==p.id).sort(byName).map(x=>`<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" class="crewM" value="${x.id}" ${(p.members||[]).includes(x.id)?"checked":""} style="width:18px;height:18px">${esc(x.name)}</label>`).join("")||`<span class="m">Спочатку додайте виконавців окремо</span>`}</div>
         <div class="m" style="color:var(--muted);font-size:12px;margin-top:4px">Нарахування й виплати йдуть на бригаду загальною сумою; як ділити між собою — вирішують самі.${!isNew&&!p.crew?` <b>${esc(p.name)} лишиться окремою людиною</b>, а бригада буде створена окремо, з ним у складі.`:""}</div></div>
       ${!isNew&&!p.crew&&p.role==="worker"?(()=>{const cs=[...S.people.values()].filter(c=>c.crew&&(c.members||[]).includes(p.id));return cs.length?`<div class="m" style="margin:-4px 0 10px">👥 У бригаді: ${cs.map(c=>esc(c.name)).join(", ")}</div>`:""})():""}
-      <div class="field"><label>Телефон (основний)</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1">${navigator.contacts?.select?`<button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button>`:""}</div>
+      <div class="field"><label>Телефон (основний)</label><div style="display:flex;gap:6px"><input name="phone" type="tel" value="${esc(p.phone)}" style="flex:1"><button type="button" class="btn ghost sm" id="pickContact" title="З телефонної книги">📒</button></div>
         <div id="phList">${(p.phones||[]).map(x=>phRow(x)).join("")}</div><button type="button" class="btn ghost sm" id="phAdd" style="margin-top:6px">+ ще номер</button></div>
         <div class="field" style="max-width:220px"><label>У базі з${!isNew&&!p.since?' <span style="font-weight:400;color:var(--muted)">(за першим записом)</span>':""}</label><input name="since" type="date" value="${esc(p.since||(isNew?todayISO():firstSeen(p.id)))}"></div>
       ${!isNew&&p.role!=="owner"&&!p.crew?`<div class="m" style="margin:2px 0 8px;color:var(--muted)">${p.wkey?"🔑 Кабінет працівника підключено — він бачить свої завдання й розрахунок":"Кабінет працівника не підключено"}</div>`:""}
@@ -2895,7 +2912,7 @@ function personForm(p){
     $("#crewTgl").style.display=role==="worker"?"flex":"none"; $("#helpTgl").style.display=role==="worker"&&!$("#isCrew").checked?"flex":"none"; if(role!=="worker"){$("#isCrew").checked=false;$("#crewBox").style.display="none"}};
   $("#pickContact")?.addEventListener("click",async()=>{ try{
       // можна вибрати один або кілька контактів (якщо людина записана двічі) — беремо всі їхні номери
-      const r=await navigator.contacts.select(["name","tel"],{multiple:true}); const c=r&&r[0]; if(!c) return;
+      const r=await contactsSelect(["name","tel"],{multiple:true}); const c=r&&r[0]; if(!c) return;
       const seen=new Set(), tels=[]; for(const x of r) for(const t of (x.tel||[])){ const v=String(t||"").trim(), k=telNum(v); if(v&&!seen.has(k)){ seen.add(k); tels.push(v) } }
       const tel=tels[0]||"";
       const F=n=>$("#pForm [name="+n+"]"); if(tel) F("phone").value=tel;
@@ -5214,7 +5231,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v258"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v259"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
