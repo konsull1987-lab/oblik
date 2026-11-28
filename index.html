@@ -335,6 +335,7 @@ async function init(){
     err=>{S.loaded[name]=true; S.err=err?.code||"error"; render();});
   sub("tools",db.collection("tools"),snap=>{S.tools=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(/^#t=/.test(location.hash)) setTimeout(hashTool,300)});
   sub("people",db.collection("people"),snap=>{S.people=new Map(snap.docs.map(d=>{ const x={id:d.id,...d.data()}; if(x.helper===undefined&&/^\s*(підсоб|подсоб|помічник|разнораб|різнороб)/i.test(x.name||"")) x.helper=true; return [d.id,x] }))});
+  sub("partners",db.collection("partners"),snap=>{S.partners=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]))});
   sub("sites",db.collection("sites"),snap=>{S.B.trio.sites=new Map(snap.docs.map(d=>[d.id,siteN({id:d.id,...d.data()})]));applyBase()});
   sub("fin",db.collection("fin"),snap=>{S.B.trio.finRaw=S.B.trio.fin=new Map(snap.docs.map(d=>[d.id,finN({id:d.id,...d.data()})])); S.pend.trio=new Set(snap.docs.filter(d=>d.metadata?.hasPendingWrites).map(d=>d.id)); applyBase(); notifyNew("fin",S.B.trio.finRaw,"trio"); if(!snap.metadata.fromCache) setTimeout(()=>xferRepair("trio"),2000)});
   // доступ до общаку на двох вирішують правила бази: якщо читати можна — показуємо перемикач
@@ -395,7 +396,7 @@ function histPush(kind){ H_d++; try{ history.pushState({[kind]:1,d:H_d},"") }cat
 function histBack(n){ n=Math.min(n,H_d); if(n<=0) return; H_d-=n; popIgnore++; try{ history.go(-n) }catch(_){ popIgnore--; H_d+=n } }
 const isPop=n=>n?.nodeType===1&&(n.classList.contains("overlay")||!!n.dataset?.bk);
 // 🔙 екрани (вкладки й підвкладки, режим вибору): кожна зміна — крок назад
-const VIEW_KEYS=["tab","mtab","htab","priceMode","tzMode","sitesMode","statMode","tview","select"], viewStack=[]; let viewLast=null, viewRestoring=false;
+const VIEW_KEYS=["tab","mtab","htab","priceMode","tzMode","sitesMode","statMode","tview","select","pplMode"], viewStack=[]; let viewLast=null, viewRestoring=false;
 const viewSnap=()=>{ const o={}; for(const k of VIEW_KEYS) o[k]=S[k]; o.k=VIEW_KEYS.map(k=>String(S[k]??"")).join("|"); o.y=window.scrollY||0; return o };
 function viewTrack(){ const cur=viewSnap(); if(!viewLast||viewRestoring){ viewLast=cur; return } if(cur.k===viewLast.k) return;
   // повернулись на попередній екран кнопкою в застосунку (вийшли з режиму вибору, знову ту саму вкладку) — це крок назад, а не новий
@@ -1285,8 +1286,88 @@ function renderSites(){
   $("#view").innerHTML=h; if(S.archQ) archFilter();
 }
 
+// 🤝 Партнери: субпідрядники, магазини й бази, послуги й техніка — контакти, чим займаються, умови і скільки їм заплачено (не зарплата щотижня)
+const PT_TYPES=[["sub","🏗️","Субпідрядник"],["shop","🏪","Магазин / база"],["svc","🚚","Послуги й техніка"],["oth","📌","Інше"]];
+const PT_TAGS=["Стяжка / заливка підлог","Гіпсокартон","Штукатурка","Плитка","Малярка","Покрівля","Фасад / утеплення","Електрика","Сантехніка","Опалення","Вентиляція / кондиціонери","Вікна / двері","Бетон / фундамент","Металоконструкції","Зварювання","Демонтаж","Вивіз сміття","Спецтехніка","Доставка","Будматеріали","Сантехніка (магазин)","Електротовари","Лакофарби","Метал","Пиломатеріали","Плитка (магазин)","Оренда інструменту","Проєктування"];
+const ptType=t=>PT_TYPES.find(x=>x[0]===t)||PT_TYPES[3];
+const ptPhones=p=>String(p.phone||"").split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean);
+const telNorm=t=>{ let d=String(t).replace(/[^\d+]/g,""); if(/^0\d{9}$/.test(d)) d="+38"+d; else if(/^380\d{9}$/.test(d)) d="+"+d; return d };
+const ptOf=id=>S.partners?.get(id);
+// оплати партнеру з обох баз («на двох» бачать лише Андрій і Сергій)
+function ptPaid(id){ const out=[]; for(const [b,B] of [["trio",S.B.trio],...(S.duoOk?[["duo",S.B.duo]]:[])]) for(const x of (B?.fin?.values?.()||[])) if(x.partner===id&&x.type==="out") out.push({...x,base:b});
+  return out.sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||(b.createdAt||0)-(a.createdAt||0)) }
+const pplSeg=()=>`<div class="seg" style="margin-bottom:6px"><button type="button" data-ppm="ppl" class="${S.pplMode==="pt"?"":"on"}">👷 Люди</button><button type="button" data-ppm="pt" class="${S.pplMode==="pt"?"on":""}">🤝 Партнери${S.partners?.size?" · "+[...S.partners.values()].filter(p=>p.active!==false).length:""}</button></div>`;
+function renderPartners(){ const all=[...(S.partners?.values()||[])].sort((a,b)=>(!!b.fav-!!a.fav)||byName(a,b)), act=all.filter(p=>p.active!==false), q=(S.ptq||"").trim(), typ=S.ptType||"";
+  const tags={}; for(const p of act) for(const t of p.tags||[]) tags[t]=(tags[t]||0)+1;
+  const hit=p=>(!typ||p.type===typ)&&(!S.ptTag||(p.tags||[]).includes(S.ptTag))&&(!q||wordHit([p.name,p.contact,p.phone,(p.tags||[]).join(" "),p.note,p.address].join(" "),q)||q.replace(/\D/g,"").length>=3&&String(p.phone||"").replace(/\D/g,"").includes(q.replace(/\D/g,"")));
+  const l=act.filter(hit), arch=all.filter(p=>p.active===false&&hit(p));
+  const card=p=>{ const T=ptType(p.type), ph=ptPhones(p)[0], paid=ptPaid(p.id).reduce((a,x)=>a+(+x.amount||0),0);
+    return `<div class="card" data-pt="${p.id}" style="cursor:pointer"><div class="main"><div class="t">${T[1]} ${esc(p.name)}${p.fav?" ⭐":""}</div>${(p.tags||[]).length?`<div class="m">${esc(p.tags.join(" · "))}</div>`:""}
+      <div class="m">${[p.contact?"👤 "+esc(p.contact):"",ph?esc(ph):"",paid?"оплачено "+money(paid):""].filter(Boolean).join(" · ")}</div></div>${ph?`<a class="btn ghost sm" href="tel:${telNorm(ph)}" data-ptcall style="flex:none;text-decoration:none">📞</a>`:""}</div>` };
+  let hh=`<input type="search" id="ptQ" placeholder="🔍 Назва, телефон, чим займається" value="${esc(S.ptq||"")}" style="margin-bottom:8px">
+    <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px">${[["","Усі"],...PT_TYPES.map(t=>[t[0],t[1]+" "+t[2]])].map(([k,lb])=>`<button class="btn ghost sm" data-ptt="${k}" style="white-space:nowrap;flex:none;${typ===k?"border-color:var(--accent);color:var(--accent)":""}">${lb}</button>`).join("")}</div>
+    ${Object.keys(tags).length?`<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:4px">${Object.entries(tags).sort((a,b)=>b[1]-a[1]).map(([t,n])=>`<button class="btn ghost sm" data-ptg="${esc(t)}" style="white-space:nowrap;flex:none;font-size:12.5px;${S.ptTag===t?"border-color:var(--accent);color:var(--accent)":""}">${esc(t)} <b>${n}</b></button>`).join("")}</div>`:""}`;
+  hh+=l.length?`<div class="list">${l.map(card).join("")}</div>`:`<div class="empty">${act.length?"Нічого не знайдено":"Тут — субпідрядники (стяжка, гіпсокартон…), магазини й бази, послуги й техніка.<br>Контакти, чим займаються, умови — і скільки їм заплачено по об'єктах."}</div>`;
+  if(arch.length) hh+=`<details style="margin-top:8px"><summary class="m" style="cursor:pointer;padding:6px 0">🗄 Архів (${arch.length})</summary><div class="list" style="opacity:.65">${arch.map(card).join("")}</div></details>`;
+  if(S.canWrite) hh+=`<button class="btn" id="ptNew" style="width:100%;margin-top:10px">＋ Новий партнер</button>`;
+  $("#view").innerHTML=hh;
+  const qi=$("#ptQ"); if(qi) qi.oninput=e=>{ S.ptq=e.target.value; const pos=e.target.selectionStart; renderPartners(); const n=$("#ptQ"); if(n){ n.focus(); try{ n.setSelectionRange(pos,pos) }catch(_){} } };
+  $("#view").querySelectorAll("[data-ptt]").forEach(b=>b.onclick=()=>{ S.ptType=b.dataset.ptt; renderPartners() });
+  $("#view").querySelectorAll("[data-ptg]").forEach(b=>b.onclick=()=>{ S.ptTag=S.ptTag===b.dataset.ptg?"":b.dataset.ptg; renderPartners() });
+  $("#view").querySelectorAll("[data-ptcall]").forEach(a=>a.onclick=e=>e.stopPropagation());
+  $("#view").querySelectorAll("[data-pt]").forEach(c=>c.onclick=()=>partnerCard(c.dataset.pt));
+  $("#ptNew")?.addEventListener("click",()=>partnerForm()) }
+const ptShareText=p=>{ const T=ptType(p.type); return [`${T[1]} ${p.name}`,(p.tags||[]).length?p.tags.join(", "):"",p.contact?"👤 "+p.contact:"",...ptPhones(p).map(x=>"📞 "+x),p.address?"📍 "+p.address:"",p.link||""].filter(Boolean).join("\n") };
+function partnerCard(id){ const p=ptOf(id); if(!p) return; const T=ptType(p.type), pays=ptPaid(id), tot=pays.reduce((a,x)=>a+(+x.amount||0),0), bySite={};
+  for(const x of pays){ const k=x.site||""; bySite[k]=(bySite[k]||0)+(+x.amount||0) }
+  const phs=ptPhones(p), map=p.address?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address)}`:"", link=p.link?(/^https?:/i.test(p.link)?p.link:"https://"+p.link):"";
+  openSheet(`<h2>${T[1]} ${esc(p.name)}${p.fav?" ⭐":""}</h2>
+    <div class="m" style="margin:-4px 0 8px">${T[2]}${(p.tags||[]).length?" · "+esc(p.tags.join(" · ")):""}${p.active===false?" · 🗄 архів":""}</div>
+    ${p.contact?`<div style="margin-bottom:6px">👤 ${esc(p.contact)}</div>`:""}
+    ${phs.map(x=>{ const t=telNorm(x); return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><b style="flex:1">${esc(x)}</b><a class="btn sm" href="tel:${t}" style="text-decoration:none">📞</a><a class="btn ghost sm" href="viber://chat?number=${encodeURIComponent(t)}" style="text-decoration:none">Viber</a><a class="btn ghost sm" href="https://t.me/${t.replace(/^\+/,"%2B")}" target="_blank" rel="noopener" style="text-decoration:none">Telegram</a></div>` }).join("")}
+    ${p.address?`<div style="margin-bottom:6px">📍 ${esc(p.address)} · <a href="${map}" target="_blank" rel="noopener" style="color:var(--accent)">на карті</a></div>`:""}
+    ${link?`<div style="margin-bottom:6px">🔗 <a href="${esc(link)}" target="_blank" rel="noopener" style="color:var(--accent);word-break:break-all">${esc(p.link)}</a></div>`:""}
+    ${p.note?`<div class="card" style="display:block;cursor:default;white-space:pre-wrap;margin-bottom:8px">${esc(p.note)}</div>`:""}
+    <div class="section-t">💸 Оплачено${tot?": "+money(tot):""}</div>
+    ${pays.length?`${Object.keys(bySite).length>1?`<div class="m" style="margin-bottom:6px">${Object.entries(bySite).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k?esc(site(k)?.name||"об'єкт"):"без об'єкта"} — ${money(v)}`).join(" · ")}</div>`:""}
+      <div class="list">${pays.slice(0,30).map(x=>`<div class="card" data-ptf="${x.id}" data-ptb="${x.base}" style="cursor:pointer"><div class="main"><div class="t">${fmtDay(x.date)} · ${esc(site(x.site)?.name||"без об'єкта")}${x.base==="duo"&&!isDuo()?" 🤝":""}</div><div class="m">${esc([x.kind,x.note].filter(Boolean).join(" · "))}</div></div><span class="amt out">${money(+x.amount||0)}</span></div>`).join("")}</div>`
+      :`<div class="m" style="margin-bottom:8px">Оплат ще немає. Записуйте витрату з полем «🤝 Партнер» — і тут буде видно, скільки й за які об'єкти заплачено.</div>`}
+    <div class="actions" style="flex-wrap:wrap">${S.canWrite?`<button type="button" class="btn" id="ptPay">💸 Записати оплату</button>`:""}<button type="button" class="btn ghost" id="ptShare">📤 Поділитися контактом</button>${S.canWrite?`<button type="button" class="btn ghost" id="ptEdit">✏️ Редагувати</button>`:""}<button type="button" class="btn ghost" data-close>Закрити</button></div>`);
+  $("#ptPay")?.addEventListener("click",()=>finForm(null,{type:"out",partner:id,kind:p.type==="shop"?"Матеріали":p.type==="sub"?"Субпідряд":"Інше",...(hereIn()?{site:hereIn()}:{})}));
+  $("#ptEdit")?.addEventListener("click",()=>partnerForm(p));
+  $("#ptShare").onclick=async()=>{ const text=ptShareText(p); try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return } try{ await navigator.clipboard.writeText(text); toast("Скопійовано") }catch(_){ prompt("Скопіюйте:",text) } };
+  $("#modal").querySelectorAll("[data-ptf]").forEach(c=>c.onclick=()=>{ if(c.dataset.ptb!==(isDuo()?"duo":"trio")) setBase(c.dataset.ptb); const x=S.fin.get(c.dataset.ptf); if(x) finForm(x) }) }
+function partnerForm(p){ const isNew=!p; p=p||{type:"sub",tags:[],active:true}; let tags=[...(p.tags||[])];
+  openSheet(`<h2>${isNew?"＋ Новий партнер":"✏️ "+esc(p.name)}</h2><form id="ptF">
+    <div class="field"><label>Назва *</label><input name="name" value="${esc(p.name||"")}" placeholder="напр.: «Стяжка Полтава», магазин «Сантехнік», бригада Ігоря (ГКЛ)" required></div>
+    <div class="field"><label>Хто це</label><div class="seg" id="ptTy">${PT_TYPES.map(t=>`<button type="button" data-v="${t[0]}" class="${p.type===t[0]?"on":""}">${t[1]} ${t[2]}</button>`).join("")}</div></div>
+    <div class="field"><label>Чим займається / що продає</label><div id="ptTg" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      <div style="display:flex;gap:6px;margin-top:6px"><input id="ptTgN" placeholder="своє — напр.: «Наливна підлога», «Бетон М300»" style="flex:1"><button type="button" class="btn ghost sm" id="ptTgA">＋</button></div></div>
+    <div class="field"><label>Контактна особа</label><input name="contact" value="${esc(p.contact||"")}" placeholder="ім'я, посада"></div>
+    <div class="field"><label>Телефон(и)</label><input name="phone" value="${esc(p.phone||"")}" inputmode="tel" placeholder="кілька — через кому"></div>
+    <div class="field"><label>Адреса</label><input name="address" value="${esc(p.address||"")}" placeholder="місто, вулиця — для карти й навігатора"></div>
+    <div class="field"><label>Сайт / сторінка</label><input name="link" value="${esc(p.link||"")}" placeholder="сайт, Instagram, OLX…"></div>
+    <div class="field"><label>Умови, ціни, примітки</label><textarea name="note" rows="3" placeholder="напр.: стяжка 280 ₴/м² з матеріалом; мін. 50 м²; знижка 5% від 100 м²; реквізити для оплати">${esc(p.note||"")}</textarea></div>
+    <label class="m" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="checkbox" name="fav" ${p.fav?"checked":""} style="width:20px;height:20px"> ⭐ Перевірений — показувати першим</label>
+    ${isNew?"":`<label class="m" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="checkbox" name="active" ${p.active!==false?"checked":""} style="width:20px;height:20px"> Активний (зніміть — піде в архів)</label>`}
+    <div class="actions">${isNew?"":`<button type="button" class="btn ghost" id="ptDel">🗑</button>`}<button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn" type="submit">Зберегти</button></div></form>`);
+  let typ=p.type||"sub";
+  const tagDraw=()=>{ const all=[...new Set([...tags,...PT_TAGS])]; $("#ptTg").innerHTML=all.map(t=>`<button type="button" class="btn ghost sm" data-tg="${esc(t)}" style="font-size:12.5px;${tags.includes(t)?"border-color:var(--accent);color:var(--accent);font-weight:600":""}">${tags.includes(t)?"✓ ":""}${esc(t)}</button>`).join("") };
+  tagDraw();
+  $("#ptTg").onclick=e=>{ const b=e.target.closest("[data-tg]"); if(!b) return; const t=b.dataset.tg; tags=tags.includes(t)?tags.filter(x=>x!==t):[...tags,t]; tagDraw() };
+  const addTag=()=>{ const v=$("#ptTgN").value.trim(); if(!v) return; if(!tags.includes(v)) tags.push(v); $("#ptTgN").value=""; tagDraw() };
+  $("#ptTgA").onclick=addTag; $("#ptTgN").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addTag() } });
+  $("#ptTy").onclick=e=>{ const b=e.target.closest("[data-v]"); if(!b) return; typ=b.dataset.v; $("#ptTy").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)) };
+  $("#ptDel")?.addEventListener("click",async()=>{ const n=ptPaid(p.id).length;
+    if(n){ if(!confirm(`Є ${n} оплат цьому партнеру — їх не чіпаємо. Перенести партнера в архів?`)) return; if(await write(db=>db.doc("partners/"+p.id).update({active:false}))){ closeSheet(); toast("🗄 В архіві") } return }
+    if(!confirm(`Видалити «${p.name}»?`)) return; if(await write(db=>db.doc("partners/"+p.id).delete())){ closeSheet(); toast("Видалено") } });
+  $("#ptF").addEventListener("submit",async e=>{ e.preventDefault(); const v=Object.fromEntries(new FormData(e.target)); const nm=String(v.name||"").trim(); if(!nm){ toast("Вкажіть назву"); return }
+    const dup=[...(S.partners?.values()||[])].find(x=>x.id!==p.id&&x.name.trim().toLowerCase()===nm.toLowerCase()); if(dup&&!confirm(`«${dup.name}» уже є. Все одно зберегти ще один?`)) return;
+    const data={name:nm,type:typ,tags,contact:String(v.contact||"").trim(),phone:String(v.phone||"").trim(),address:String(v.address||"").trim(),link:String(v.link||"").trim(),note:String(v.note||"").trim(),fav:!!v.fav,active:isNew?true:!!v.active,updatedAt:Date.now(),...(isNew?{createdAt:Date.now(),by:S.uid||""}:{})};
+    let nid=p.id; const ok=await write(async db=>{ if(isNew){ const r=await db.collection("partners").add(data); nid=r.id } else await db.doc("partners/"+p.id).update(data) });
+    if(ok){ closeSheet(); toast(isNew?"🤝 Партнера додано":"Збережено"); if(isNew){ S.partners=S.partners||new Map(); S.partners.set(nid,{id:nid,...data}) } } }) }
 function renderPeople(){
-  $("#headTools").innerHTML="";
+  $("#headTools").innerHTML=pplSeg(); if(S.pplMode==="pt") return renderPartners();
   const all=[...S.people.values()].sort(byName);
   const cnt={}; for(const t of S.tools.values()) if(t.holder) cnt[t.holder]=(cnt[t.holder]||0)+qtyOf(t);
   if(!all.length){ $("#view").innerHTML=`<div class="empty">Додайте власників (себе й напарників) та виконавців кнопкою «+».</div>`; return; }
@@ -1343,7 +1424,7 @@ function finLine(f){
   const what=f.kind==="Взаємозалік"?(f.type==="in"?"Взаємозалік: отримав":"Взаємозалік: віддав"):f.type==="in"?"Прихід":f.type==="accrual"?"Нарахування":"Витрата"+(f.kind?" · "+f.kind:"");
   return `<div class="hist" data-fin="${f.id}" style="display:flex;gap:8px;cursor:pointer"><div style="flex:1;min-width:0">
     <div class="when">${f.createdAt>1e12?fmtDate(f.createdAt):fmtDay(f.date)}${f.byName?` · вніс: ${esc(f.byName)}`:""}${f.createdAt>1e12&&f.date&&f.date!==new Date(f.createdAt).toISOString().slice(0,10)?` · дата операції ${fmtDay(f.date)}`:""}</div>
-    <div><b>${what}</b>${o?" · "+esc(o.name):""}${w?" · 🔧 "+esc(w.name):""}${f.receipt?" · 🧾":""}${f.here?" · 📍":""}</div>
+    <div><b>${what}</b>${o?" · "+esc(o.name):""}${w?" · 🔧 "+esc(w.name):""}${f.receipt?" · 🧾":""}${f.here?" · 📍":""}${f.partner&&ptOf(f.partner)?" · 🤝 "+esc(ptOf(f.partner).name):""}</div>
     <div class="m" style="color:var(--muted)">${f.site?esc(site(f.site)?.name||"—"):"без об'єкта"}${f.note?" · "+esc(f.note):""}</div></div>
     <span class="amt ${k}" style="white-space:nowrap">${f.type==="in"?"+":f.type==="accrual"?"":"−"}${money(f.amount)}</span></div>`;
 }
@@ -2857,7 +2938,7 @@ function personForm(p){
 }
 
 // ---------- Гроші ----------
-const KINDS=["Матеріали","Зарплата","Підсоба","Інструменти","Доставка","Відкат","Податки","Інше"];
+const KINDS=["Матеріали","Зарплата","Субпідряд","Підсоба","Інструменти","Доставка","Відкат","Податки","Інше"];
 // сума з виразу: «15000+17 356» → 32356 (також «-», кома як десятковий роздільник)
 function sumExpr(x){ const t=String(x??"").replace(/\s/g,"").replace(/,/g,"."); if(!t) return NaN; if(!/^[+-]?\d*\.?\d+([+-]\d*\.?\d+)*$/.test(t)) return NaN;
   return Math.round((t.match(/[+-]?\d*\.?\d+/g)||[]).reduce((a,n)=>a+parseFloat(n),0)*100)/100 }
@@ -3275,6 +3356,7 @@ function finForm(f,preset){
       <div data-m="in out accrual"><div class="field"><label>Об'єкт</label><select name="site">${siteOptions(f.site||"","— без об'єкта")}</select></div></div>
       <div data-m="out accrual"><div class="row"><div class="field" data-m="out"><label>Вид</label><select name="kind">${KINDS.map(k=>`<option ${f.kind===k?"selected":""}>${k}</option>`).join("")}</select></div>
         <div class="field" id="wFld"><label id="wLbl">Виконавець</label><select name="worker"><option value="">—</option>${workers.map(p=>`<option value="${p.id}" ${f.worker===p.id?"selected":""}>${p.crew?"👥 ":""}${esc(p.name)}</option>`).join("")}</select></div></div></div>
+      <div data-m="out"><div class="field" id="ptFld"><label>🤝 Партнер — субпідрядник, магазин, послуги</label><select name="partner"><option value="">—</option>${[...(S.partners?.values()||[])].filter(x=>x.active!==false||x.id===f.partner).sort((a,b)=>(!!b.fav-!!a.fav)||byName(a,b)).map(x=>`<option value="${x.id}" ${f.partner===x.id?"selected":""}>${ptType(x.type)[1]} ${esc(x.name)}</option>`).join("")}</select></div></div>
       <div id="wDebt"></div><div id="wSplit"></div>
       ${isNew?`<div data-m="accrual"><label class="m" style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;font-size:14px"><input type="checkbox" id="accPay" checked style="width:20px;height:20px"> 💵 Одразу виплатити (зніміть, якщо платите пізніше)</label>
         <div class="field" id="accPayOwn"><label>Хто платить</label><select id="accOwn">${ownOpts(myOwner()||owners()[0]?.id)}</select></div></div>`:""}
@@ -3442,7 +3524,7 @@ function finForm(f,preset){
         else { await db.doc("fin/"+f.id).set(data); if(pair) await db.doc("fin/"+pair.id).delete(); }
       }); if(ok&&payNow) toast(`Нараховано і виплачено ${money(amount)}`);
     } else {
-      const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"&&v.kind!=="Матеріали"?(v.worker||""):"",...(isNew&&v.site&&hereId()===v.site?{here:1}:{}),createdAt:f.createdAt||now};
+      const data={...base,type:mode,owner:v.owner,site:v.site||"",kind:mode==="out"?v.kind:"",worker:mode==="out"&&v.kind!=="Матеріали"?(v.worker||""):"",...(mode==="out"&&v.partner?{partner:v.partner}:{}),...(isNew&&v.site&&hereId()===v.site?{here:1}:{}),createdAt:f.createdAt||now};
       if(mode==="out"||mode==="accrual"){ if(f.receipt&&!rcDrop&&!rcImg) data.receipt=f.receipt; if(f.report) data.report=f.report;
         if(rcImg){ try{ const bin=atob(rcImg.b64), arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
           const sv=await saveFile(new File([arr],`чек ${v.date||todayISO()} ${money(amount).replace(/\s/g,"")}.jpg`,{type:"image/jpeg"})); data.receipt=sv.id;
@@ -5132,7 +5214,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v257"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v258"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
@@ -5397,6 +5479,8 @@ function globalSearch(){
     const num=parseFloat(q.replace(/\s/g,"").replace(",",".")), isNum=/^[\d\s.,]+$/.test(q)&&num>0, hit=t=>wordHit(t,q), out=[];
     const P=[...S.people.values()].filter(p=>hit([p.name,p.phone,...(p.phones||[]).map(x=>x.tel+" "+x.label)].join(" "))||(isNum&&String(p.phone||"").replace(/\D/g,"").includes(q.replace(/\D/g,""))));
     if(P.length) out.push(`<div class="section-t">Люди</div>`+P.slice(0,8).map(p=>row("p",p.id,p.crew?"👥":p.role==="owner"?"👤":"🔧",esc(p.name),esc(p.phone||""))).join(""));
+    const Pt=[...(S.partners?.values()||[])].filter(x=>hit([x.name,x.contact,x.phone,(x.tags||[]).join(" "),x.note].join(" "))||(isNum&&String(x.phone||"").replace(/\D/g,"").includes(q.replace(/\D/g,""))));
+    if(Pt.length) out.push(`<div class="section-t">Партнери</div>`+Pt.slice(0,8).map(x=>row("pt",x.id,ptType(x.type)[1],esc(x.name),esc([(x.tags||[]).slice(0,3).join(", "),ptPhones(x)[0]].filter(Boolean).join(" · ")))).join(""));
     const St=[...S.sites.values()].filter(x=>hit([x.name,x.customer,x.note,x.address].join(" ")));
     if(St.length) out.push(`<div class="section-t">Об'єкти і склади</div>`+St.slice(0,8).map(x=>row("s",x.id,x.type==="warehouse"?"🏬":"🏗️",esc(x.name),esc([x.customer,x.active===false?"архів":""].filter(Boolean).join(" · ")))).join(""));
     { const Tl=[...S.tools.values()].filter(t=>hit([t.name,t.brand,t.model,t.inv?"#"+t.inv:"",t.serial,t.cat].join(" ")));
@@ -5409,6 +5493,7 @@ function globalSearch(){
   $("#gsQ").oninput=draw; draw(); setTimeout(()=>$("#gsQ")?.focus(),50);
   $("#gsR").onclick=e=>{ const d=e.target.closest("[data-gs]"); if(!d) return; const [k,id]=d.dataset.gs.split(":"); close();
     if(k==="p"){ const p=S.people.get(id); p.role==="worker"&&!S.canWrite?workerSheet(id):personForm(p) }
+    else if(k==="pt") partnerCard(id);
     else if(k==="s") siteForm(S.sites.get(id));
     else if(k==="t") toolCard(id);
     else if(k==="f"){ const f=S.fin.get(id); if(f) S.canWrite?finForm(f):toast(fmtDay(f.date)+" · "+money(f.amount)) }
@@ -5840,7 +5925,7 @@ function fabMenu(){
     ${`<div class="section-t">🧰 Інструмент і матеріали</div>
     ${it("tlist","📝","Список інструменту (з Viber/Telegram)","перемістити, зареєструвати, «куплено»")}${it("tphoto","📷","Інструмент з фото","інвентаризація або переміщення")}${it("tnew","🔧","Новий інструмент вручну")}${it("need","📝","Потрібно на об'єкт: інструмент і матеріали","одним списком — застосунок сам розкладе")}`}
     <div class="section-t">📁 Інше</div>
-    ${it("inbox","📨","Від працівників"+(inboxNew().length?" ("+inboxNew().length+" нових)":""),"списки й фото з об'єктів; посилання для бригад")}${it("site","🏗️","Новий об'єкт / склад")}${it("person","👤","Нова людина / бригада")}${it("kp","📄","Нова смета / КП (без об'єкта)","тендер чи пропозиція; погодять — стане об'єктом")}${it("kpl","📂","Збережені пропозиції","відкрити, погодити")}${it("doc","🧾","Рахунок / акт")}
+    ${it("inbox","📨","Від працівників"+(inboxNew().length?" ("+inboxNew().length+" нових)":""),"списки й фото з об'єктів; посилання для бригад")}${it("site","🏗️","Новий об'єкт / склад")}${it("person","👤","Нова людина / бригада")}${it("ptn","🤝","Новий партнер","субпідрядник, магазин, база, послуги")}${it("kp","📄","Нова смета / КП (без об'єкта)","тендер чи пропозиція; погодять — стане об'єктом")}${it("kpl","📂","Збережені пропозиції","відкрити, погодити")}${it("doc","🧾","Рахунок / акт")}
     <div class="actions"><button class="btn ghost" data-close>Закрити</button></div>`);
   $("#modal").onclick=e=>{ const b=e.target.closest("[data-fa]"); if(!b) return; const a=b.dataset.fa;
     if(a==="out") finForm(null,{type:"out"});
@@ -5859,6 +5944,7 @@ function fabMenu(){
     else if(a==="inbox") inboxSheet();
     else if(a==="site") siteForm();
     else if(a==="person") personForm();
+    else if(a==="ptn") partnerForm();
     else if(a==="kp") kpFlow();
     else if(a==="doc") S.fops.size?docForm():reqForm("fops");
   };
@@ -5899,7 +5985,7 @@ $("#view").addEventListener("change",e=>{ if(e.target.id==="sYear"){S.sYear=e.ta
 // пошук в архіві без перемальовування — інакше голосовий ввід обривається на першій літері
 const archFilter=()=>{ const q=(S.archQ||"").trim(); $("#archL")?.querySelectorAll("[data-site]").forEach(c=>{ const x=S.sites.get(c.dataset.site); c.style.display=!q||wordHit([x?.name,x?.customer,x?.note].join(" "),q)?"":"none" }) };
 $("#view").addEventListener("input",e=>{ if(e.target.id==="archQ"){ S.archQ=e.target.value; archFilter() } });
-$("#headTools").addEventListener("click",e=>{ const b=e.target.closest("[data-ssm]"); if(b){ S.sitesMode=b.dataset.ssm; $("#headTools").dataset.b=""; renderSites() } });
+$("#headTools").addEventListener("click",e=>{ const pb=e.target.closest("[data-ppm]"); if(pb){ S.pplMode=pb.dataset.ppm; render(); return } const b=e.target.closest("[data-ssm]"); if(b){ S.sitesMode=b.dataset.ssm; $("#headTools").dataset.b=""; renderSites() } });
 $("#view").addEventListener("click",e=>{
   const ca=e.target.closest("[data-cart]"); if(ca&&S.tab==="tools"){ cartToggle(ca.dataset.cart); cbtnSync($("#view")); return }
   const pl=e.target.closest("[data-pl]"); if(pl&&S.tab==="tools"){ placeSheet(pl.dataset.pl); return }
