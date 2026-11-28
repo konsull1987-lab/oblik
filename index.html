@@ -3344,9 +3344,23 @@ function finForm(f,preset){
   const repDraw=(init)=>{ const box=$("#repEd"); if(!box||!repItems) return; const num=v=>parseFloat(String(v).replace(",","."))||0;
     box.innerHTML=repItems.map((it,i)=>`<div style="border-top:1px solid var(--line,#2a2f38);padding:6px 0"><div style="display:flex;gap:6px"><input data-ri="${i}" data-rk="name" value="${esc(it.name)}" style="flex:1;min-width:0"><button type="button" class="btn ghost sm" data-rdel="${i}">✕</button></div>
       <div class="row" style="align-items:center;gap:6px;margin-top:4px"><input data-ri="${i}" data-rk="qty" inputmode="decimal" value="${it.qty}" style="flex:0 0 70px;text-align:center">${unitSel(`data-ri="${i}" data-rk="unit"`,it.unit||"","flex:0 0 74px;padding-left:4px;padding-right:2px")}<span>×</span><input data-ri="${i}" data-rk="rate" inputmode="decimal" value="${it.rate??""}" style="flex:0 0 80px;text-align:center"><b style="flex:1;text-align:right">${money(Math.round(num(it.qty)*num(it.rate)))}</b></div></div>`).join("")
-      +`<button type="button" class="btn ghost sm" id="repAdd" style="width:100%;margin-top:4px">+ Рядок</button>`;
+      +`<button type="button" class="btn ghost sm" id="repAdd" style="width:100%;margin-top:4px">+ Рядок</button>
+        <div style="display:flex;gap:6px;margin-top:6px"><button type="button" class="btn ghost sm" id="repTx" style="flex:1">📤 Надіслати текстом</button><button type="button" class="btn ghost sm" id="repPdf" style="flex:1">📄 Надіслати PDF</button></div>`;
     const tot=repItems.reduce((a,it)=>a+Math.round(num(it.qty)*num(it.rate)),0); const am=$("#finForm [name=amount]"); if(!init&&am&&tot>0){ am.value=String(tot); am.dispatchEvent(new Event("input",{bubbles:true})) } };
-  if(repItems){ $("#repEd")?.addEventListener("change",e=>{ const t=e.target; if(t.dataset.ri==null) return; const it=repItems[+t.dataset.ri], k=t.dataset.rk;
+  // 📤 відредагований звіт — комусь у Viber / Telegram (текстом або PDF), саме в тому вигляді, як зараз у формі
+  const repInfo=()=>{ const F=n=>$("#finForm [name="+n+"]")?.value||"", num=v=>parseFloat(String(v).replace(",","."))||0, p=person(F("worker")||f.worker), s=site(F("site")||f.site), d=F("date")||f.date||todayISO();
+    const l=repItems.filter(it=>String(it.name||"").trim()), tot=l.reduce((a,it)=>a+Math.round(num(it.qty)*num(it.rate)),0); return {p,s,d,l,tot,num} };
+  const rn=x=>(+x||0).toLocaleString("uk-UA",{maximumFractionDigits:2});
+  const repText=()=>{ const {p,s,d,l,tot,num}=repInfo();
+    return [`📋 Звіт робіт${p?" — "+p.name:""}`,s?`🏗️ ${s.name}`:"",`📅 ${fmtDay(d)}`,"",...l.map((it,i)=>`${i+1}. ${it.name} — ${rn(num(it.qty))} ${it.unit||""} × ${rn(num(it.rate))} = ${money(Math.round(num(it.qty)*num(it.rate)))}`),"",`Разом: ${money(tot)}`].filter((x,i,a)=>x!==""||(i>0&&a[i-1]!=="")).join("\n") };
+  const repHTML=()=>{ const {p,s,d,l,tot,num}=repInfo();
+    return `<div class="doc"><h3>Звіт виконаних робіт${p?" — "+esc(p.name):""}</h3><table class="hdr"><tr><td class="lbl">Об'єкт:</td><td>${esc(s?.name||"—")}${s?.note?", "+esc(s.note):""}</td></tr><tr><td class="lbl">Дата:</td><td>${fmtDay(d)}</td></tr></table><br>
+      <table class="items"><tr><th>№</th><th>Найменування робіт</th><th>К-сть</th><th>Од.</th><th>Ціна, грн</th><th>Сума, грн</th></tr>${l.map((it,i)=>`<tr><td class="r">${i+1}</td><td>${esc(it.name)}</td><td class="r">${rn(num(it.qty))}</td><td>${esc(it.unit||"")}</td><td class="r">${rn(num(it.rate))}</td><td class="r">${rn(Math.round(num(it.qty)*num(it.rate)))}</td></tr>`).join("")}
+      <tr class="tot"><td colspan="5" class="r b">Разом:</td><td class="r b box">${rn(tot)}</td></tr></table></div>` };
+  const repShare=async()=>{ const text=repText(); try{ if(navigator.share){ await navigator.share({text}); return } }catch(e){ if(e?.name==="AbortError") return }
+    try{ await navigator.clipboard.writeText(text); toast("Скопійовано — вставте у Viber чи Telegram") }catch(_){ prompt("Скопіюйте текст:",text) } };
+  if(repItems){ $("#repEd")?.addEventListener("click",e=>{ if(e.target.closest("#repTx")){ repShare(); return } if(e.target.closest("#repPdf")){ const {p,d}=repInfo(); sharePdf(repHTML(),`Звіт робіт ${p?.name||""} ${fmtDay(d)}`.trim()) } });
+    $("#repEd")?.addEventListener("change",e=>{ const t=e.target; if(t.dataset.ri==null) return; const it=repItems[+t.dataset.ri], k=t.dataset.rk;
       it[k]=k==="name"||k==="unit"?t.value:parseFloat(String(t.value).replace(",","."))||0; if(k!=="name"&&k!=="unit") it.pay=Math.round((+it.qty||0)*(+it.rate||0)); repDraw() });
     $("#repEd")?.addEventListener("click",e=>{ const d=e.target.closest("[data-rdel]"); if(d){ repItems.splice(+d.dataset.rdel,1); repDraw(); return } if(e.target.id==="repAdd"){ repItems.push({name:"",qty:1,unit:"м²",rate:0,pay:0}); repDraw() } });
     repDraw(true) }
@@ -5118,7 +5132,7 @@ function syncPayload(Bk,delCol){
 
 // ---------- Меню: резервна копія, вихід ----------
 const COLS=["people","sites","tools","moves","fin","fops","clients","docs","contracts"];
-const APP_V="v256"; // ⚠️ збільшувати разом з версією в sw.js
+const APP_V="v257"; // ⚠️ збільшувати разом з версією в sw.js
 function openMenu(){
   const empty=!S.tools.size&&!S.fin.size&&S.sites.size<3;
   openSheet(`<h2>Меню</h2>
